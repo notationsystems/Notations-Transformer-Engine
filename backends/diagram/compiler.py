@@ -1,6 +1,6 @@
-"""Diagram / SVG backend (§15): Morpho IR -> a complete SVG document
-string. Pure and deterministic -- `layout_algorithm` must never use
-randomness or an unseeded stochastic process (§15, §20).
+"""Diagram / SVG backend (Section 15): Morpho IR -> a complete SVG
+document string. Pure and deterministic -- `layout_algorithm` must never
+use randomness or an unseeded stochastic process (Section 15, Section 20).
 """
 
 from __future__ import annotations
@@ -16,15 +16,46 @@ GRID_V1 = "grid_v1"
 _BOX_SIZE = 80.0
 _MARGIN = 40.0
 
+# XML 1.0 legal character ranges (https://www.w3.org/TR/xml/#charsets):
+#   0x9 | 0xA | 0xD | [0x20-0xD7FF] | [0xE000-0xFFFD] | [0x10000-0x10FFFF]
+# Escaping &/</>/" alone is not sufficient to guarantee well-formed
+# output: a control character such as U+000B is illegal in XML
+# regardless of escaping and makes the document unparseable. Entity and
+# relation ids ultimately come from schema-declared field data (or, via
+# Morpho source text, user-authored content) passed through the
+# pipeline -- compile_svg's contract is to return "a complete SVG
+# document string" for any MorphoDocument, so illegal characters must be
+# stripped, not merely escaped. Implemented via plain integer codepoint
+# comparisons (not a regex literal) to avoid any risk of the boundary
+# characters themselves being mis-transcribed in source.
+
+
+def _is_xml_legal_char(ch: str) -> bool:
+    codepoint = ord(ch)
+    return (
+        codepoint in (0x09, 0x0A, 0x0D)
+        or 0x20 <= codepoint <= 0xD7FF
+        or 0xE000 <= codepoint <= 0xFFFD
+        or 0x10000 <= codepoint <= 0x10FFFF
+    )
+
+
+def _sanitize(value: str) -> str:
+    return "".join(ch for ch in value if _is_xml_legal_char(ch))
+
+
+def _escape_text(value: str) -> str:
+    """For element text content: strip XML-illegal characters, then
+    escape &/</>."""
+    return escape(_sanitize(value))
+
 
 def _escape_attr(value: str) -> str:
-    """escape() from xml.sax.saxutils only escapes &, <, > -- not the
-    double quote that delimits an XML attribute value, so hostile
-    content (e.g. an id containing '"') can break out of the attribute
-    it's placed in. Escape " as well wherever the escaped text is used
-    inside a "..." attribute (as opposed to element text content, where
-    escape() alone is sufficient)."""
-    return escape(value, {'"': "&quot;"})
+    """For "..."-delimited attribute values: strip XML-illegal
+    characters, then escape &/</>/" (escape() alone does not escape the
+    double quote that delimits the attribute, so unescaped hostile
+    content could otherwise break out of it)."""
+    return escape(_sanitize(value), {'"': "&quot;"})
 
 
 @dataclass(frozen=True)
@@ -84,9 +115,9 @@ def compile_svg(ir: MorphoDocument, config: DiagramLayoutConfig) -> str:
             f'<rect x="{x}" y="{y}" width="{_BOX_SIZE}" height="{_BOX_SIZE}" '
             f'fill="#e8eef7" stroke="#3366cc" />'
             f'<text x="{x + _BOX_SIZE / 2}" y="{y + _BOX_SIZE / 2 - 8}" '
-            f'text-anchor="middle" font-size="12">{escape(entity_id)}</text>'
+            f'text-anchor="middle" font-size="12">{_escape_text(entity_id)}</text>'
             f'<text x="{x + _BOX_SIZE / 2}" y="{y + _BOX_SIZE / 2 + 10}" '
-            f'text-anchor="middle" font-size="11">{escape(str(value))}</text>'
+            f'text-anchor="middle" font-size="11">{_escape_text(str(value))}</text>'
             f"</g>"
         )
 

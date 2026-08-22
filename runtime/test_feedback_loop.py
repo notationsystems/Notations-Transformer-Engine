@@ -2,12 +2,40 @@
 validation -- the feedback loop's only exit into canonical state is
 validate_candidate."""
 
+import ast as pyast
+import inspect
+
 from backends.neural.interface import BeliefState
 from backends.simulation.interface import CandidateNextState
 from core.canonical.delta import CandidateChange
 from core.canonical.validation import ValidationError
 from core.canonical.version import ProvenanceInfo, Version
+from runtime import feedback_loop
 from runtime.feedback_loop import submit_neural_belief, submit_simulation_candidate
+
+
+def test_feedback_loop_has_no_alternate_route_to_minting_a_version():
+    """The behavioral tests below prove valid/invalid candidates are
+    handled correctly *through* validate_candidate, but nothing
+    previously checked that this module has no OTHER way to produce a
+    Version -- e.g. by importing make_version or create_genesis_version
+    directly and constructing one itself, bypassing validation entirely.
+    A regression here would not fail any behavioral test (a bypass could
+    still return a Version that looks correct for the happy path) -- it
+    would only be caught by a structural check like this one, mirroring
+    the same pattern already used for validation.py and the backends."""
+    source = inspect.getsource(feedback_loop)
+    tree = pyast.parse(source)
+    imported_names = set()
+    for node in pyast.walk(tree):
+        if isinstance(node, pyast.ImportFrom):
+            imported_names.update(alias.name for alias in node.names)
+        elif isinstance(node, pyast.Import):
+            imported_names.update(alias.name for alias in node.names)
+
+    assert "make_version" not in imported_names
+    assert "create_genesis_version" not in imported_names
+    assert "validate_candidate" in imported_names
 
 
 def _candidate(genesis_version, new_value, source):

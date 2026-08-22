@@ -95,6 +95,19 @@ def test_compile_svg_escapes_entity_content():
     assert "<script>" not in svg
 
 
+def test_compile_svg_strips_xml_illegal_control_characters():
+    # Escaping &/</>/" is not sufficient on its own: a raw control
+    # character (e.g. U+000B, U+0000) is illegal in XML regardless of
+    # escaping and makes xml.etree reject the document outright. Found
+    # via direct testing of compile_svg's "complete SVG document string"
+    # contract against arbitrary entity ids -- not merely for tidiness.
+    doc = MorphoDocument(entities=(_entity("A\x0bB\x00C"),))
+    svg = compile_svg(doc, DiagramLayoutConfig())
+    ET.fromstring(svg)
+    assert "\x0b" not in svg
+    assert "\x00" not in svg
+
+
 def test_diagram_backend_cannot_become_source_of_truth():
     """Same CRITICAL RULE as the Three.js backend: no backend may mutate
     canonical state, and none may import the machinery that mints a

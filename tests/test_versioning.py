@@ -4,10 +4,16 @@ version, versions have parent relationships, and previous versions
 remain recoverable.
 """
 
+import subprocess
+import sys
+from pathlib import Path
+
 from core.canonical.delta import CandidateChange, CandidateDelta
 from core.canonical.state import CanonicalState, Field
 from core.canonical.validation import validate_candidate
 from core.canonical.version import InMemoryVersionStore, ProvenanceInfo, compute_version_id
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _accept_mass_change(schema, base_version, new_value, tx_id):
@@ -53,6 +59,48 @@ def test_version_id_changes_when_content_changes():
     state_a = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=10)})
     state_b = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=11)})
     assert compute_version_id(state_a) != compute_version_id(state_b)
+
+
+def test_version_id_is_stable_across_process_and_hash_seed_boundaries():
+    """§20 names 'non-deterministic dict/set ordering leaking into
+    hashes' as a specific failure mode, prevented (per that section) by
+    always sorting keys during canonical serialization. That claim was
+    previously verified only ad hoc (manual multi-PYTHONHASHSEED runs
+    during a review session), never as a committed regression test --
+    meaning a future change reintroducing raw dict/set iteration into
+    the hash path would not be caught automatically. This test closes
+    that gap directly: it computes the same Version.id in two fresh
+    subprocesses with different hash seeds and asserts equality.
+    Intentionally spawns real subprocesses rather than mocking
+    PYTHONHASHSEED in-process, because Python only applies
+    PYTHONHASHSEED at interpreter startup -- an in-process test cannot
+    exercise it at all.
+    """
+    script = (
+        "from core.canonical.state import CanonicalState, Field\n"
+        "from core.canonical.version import compute_version_id\n"
+        "state = CanonicalState(schema_version='1.0.0', fields={\n"
+        "    'mass': Field(id='mass', type='scalar', value=10, unit='kg'),\n"
+        "    'temperature': Field(id='temperature', type='scalar', value=293.15, unit='K'),\n"
+        "    'pressure': Field(id='pressure', type='scalar', value=101325, unit='Pa'),\n"
+        "})\n"
+        "print(compute_version_id(state))\n"
+    )
+
+    ids = set()
+    for seed in ("0", "1", "12345"):
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPO_ROOT,
+            env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        ids.add(result.stdout.strip())
+
+    assert len(ids) == 1, f"Version.id differed across PYTHONHASHSEED values: {ids}"
 
 
 # -- §21 tests 11-13 ----------------------------------------------------
