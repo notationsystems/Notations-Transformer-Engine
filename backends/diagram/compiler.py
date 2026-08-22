@@ -17,6 +17,16 @@ _BOX_SIZE = 80.0
 _MARGIN = 40.0
 
 
+def _escape_attr(value: str) -> str:
+    """escape() from xml.sax.saxutils only escapes &, <, > -- not the
+    double quote that delimits an XML attribute value, so hostile
+    content (e.g. an id containing '"') can break out of the attribute
+    it's placed in. Escape " as well wherever the escaped text is used
+    inside a "..." attribute (as opposed to element text content, where
+    escape() alone is sufficient)."""
+    return escape(value, {'"': "&quot;"})
+
+
 @dataclass(frozen=True)
 class DiagramLayoutConfig:
     layout_algorithm: str = GRID_V1
@@ -62,7 +72,7 @@ def compile_svg(ir: MorphoDocument, config: DiagramLayoutConfig) -> str:
             lines.append(
                 f'<line x1="{x1 + _BOX_SIZE / 2}" y1="{y1 + _BOX_SIZE / 2}" '
                 f'x2="{x2 + _BOX_SIZE / 2}" y2="{y2 + _BOX_SIZE / 2}" '
-                f'stroke="{stroke}"{dash} data-relation-id="{escape(relation.id)}" />'
+                f'stroke="{stroke}"{dash} data-relation-id="{_escape_attr(relation.id)}" />'
             )
 
     for entity_id in entity_ids:
@@ -70,7 +80,7 @@ def compile_svg(ir: MorphoDocument, config: DiagramLayoutConfig) -> str:
         entity = ir.entity_by_id(entity_id)
         value = entity.attributes.get("value") if entity is not None else None
         lines.append(
-            f'<g data-entity-id="{escape(entity_id)}">'
+            f'<g data-entity-id="{_escape_attr(entity_id)}">'
             f'<rect x="{x}" y="{y}" width="{_BOX_SIZE}" height="{_BOX_SIZE}" '
             f'fill="#e8eef7" stroke="#3366cc" />'
             f'<text x="{x + _BOX_SIZE / 2}" y="{y + _BOX_SIZE / 2 - 8}" '

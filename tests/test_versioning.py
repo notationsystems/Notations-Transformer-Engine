@@ -1,9 +1,13 @@
-"""§21 tests 11-13: every accepted update creates a new version, versions
-have parent relationships, and previous versions remain recoverable."""
+"""Phase 2: Version + VersionStore + deterministic content-addressed
+VersionId (§4). §21 tests 11-13: every accepted update creates a new
+version, versions have parent relationships, and previous versions
+remain recoverable.
+"""
 
 from core.canonical.delta import CandidateChange, CandidateDelta
+from core.canonical.state import CanonicalState, Field
 from core.canonical.validation import validate_candidate
-from core.canonical.version import InMemoryVersionStore, ProvenanceInfo
+from core.canonical.version import InMemoryVersionStore, ProvenanceInfo, compute_version_id
 
 
 def _accept_mass_change(schema, base_version, new_value, tx_id):
@@ -25,6 +29,33 @@ def _accept_mass_change(schema, base_version, new_value, tx_id):
     result = validate_candidate(schema, base_version.state, candidate)
     assert not isinstance(result, list), result
     return result
+
+
+# -- Version ID is content-addressed over (schema_version, fields, edges)
+#    ONLY -- id/parent/provenance/timestamp are excluded (§4) -------------
+
+
+def test_version_id_excludes_parent_provenance_and_timestamp():
+    state = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=10)})
+    id_a = compute_version_id(state)
+    id_b = compute_version_id(state)
+    assert id_a == id_b  # same content -> same id regardless of when computed
+
+    # Two independently-built states with identical (schema_version,
+    # fields, edges) must hash identically even if everything else about
+    # how they'd be wrapped into a Version (parent/provenance/timestamp)
+    # differs -- those fields are simply not part of the hash input.
+    other_state = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=10)})
+    assert compute_version_id(other_state) == id_a
+
+
+def test_version_id_changes_when_content_changes():
+    state_a = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=10)})
+    state_b = CanonicalState(schema_version="1.0.0", fields={"mass": Field(id="mass", type="scalar", value=11)})
+    assert compute_version_id(state_a) != compute_version_id(state_b)
+
+
+# -- §21 tests 11-13 ----------------------------------------------------
 
 
 def test_every_accepted_update_creates_a_new_version(sample_schema, genesis_version):

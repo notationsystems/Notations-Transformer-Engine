@@ -42,8 +42,16 @@ runtime/                        feedback_loop.py: the only bridge from a
 renderer/                        index.html: the only place a real
                                   THREE.* object is constructed
 scripts/                          generate_sample_scene.py: demo data
-tests/, and *_test.py files          colocated per docs/ARCHITECTURE_SPEC.md §21
-                                      alongside the modules they test
+tests/                             test_canonical, test_versioning, test_delta,
+                                    test_projection, test_morpho_compiler,
+                                    test_backends_threejs, test_backends_diagram,
+                                    test_replay -- one file per architectural
+                                    phase, plus test_architecture_boundaries.py
+                                    (dependency-direction audit)
+runtime/test_feedback_loop.py        kept colocated with the module it tests
+                                      (verifies the "only validation.py may
+                                      mint a Version" rule for the simulation/
+                                      neural feedback path)
 ```
 
 ## Canonical state
@@ -163,11 +171,18 @@ pip install pytest
 python3 -m pytest
 ```
 
-Tests are colocated with the modules they exercise, per
-`docs/ARCHITECTURE_SPEC.md` §21 (e.g. `core/canonical/test_delta.py`,
-`morpho/test_identity.py`, `runtime/test_feedback_loop.py`), plus a
-`tests/` directory for the cross-cutting ones (projection, replay, the
-Three.js backend, and the module dependency-direction check).
+Tests live in `tests/`, one file per architectural phase (`test_canonical`
+= Phase 1, `test_versioning` = Phase 2, `test_delta` = Phase 3,
+`test_projection`/`test_replay` = Phase 4, `test_morpho_compiler`
+= Phases 5-6, `test_backends_threejs`/`test_backends_diagram`
+= Phases 7-8), plus `test_architecture_boundaries.py` for the dependency-
+direction audit. `runtime/test_feedback_loop.py` stays colocated with
+`runtime/feedback_loop.py` since it verifies that module's specific
+invariant (Phase 10). This mirrors the flat `tests/` tree requested for
+this build; `docs/ARCHITECTURE_SPEC.md` §21 originally specified a
+colocated-per-module layout instead -- both cover the same 18 acceptance
+tests plus additional coverage, this is a file-organization choice, not
+an architectural one.
 
 ## Generating the demo scene
 
