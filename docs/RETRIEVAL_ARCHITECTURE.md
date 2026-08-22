@@ -68,8 +68,8 @@ new object types for the same concepts at all.
 | `evidence.pool.EvidencePool` contents (`Source`/`Document`/.../`ClaimedRelationship`) | Authoritative (for evidence, not truth) | No (append-only) | The evidence record — uncertain, conflicting, never authoritative over `CanonicalState` |
 | `evidence.trust_graph.TrustGraph` | Derived | N/A (recomputed, never stored) | A view, not a store — `docs/SCOUT_ARCHITECTURE.md` §4 |
 | `retrieval.query.RetrievalQuery` | Derived (content-addressed from its own fields) | No | Not authoritative over anything — a request |
-| `retrieval.result.RetrievalResult` | Derived (references into the pool only) | No | Not authoritative — a reproducible answer to one query, against one evidence snapshot |
-| `retrieval.context.ContextPackage` | Derived (composed from one or more results) | No | Not authoritative — a reproducible *selection*, never a copy |
+| `retrieval.result.RetrievalResult` | Derived (references into the pool only) | No | Not authoritative — deterministically identifiable against one query and one evidence fingerprint (§7 distinguishes this from historical reconstruction) |
+| `retrieval.context.ContextPackage` | Derived (composed from one or more results) | No | Not authoritative — deterministically identifiable *selection*, never a copy (§7) |
 | `retrieval.seam.InquirySeam` | Temporary marker | No (itself immutable — but represents the *opening* of a temporary computation) | Not authoritative — a seam, not a store |
 | future `InquiryState` | Temporary, disposable | Yes (explicitly, per design) | Never authoritative — the eventual, still-unimplemented computational workspace |
 
@@ -142,7 +142,7 @@ accidental repeats get the identical `id`
 | Which graph entities were involved? | `referent_ids` |
 | Which relationships were traversed? | `relationship_ids` |
 | What retrieval configuration was used? | `retrieval_method` + `filters_applied` + `traversal_depth` |
-| Can the result be reproduced? | Yes — `result.id` is a content hash of every field above; recomputing the identical query against the identical evidence snapshot always yields the identical `id` |
+| Is the result deterministically identifiable? | Yes — `result.id` is a content hash of every field above; recomputing the identical query against the identical evidence snapshot always yields the identical `id`. This is a narrower claim than "reproducible": it means the *identity* is stable, not that the evidence *contents* behind an older `evidence_version_id` can still be recovered once the pool has since changed — see §7. |
 
 `RetrievalResult` stores only sorted tuples of ids — never a copied
 `Referent`/`Observation`. "Ordering is not ranking": `ordering` is
@@ -168,6 +168,20 @@ This was a specific, literal requirement (§7 of the phase prompt: "the
 system must be able to distinguish the new retrieval from the old one")
 and is met by including the whole-pool fingerprint in the result's
 identity hash, not just the returned id sets.
+
+**What `fingerprint()` does and does not establish, stated precisely
+(post-Phase-15 audit finding, resolved as a design decision — see §7):**
+`fingerprint()` gives every `RetrievalResult` and `ContextPackage` a
+stable, content-addressed *identity* tied to one moment of evidence
+state. It does **not** give the system any memory of that moment once
+the pool has moved on: `EvidencePool` retains no history of its own
+past fingerprints, so "what did the evidence look like when
+`evidence_version_id = X` was recorded" is only answerable while the
+pool's live content still happens to match `X` — the instant a new
+object is admitted, `X` becomes an identity that was once observed, not
+one that can be reconstructed from the pool alone. **Phase 16 resolves
+this as a design decision, not yet an implementation**: see the
+"Fingerprint history (Phase 16 design decision)" note under §7.
 
 ## 6. ContextPackage
 
@@ -199,10 +213,19 @@ different pool states, `evidence_version_ids` has more than one entry
 silently presenting a blend of two snapshots as if it were one coherent
 moment (`tests/test_context_package.py::test_composition_across_different_evidence_versions_is_recorded_not_hidden`).
 
-## 7. Reproducibility, precisely
+## 7. Deterministic identifiability vs. historical reconstructability
 
-Both required equalities are tested directly, not just asserted in
-prose:
+**This section replaces an earlier looser use of "reproducible"
+throughout this document (found and flagged by a post-Phase-15
+architectural audit).** The word conflated two genuinely different
+claims. Both are real; only one is currently guaranteed.
+
+**Deterministically identifiable (guaranteed, tested):** given the same
+query and the same evidence *fingerprint*, the same `RetrievalResult.id`
+and `ContextPackage.id` are always produced. This is an identity
+guarantee — it says two computations of the same thing agree — and it
+holds unconditionally, independent of wall-clock time, process, or
+`PYTHONHASHSEED`:
 
 ```
 same evidence version + same RetrievalQuery + same retrieval configuration
@@ -221,6 +244,73 @@ the same discipline `tests/test_versioning.py` and
 `tests/test_trust_graph.py` already established — an in-process test
 cannot exercise `PYTHONHASHSEED` at all, since Python only applies it at
 interpreter startup.
+
+**Historically reconstructable (NOT guaranteed today — a separate,
+explicitly deferred capability):** given only a `ContextPackage` and the
+`evidence_version_id`/`evidence_version_ids` it recorded, can the exact
+evidence *contents* that produced it be recovered after the
+`EvidencePool` has since changed? **No.** `EvidencePool.fingerprint()`
+(§5) is a snapshot, not a history — the pool retains no record of its
+own past fingerprints. A `ContextPackage` built yesterday remains
+*deterministically identifiable* forever (its `id` never changes,
+and recomputing the identical query against a pool that still happens to
+match the recorded fingerprint reproduces it exactly), but if the pool
+has since grown, there is today no way to ask "show me the evidence that
+was live when fingerprint `X` was observed" — only "is the pool's
+current fingerprint `X`, yes or no."
+
+**Fingerprint history (Phase 16 design decision — documented here,
+NOT implemented in this repository yet):** a post-Phase-15 architectural
+audit identified this gap and resolved it as a design decision, not an
+implementation. Phase 16 will introduce a minimal, append-only history
+of observed `EvidencePool` fingerprints — conceptually a
+`Tuple[str, ...]`, one entry per fingerprint value the system has ever
+observed, in order of observation. This establishes exactly one new
+fact: **"evidence state `F` existed and was observed by the system."**
+It deliberately does **not** establish "the complete evidence contents
+that produced `F` can still be reconstructed" — those are different
+claims, and the fingerprint history only ever supports the first one.
+Recovering actual historical evidence *contents* would require a
+separate, still-undecided mechanism (e.g. retaining old pool snapshots,
+or content-addressed archival storage) that this decision explicitly
+does not adopt, commit to, or design.
+
+*Why a fingerprint history rather than a `VersionStore` (design
+rationale):* `core.canonical.version.py::InMemoryVersionStore` was
+considered and rejected as the model to reuse here, for reasons worth
+recording rather than re-litigating later:
+- **Minimal and additive** — a flat, append-only tuple of already-computed
+  strings, not a new object graph.
+- **Deterministic** — each entry is exactly `EvidencePool.fingerprint()`'s
+  existing, already-tested output; nothing new is computed.
+- **Preserves historical identity without preserving historical content**
+  — it answers "did the system ever see this state" without pretending
+  to answer "what was in it," which is the honest boundary of what a
+  bare list of hashes can support.
+- **Does not prematurely commit to persistent evidence snapshots** — a
+  `VersionStore`-shaped mechanism would imply (or at least invite) parent
+  chains, snapshot persistence, and eventually reconstruction machinery
+  that Phase 14's own evidence model never asked for and this decision
+  does not want to back into. `CanonicalState` needed a `VersionStore`
+  because *reconstructing prior state* is its whole purpose (§18/§19 of
+  `docs/ARCHITECTURE_SPEC.md`); the evidence pool has no equivalent
+  requirement yet — only the narrower one of proving a fingerprint was
+  once real.
+- **Leaves full evidence reconstruction as a genuinely open, future
+  architectural decision** — this document takes no position on whether
+  it will ever be needed, only records that it is not decided and not
+  built.
+
+**Smallest additive implementation seam Phase 16 will eventually use**
+(specified here for continuity; not implemented by this change): a
+single new, append-only sequence living alongside `EvidencePool` —
+plausibly a new method such as `EvidencePool.fingerprint_history()` or a
+small wrapper object that calls `fingerprint()` at defined observation
+points (e.g., once per `run_scout` call, once per retrieval) and appends
+the result if it differs from the last recorded entry. Nothing about
+this seam requires touching `fingerprint()` itself, `retrieval/`'s
+existing semantics, or any existing identity hash — it is purely
+additive observation of a value `EvidencePool` already computes.
 
 ## 8. Minimum retrieval capabilities — what is and isn't implemented
 
@@ -296,9 +386,10 @@ asked for and no more. What remains **intentionally deferred**:
   `evidence.types.Referent`/`ClaimedRelationship` or, further
   upstream, a `CandidateDelta`.
 - Any persistence for `InquirySeam`/`InquiryState` beyond one Python
-  object's lifetime — no store, no versioning, no reproducibility
+  object's lifetime — no store, no versioning, no identifiability
   guarantee for whatever happens *after* the seam is opened (only the
-  `ContextPackage` it was opened from is reproducible).
+  `ContextPackage` it was opened from is deterministically identifiable
+  — see §7 for why that is a narrower claim than "reconstructable").
 
 ## 12. Compute amortization — measured, not claimed
 
