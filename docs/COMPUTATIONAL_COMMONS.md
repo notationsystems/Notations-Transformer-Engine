@@ -1081,6 +1081,526 @@ this investigation):
 
 ---
 
+## TrustGraph / Context-Graph Benchmark
+
+Grounded in TrustGraph's current documentation and guides
+([docs.trustgraph.ai](https://docs.trustgraph.ai/),
+[trustgraph.ai/guides](https://trustgraph.ai/guides/key-concepts/context-graphs/),
+[GitHub](https://github.com/trustgraph-ai/trustgraph)), fetched during this
+investigation. TrustGraph describes itself as "the deterministic context
+engineering platform for open source AI" — infrastructure for building
+knowledge graphs and packaging them as portable, queryable context for
+LLM agents. It is prior art for the layer *between* persistent knowledge
+and an agent, which is exactly the layer §14 (this document) and
+`docs/PHASE_14_DATA_POOL_ARCHITECTURE.md` left least resolved: retrieval,
+context packaging, and statement-level provenance.
+
+### A. Grounded architectural summary
+
+TrustGraph is a message-driven microservices system (Apache Pulsar as the
+messaging fabric; Cassandra for metadata; S3-compatible object storage for
+documents; pluggable graph stores — Cassandra, Neo4j, Memgraph, FalkorDB —
+and pluggable vector stores — Qdrant, Milvus). The ingestion pipeline is a
+processor chain: `pdf-decoder → chunker → kg-extract-relationships →
+triple-store`. Query execution runs the reverse shape:
+`api-gateway → graph-rag → prompt → text-completion`. An agent runtime
+implements ReAct (Reasoning + Acting) as a loop of messages back into an
+"agent manager," invoking TrustGraph capabilities or external tools via MCP.
+
+Three concepts matter most for this benchmark:
+
+- **Context Graph** — described (with some variation between TrustGraph's
+  own docs and guides pages, noted honestly rather than reconciled) as
+  three layers over a base knowledge graph: an ontological/type-system
+  grounding layer, an AI-optimized retrieval layer (vector embeddings +
+  graph traversal), and a third layer whose description varies by page —
+  one page describes it as reification of agentic behavior (recording
+  what actions agents took), another as a temporal feedback loop
+  (freshness evaluation, conflict detection, confidence-score updates).
+  Both are plausible parts of the same evolving product; this document
+  does not have enough source material to say which is authoritative, so
+  both are reported rather than one being silently discarded.
+- **Holon** — TrustGraph's atomic unit: an RDF-1.2-reified
+  subject-predicate-object triple bundled with its own source document,
+  confidence score, and provenance, so each fact is simultaneously
+  "autonomous" (self-describing, carries full context) and "cooperative"
+  (linked into the global graph). Ontologies (OWL/SKOS/SHACL) constrain
+  what can be extracted.
+- **Context Core** — the deployable, portable unit of *knowledge*, distinct
+  from a Context Graph (the dynamic, query-time traversal). A Context Core
+  packages graph edges (relationships), schema (entity typing), and graph
+  embeddings (vector space mapping) for one document or one domain. It has
+  three lifecycle states — offline (downloadable file), online (loaded into
+  a knowledge-management store, not yet queryable), loaded (in retrieval
+  stores, queryable). Cores appear to hold copied/derived data (edges,
+  schema, embeddings), not references back to the source document —
+  see §D below for what that implies.
+
+Statement-level provenance is already built, not proposed: TrustGraph
+maintains three named graphs in one RDF store — a default graph (core
+knowledge facts), `urn:graph:source` (extraction provenance: how a fact
+entered the system), and `urn:graph:retrieval` (query-time reasoning
+traces: how a fact was used). This is the single most directly relevant
+piece of prior art in this benchmark — see §F.
+
+### B. Concept-by-concept extraction
+
+| Concept | Problem it solves | How TrustGraph solves it | Do we have this problem? | Already solved here? | Verdict |
+|---|---|---|---|---|---|
+| Context Graph (3-layer) | Turning a static knowledge graph into something an agent can query with grounding, freshness, and explainability | Ontology layer + retrieval layer + agentic/temporal layer over one graph | Yes — Phase 14's evidence layer has no retrieval or context-packaging story yet | Partially — Knowledge Graph (Phase 14) gives grounding; nothing gives retrieval or freshness yet | **Adapt** — the layering is a reasonable target shape, not a library to adopt |
+| Context Core | Packaging extracted knowledge into a portable, versioned, loadable/unloadable unit | Per-document artifact: edges + schema + embeddings, three lifecycle states | Yes — "domain contexts" (§J below) need exactly this kind of unit | No — nothing in Phases 12-14 defines a portable knowledge unit | **Adapt** — conceptually useful; see §E for why we would prefer it hold references, not copies |
+| Holon (reified triple + provenance) | Attaching provenance to individual facts, not just documents | RDF 1.2 reification: each triple carries source, confidence, provenance inline | Yes — this is exactly Phase 14's `ClaimedRelationship` problem | Partially — Phase 14 named the object type but did not resolve the provenance granularity question | **Borrow the idea, not the format** — see §F |
+| Three named graphs (default / source / retrieval) | Separating "what is true," "how we learned it," and "how it was used," without three separate systems | Named-graph partitioning within one RDF store | Yes, precisely — this is retrieval lineage (§H) plus statement provenance (§F) | No | **Adapt** — the *separation* is the lesson; RDF/named-graphs is one implementation, not a requirement (see §F, §H on why we do not adopt RDF itself yet) |
+| Graph + vector retrieval | Neither pure keyword/vector search nor pure graph traversal alone answers "relevant, structurally connected, numerically filtered" queries | Combines vector similarity, graph traversal, and (per docs) metadata/provenance filtering in one retrieval layer | Yes — Phase 14 explicitly flagged retrieval as unresolved | No — nothing implemented | **Defer** — real requirement, no infrastructure decision needed yet (§I) |
+| Holonic / modular context | Avoiding "rebuild the whole knowledge environment" for every domain-specific inquiry | Holons compose into "context graphs" as bespoke, temporary per-query subgraphs; Context Cores compose as reusable domain packages | Yes — FEP + rheology + extrusion is exactly this shape | No | **Adapt** — the composition idea, not the RDF/OWL mechanism (§J) |
+| ReAct agent runtime over Pulsar | Giving an agent a controlled loop to invoke retrieval/tools/graph operations | Message-driven ReAct loop, MCP tool invocation, agent manager | Yes — this is the eventual Mistral/agent question (§K) | No | **Defer entirely** — explicitly out of scope this phase, and even then only the *boundary discipline*, not the runtime, would be adopted |
+| Ontology scaffolding (OWL/SKOS/SHACL) | Constraining extraction so facts are well-typed | Ontology defines classes/properties before extraction runs | Partially — `StateSchema`/domain schemas already constrain `CanonicalState`; the Evidence layer (Phase 14) is pre-schema by design | Yes, at the CanonicalState layer; deliberately no at the Evidence layer | **Reject as a global requirement** — Phase 14 already argued evidence must tolerate being unschematized before extraction; a mandatory upfront ontology would reintroduce the rigidity Phase 14 explicitly avoided |
+
+### C. The central question
+
+*"It is wasteful for every agent or inquiry to repeatedly reconstruct
+relevant context from raw documents, datasets, and graph data."*
+
+TrustGraph is real, working prior art for exactly this claim, and it
+answers it the same direction we would: build the knowledge layer once
+(ingestion → extraction → Context Core), retrieve a relevant slice
+(context graph traversal at query time), and only then let an agent
+reason. The proposed chain —
+
+```
+persistent information -> organized knowledge -> efficient retrieval
+   -> reusable context -> temporary inquiry state -> reasoning
+```
+
+— matches TrustGraph's own shape (`triple-store -> context core ->
+graph-rag retrieval -> prompt -> agent`) closely enough that this
+document treats the hypothesis as **supported by independent prior art**,
+not merely internally plausible. The one addition TrustGraph's own
+architecture does not make explicit — and that this document keeps as a
+distinguishing feature, not a gap to close — is a separately named,
+governed *InquiryState* between "context was retrieved" and "the agent
+reasoned." TrustGraph's docs describe agent iterations looping through an
+agent manager; they do not describe a promotion gate an agent's derived
+claims must pass before re-entering the graph. That absence is discussed
+in §K.
+
+### D. Four different things, kept distinct
+
+| Layer | Owns | Analogous existing/proposed object | Mutability |
+|---|---|---|---|
+| Persistent Knowledge | The authoritative record of what is known and where it came from | Evidence + Warehouse + Knowledge Graph (Phase 14) + `CanonicalState` | Append-only / immutable-by-promotion |
+| Retrieved Context | A selected, query-specific *view* over Persistent Knowledge | (proposed) `ContextPackage` — §E | Immutable once assembled; re-derivable, never edited in place |
+| InquiryState | Temporary computation built from that view — hypotheses, derived values, candidate regions | `InquiryState` (Phase 14, still conceptual only) | Freely mutable, disposable, may hold contradictions |
+| Agent / Operator | Nothing — it consumes ContextPackages, writes only into InquiryState | Any future Mistral agent, or any of the three operators already implemented (simulation/neural/adapters) | N/A — a function, not a store |
+
+This separation is the one place TrustGraph's own architecture is
+*ambiguous* rather than a model to copy: its "context graph" is both the
+name for a dynamic per-query traversal (closer to our proposed
+`ContextPackage`) and, in different docs pages, treated as near-synonymous
+with the underlying knowledge graph itself. Keeping Persistent Knowledge,
+Retrieved Context, InquiryState, and Agent as four distinct objects with
+four distinct owners — rather than TrustGraph's looser two-way split of
+"graph" and "agent" — is judged a **genuine strengthening**, not
+something to weaken to match TrustGraph. This mirrors the same judgment
+call already made against Foundry's single conflated Ontology (see
+"Foundry / Palantir Architectural Benchmark," §H above): a system's
+popularity is not evidence that its coarsest distinction is the right
+one for us.
+
+### E. Context Core analogue: what a `ContextPackage` would contain (not implemented)
+
+TrustGraph's Context Core is the closest existing precedent, but it is a
+*persisted, portable knowledge unit* (holds copied edges/schema/embeddings,
+survives independently of the source documents once extracted). A
+`ContextPackage` in our architecture would instead be a *retrieval
+result* — the output of one query against Persistent Knowledge, not a
+new unit of knowledge in its own right. Conceptually it would need:
+
+```
+ContextPackage (conceptual — NOT implemented):
+    query                     # what was asked
+    retrieval_config          # what retrieval strategy/filters produced this
+    source_refs               # Warehouse Document/Record ids (references)
+    entity_refs                # Knowledge Graph Referent ids (references)
+    relationship_refs           # ClaimedRelationship ids (references)
+    evidence_refs                 # Observation/Claim/Measurement ids (references)
+    knowledge_graph_version_id      # which Knowledge Graph snapshot was queried
+    retrieval_timestamp
+    reproducibility_metadata          # enough to re-run the same retrieval later
+```
+
+The central design question the prompt raises — copies vs. references —
+has one clear answer given everything already established in this
+project: **references, not copies.** `CanonicalState` is content-addressed
+and immutable; the Knowledge Graph (this document, §Persistence) is
+promotion-gated and immutable-by-version. A `ContextPackage` that copied
+data out of that substrate would immediately create a second, driftable
+copy of already-authoritative information — exactly the failure mode
+Phase 14 rejected when it insisted evidence stay reference-linked to its
+Warehouse source rather than duplicated. TrustGraph's Context Core copies
+data (edges, schema, embeddings) because it is designed to be portable
+across deployments with no shared backing store — a real requirement for
+a multi-tenant SaaS product, and *not* a requirement we have, since our
+Persistent Knowledge layer is always reachable by reference within the
+same architecture. This is a case where TrustGraph's design choice is
+correct for TrustGraph's problem and wrong for ours — **explicitly
+rejected as a pattern to copy, adopted only as an argument in favor of
+references.**
+
+### F. Context ≠ InquiryState — worked example
+
+Using the prompt's own numbers: a persistent substrate of 100,000
+documents / 50,000 measurements / 20,000 graph entities / 500 simulations;
+a query "which FEP processing conditions should we investigate?"; a
+retrieval step selecting 42 documents, 310 entities, 890 relationships, 17
+measurements, 6 simulations. That selection is a `ContextPackage` — a
+*view*, referencing rather than copying, with no computational content of
+its own. Everything the inquiry then produces — hypotheses, derived
+quantities, constraints, candidate processing regions, annotations,
+simulation requests, model predictions — belongs to `InquiryState`, not
+the `ContextPackage`, because it did not exist in Persistent Knowledge and
+has not been validated. **This separation should become an explicit
+architectural principle**, not left implicit: a `ContextPackage` answers
+"what did we look at," `InquiryState` answers "what did we do with it."
+Conflating them (as an easy implementation might, by letting an inquiry
+write directly back into the retrieval result) would make every retrieval
+result mutable — reintroducing exactly the identity/provenance problems
+`CanonicalState`'s immutability was built to prevent, one layer up.
+
+### G. Statement-level provenance
+
+TrustGraph's three-named-graph design is direct, working prior art for
+provenance below the entity level. Mapped onto our existing types:
+
+| Provenance level | TrustGraph equivalent | Our existing type | Status |
+|---|---|---|---|
+| Entity level | Default graph node | `Referent` (Phase 14) | Exists conceptually |
+| Observation level | Holon (reified triple + source doc) | `Observation`/`Claim`/`Measurement` (Phase 14) | Exists conceptually |
+| Relationship/claim level | Holon's reified predicate + confidence | `ClaimedRelationship` (Phase 14) | Exists conceptually |
+| Transformation level | `urn:graph:source` named graph (how a fact entered) | `ProvenanceInfo`/`ProvenanceRecord` — but see the gap below | **Gap, confirmed real** |
+
+The worked example in the prompt (`Measurement_472` carrying sample,
+property, value, temperature, shear rate, instrument, timestamp, and
+source all at once) is already representable as one `Observation` with a
+rich attribute set in the Phase 14 vocabulary — no redesign needed there.
+The gap TrustGraph's example makes concrete is upstream of that: this
+project's own `validation.py::validate_candidate` (documented as a known
+finding during Phase 13) collapses a whole batch's provenance down to
+`candidate.changes[0].provenance` — i.e., **we do not yet have
+per-field/per-statement provenance surviving into `Version`, even though
+the delta model (`Change.provenance` per Phase 12) already carries it up
+to that point.** TrustGraph keeps provenance at the same granularity as
+the fact itself, all the way through retrieval. This is the clearest,
+most concrete lesson of this whole benchmark: **statement-level
+provenance should become first-class**, and the first place to fix it
+is the known `validate_candidate` collapse point — not a new subsystem,
+a bug in how far existing per-change provenance is allowed to survive.
+No redesign is proposed here per the instruction; this is a finding, not
+a change.
+
+### H. Retrieval lineage
+
+TrustGraph's `urn:graph:retrieval` named graph answers "how was this fact
+used," which is the mirror image of "how did this fact enter" —
+confirming retrieval lineage is a distinct, real requirement, not
+something statement-level provenance alone covers. The minimum metadata
+a reproducible retrieval needs, based on TrustGraph's own design plus
+the `ContextPackage` sketch in §E: the query itself, the retrieval
+configuration (strategy/filters/weights), the exact set of references
+returned, the Persistent Knowledge version(s) queried (so "reconstruct
+this inquiry later" is answerable even after the Knowledge Graph has
+grown), and a timestamp. All five already fall out of the `ContextPackage`
+shape in §E — **retrieval lineage does not need a new object, only the
+discipline of keeping `ContextPackage`s immutable and stored, not
+transient.** This too is a "should become first-class" finding, not an
+implementation.
+
+### I. Graph + vector retrieval
+
+TrustGraph confirms this is a real combination worth planning for
+eventually (graph traversal for structural/relational queries, vector
+search for semantic similarity, plus metadata/provenance/numerical
+filtering layered on top) — neither replaces the other, and TrustGraph's
+own pluggable-store design (separate graph stores and vector stores,
+composed at query time) treats them as complementary rather than
+convergent. This confirms the requirement is real. It does **not**
+justify introducing a graph database or a vector database now: Phase 14
+already concluded storage-architecture decisions should wait until real
+query patterns exist, and nothing in this benchmark changes that
+conclusion — it only adds one more independent source agreeing retrieval
+will eventually need both. **Deferred, not implemented, per explicit
+instruction.**
+
+### J. Holonic / modular context
+
+TrustGraph's answer to "avoid rebuilding the whole knowledge environment
+per inquiry" is two mechanisms working together: Context Cores as
+persisted, per-domain (or per-document) packages, and context graphs as
+ephemeral, per-query traversals composed from them. Mapped onto the FEP
+example (polymer chemistry, FEP, rheology, extrusion, mechanical
+properties, crystallinity, simulation, manufacturing telemetry as
+candidate domains): the better fit for our architecture is **named
+subgraphs of the Knowledge Graph plus `ContextPackage`s that compose
+them**, not a separate "domain dataset" or "typed knowledge module"
+object. A named subgraph is just a query saved by name (e.g. "FEP domain"
+= every `Referent`/`ClaimedRelationship` reachable from a `Referent`
+tagged `domain=FEP`); composing "FEP + rheology + extrusion" is then
+composing three saved queries into one `ContextPackage`, with no new
+storage or persistence concept required. This is judged the smallest
+addition that captures the lesson — Context Cores' portability
+(copy-based, cross-deployment) solves a problem (multi-tenant SaaS
+distribution) we do not have, per §E.
+
+### K. Agent boundary
+
+TrustGraph's ReAct agent runtime is real precedent that an
+"agent-consumes-context, does-not-own-knowledge" boundary is buildable in
+production, not just theoretically desirable — the agent manager invokes
+retrieval and tools, it does not appear (from available documentation) to
+have a direct write path into the triple store. That much supports our
+proposed boundary. What this research did **not** find, and explicitly
+flags as unconfirmed rather than assumed absent, is a described
+promotion/validation gate analogous to `validate_candidate` sitting
+between agent output and the graph — TrustGraph's docs describe extraction
+writing to the graph and agents reading from it, but do not document
+(in the pages fetched for this benchmark) a governed path for
+agent-derived claims to re-enter the graph as new, audited facts. Our
+architecture's stricter rule — operators write only to `InquiryState`;
+promotion to Persistent Knowledge always passes through
+`validate_candidate` — is not contradicted by anything found in
+TrustGraph's documentation, and is judged the more conservative, and for
+scientific/reproducibility purposes the more appropriate, design. **Kept
+as-is; TrustGraph is supporting precedent for the read side of the
+boundary, not a reason to relax the write side.**
+
+### L. Compute economics
+
+Where TrustGraph's pipeline suggests computation is amortized (done once,
+reused many times): ingestion/extraction (LLM-based relationship
+extraction, run once per document, not once per query), embedding
+generation (computed once per Context Core, reused across every retrieval
+that touches it), graph construction (triple-store writes happen at
+ingestion, not query time), and Context Core packaging itself. What stays
+inquiry-specific in TrustGraph's own design: the query, the graph
+traversal/context-graph assembly for that specific question, and the
+prompt/agent reasoning. This maps directly onto our own pipeline: in our
+terms, ingestion/extraction/entity-resolution/provenance-construction are
+Warehouse-and-Knowledge-Graph-time costs (paid once), while
+retrieval/context-assembly/reasoning are InquiryState-time costs (paid
+per question) — the same split this document's Phase 14 compute/energy
+analysis already argued for, now with an independent second system
+(TrustGraph) drawing the amortization line in the same place.
+
+---
+
+## Foundry + TrustGraph Synthesis
+
+### M. Three-way comparison
+
+| Dimension | Palantir Foundry | TrustGraph | Our architecture |
+|---|---|---|---|
+| Data ingestion | Pipelines (Connection → transforms) | Processor chain (`pdf-decoder → chunker → kg-extract`) | Adapters (`json_adapter`/`csv_adapter`) → `CandidateDelta` |
+| Warehouse | Datasets (versioned, lineage-tracked) | Triple store + object storage for source docs | Warehouse (Phase 14, conceptual: `Source`/`Document`/`Record`) |
+| Ontology | One unified Ontology (semantic + kinetic) | Ontology (OWL/SKOS/SHACL) constrains extraction only | No single ontology — Evidence + Identity + Graph + DomainSchemas + `CanonicalState` + Morpho, kept deliberately separate |
+| Identity | Object Type / primary key | Holon (reified triple identity) | `Referent` (Phase 14) / deterministic `field_name` identity (`CanonicalState`) |
+| Knowledge graph | Ontology graph (mutable, governed) | Context Graph (queried dynamically from holons) | Knowledge Graph (Phase 14, promotion-gated, immutable-by-version) |
+| Provenance | Data lineage (dataset-level) | Statement-level, via named graphs | Entity/observation/claim conceptually defined (Phase 14); **not yet surviving to `Version`** (§G gap) |
+| Lineage | First-class, dataset + workflow, both directions | `urn:graph:source` (backward only, per docs found) | Backward only (Foundry benchmark §J); forward query is a named future gap |
+| Statement provenance | Not first-class (lineage is dataset-grained) | First-class (named graphs) | Not yet first-class — confirmed gap, §G |
+| Retrieval | Search/Ontology queries (operational, not context-packaging) | Graph + vector + metadata retrieval, purpose-built for agents | Not designed yet (Phase 14 explicitly deferred) |
+| Semantic search | Not a primary concern | Core capability | Not implemented |
+| Vector search | Not a primary concern | Core capability (pluggable) | Not implemented, not committed to |
+| Reusable context | Not modeled as a first-class object | Context Core / context graph | `ContextPackage`, conceptual only (§E) |
+| Temporary state | Not modeled — Ontology objects are the only state | Not modeled as distinct from context graph (§C) | `InquiryState`, conceptual only, explicitly the sharper distinction of the three |
+| Computation | Functions (governed write access to Ontology) | Agent tool invocation via MCP | Operators (simulation/neural/adapters), write only to `CandidateDelta` |
+| Simulation | Not a primary concern | Not a primary concern | First-class interface (`backends/simulation`) |
+| Agents | Functions/AIP act with write access | ReAct loop, read-heavy, write path undocumented | Explicitly never own or mutate Persistent Knowledge/CanonicalState (design principle, not yet an agent) |
+| Validation | Not a distinct gate — writes are governed by permissions, not a schema/constraint pipeline | Not documented as a distinct gate | `validate_candidate` — the sole, atomic, non-bypassable gate |
+| Immutability | Datasets append-only; Ontology objects mutable | Graph is appended-to; no stated immutability guarantee | `CanonicalState`/`Version` immutable by construction; Knowledge Graph promotion-gated |
+| Operational workflows | First-class (Actions, Workshop apps) | Not a focus | Explicitly out of scope (Phase 14 §non-goals) |
+
+Classified per the instruction's five buckets, at the level of individual
+ideas rather than whole products: **borrow** — statement-level provenance
+discipline, retrieval-as-a-first-class-lineage-tracked-operation, holonic
+domain composition via named subgraphs; **adapt** — the Context
+Graph/Context Core split (as `ContextPackage`, reference-based rather
+than copy-based), the three-layer context-graph shape as a target for a
+future retrieval layer; **defer** — graph+vector retrieval
+infrastructure, any RDF/graph-database/vector-database adoption, agent
+runtimes; **reject** — copy-based portable knowledge units (§E), a single
+universal ontology (already rejected against Foundry, reconfirmed here),
+mutable Ontology-style write access for agents; **already solved** — the
+sole-validation-gate/immutable-version model, deterministic identity,
+operator-not-agent framing for existing computational producers
+(simulation/neural/adapters).
+
+No forced convergence: Foundry and TrustGraph solve materially different
+problems (governed *operational* enterprise state vs. *agent-facing
+retrieval* over a knowledge graph) and neither is "the same architecture
+as ours wearing a different name." Where all three agree — a governed
+boundary between persistent knowledge and whatever reasons over it, and
+typed/identified relationships over flat data — that agreement is
+evidence the boundary is a real architectural requirement, not evidence
+we should adopt either system's specific mechanism for it.
+
+### N. The proposed three-plane information flow
+
+The prompt's Persistent Data Plane → Context Plane → Computational Plane
+model is a faithful redrawing of everything already established across
+this document and the Foundry benchmark, with one addition: it names the
+Context Plane as a plane in its own right, distinct from both Persistent
+Data and Computation. That is judged useful and consistent with §D's
+four-layer separation — the Context Plane is exactly `ContextPackage`
+construction (retrieval), the Computational Plane is exactly
+`InquiryState` plus operators. **This model is adopted as the
+organizing description of the target architecture, with the explicit
+caveat (per the instruction not to assume it is correct) that it has not
+been tested against a real multi-step inquiry** — the FEP example in §F
+exercises Persistent Data → Context → one InquiryState, not iteration
+back into the Context Plane for a follow-up query, which is the harder
+case a real implementation would need to handle.
+
+### O. Mistral deployment order
+
+Given everything else in this document, the dependency order is judged
+correct as proposed, with one clarification: "data quality" and "data
+organization" are not sequential phases but the same phase Phase 14
+already scoped (Evidence → Warehouse → Knowledge Graph). The corrected
+minimum order:
+
+```
+1. Evidence/Warehouse quality & normalization  (Phase 14, conceptual)
+2. Knowledge Graph promotion + provenance survival fix (§G gap)
+3. Retrieval (graph + vector + filters)         -- not built
+4. ContextPackage construction + lineage         -- not built
+5. InquiryState (conceptual schema exists; not implemented)
+6. Operators (3 of 4 kinds already exist: simulation, neural, adapters)
+7. Agent (Mistral or otherwise) -- consumes 1-6, owns none of them
+```
+
+The concrete minimum before a Mistral agent should be deployed, per this
+ordering: steps 1-2 are documented but not implemented; steps 3-5 are not
+implemented at all. **An agent deployed today would have nothing to
+retrieve from and no `ContextPackage`/`InquiryState` boundary to respect
+— it would necessarily fall back to exactly the "reconstruct the
+environment from raw documents" pattern this whole investigation exists
+to avoid.** That is the concrete, falsifiable form of "not yet ready,"
+not a generic caution.
+
+### P. Ten proposed principles, evaluated
+
+| # | Principle | Verdict |
+|---|---|---|
+| 1 | Persistent knowledge is built once and reused | **Supported** — matches TrustGraph's ingestion/Context-Core split and Foundry's dataset/lineage model; already the design intent of Phases 12-14 |
+| 2 | Retrieval should be cheaper than reconstructing context | **Supported, not yet built** — real requirement per §I, §L; no retrieval infrastructure exists |
+| 3 | Context is distinct from computational state | **Supported and sharpened** — §D, §F; the clearest, most concrete lesson of this benchmark alongside #7 |
+| 4 | InquiryState is temporary and reproducible | **Supported as designed; reproducibility depends on #7** — an `InquiryState` is only reconstructible if its `ContextPackage`'s lineage (§H) is captured |
+| 5 | Agents consume context rather than own the knowledge substrate | **Supported** — confirmed by both Foundry (rejected) and TrustGraph (apparently followed, on the read side) as a real, achievable boundary |
+| 6 | Agents propose changes rather than directly mutate authoritative state | **Supported, and stricter than either benchmark system** — neither Foundry (Functions have governed write access) nor TrustGraph (write path undocumented) enforces this as strictly as `validate_candidate` already does |
+| 7 | Provenance exists at entity, observation, statement and transformation levels | **Partially true today — confirmed real gap** — conceptually defined (Phase 14) but does not yet survive `validate_candidate` (§G); this is the single most actionable finding in this document |
+| 8 | Persistent state remains immutable/versioned | **Already true** — `CanonicalState`/`Version`, unchanged by this research |
+| 9 | Multiple computational representations derive from shared state | **Already true** — Three.js/SVG/graph-analysis backends, Phase 12's convergence tests |
+| 10 | The persistent graph is independent of any particular LLM | **Already true by construction** — nothing in `core/`, `morpho/`, `adapters/`, or `backends/` references a model; TrustGraph's own architecture is consistent with this (the graph outlives any one agent session) but this project already had it |
+
+### Final questions, answered directly
+
+**1. What does TrustGraph already solve that we should not reinvent?**
+Statement-level provenance via reified triples plus separated
+provenance/retrieval named graphs, and the operational shape of
+graph+vector+metadata retrieval composed together. These are working,
+documented mechanisms; if/when a retrieval layer is built, study
+TrustGraph's named-graph provenance split as a reference design rather
+than deriving one from scratch — while still evaluating RDF itself on
+its own merits at that time (see Q6).
+
+**2. What does Foundry solve that TrustGraph does not?**
+Governed operational write access at scale (Actions/Functions with
+permissions), enterprise lineage across heterogeneous pipelines, and a
+single unified semantic layer serving many downstream applications.
+TrustGraph is agent/retrieval-focused and does not appear to solve — or
+attempt to solve — governed operational mutation at all.
+
+**3. What remains unsolved by both?**
+A first-class, typed distinction between "context I retrieved" and
+"state I computed from it" (§D) — TrustGraph's context graph blurs the
+two, Foundry does not model a temporary workspace at all. Also unsolved
+by both: reproducible retrieval lineage as a queryable, storable object
+(TrustGraph tracks *that* retrieval happened via named graphs, not
+clearly a replayable `ContextPackage` with its own identity).
+
+**4. Is persistent knowledge -> reusable context -> InquiryState a
+useful decomposition?**
+Yes — confirmed by independent convergence with TrustGraph's own
+ingestion-to-agent shape (§C), and judged an improvement on TrustGraph's
+own two-way split because it keeps computation state out of the context
+object entirely (§D, §F).
+
+**5. Should Context and InquiryState remain separate concepts?**
+Yes, unconditionally — this is the sharpest, most concrete conclusion of
+this benchmark. Every failure mode this document can construct
+(unreproducible inquiries, provenance loss, accidental mutation of a
+retrieval result) traces back to conflating the two.
+
+**6. Should statement-level provenance become first-class?**
+Yes. This is not a hypothetical — §G identified a real, already-existing
+gap: per-change provenance is captured in `Change`/`CandidateChange`
+(Phase 12) but collapses to `changes[0].provenance` inside
+`validate_candidate` before reaching `Version`. Becoming first-class does
+not require RDF or a new subsystem; it requires that collapse point to
+stop discarding information it already has. (Not implemented here, per
+this phase's explicit no-implementation constraint — recorded as a
+finding for a future phase.)
+
+**7. Should retrieval lineage become first-class?**
+Yes, once retrieval exists at all — it does not yet. The minimum
+metadata (§H) is small and falls directly out of the `ContextPackage`
+sketch; there is no reason to build retrieval without also making its
+lineage capturable from day one, rather than retrofitting it later the
+way statement-level provenance now needs retrofitting (Q6).
+
+**8. Should agents permanently remain outside the authoritative graph?**
+Yes. Neither benchmark system argues against this as strictly as our own
+existing `validate_candidate` gate already enforces it (§K, principle 6
+in §P) — if anything, both systems' weaker guarantees here (Foundry's
+governed-but-real write access, TrustGraph's undocumented write path)
+are an argument for keeping our stricter rule, not relaxing it toward
+either.
+
+**9. What is the minimum information infrastructure we should build
+BEFORE deploying Mistral?**
+Per §O: the provenance-survival fix in `validate_candidate` (§G), a
+retrieval layer (graph + filters, vector search deferred until a real
+semantic-search need appears), a persisted `ContextPackage` object with
+lineage metadata, and an implemented (not just conceptual)
+`InquiryState`. Deploying an agent before those four exist means the
+agent reconstructs its own environment every time — the exact waste this
+whole investigation was commissioned to evaluate.
+
+**10. What should the next implementation phase actually build?**
+Per this document's own no-implementation constraint, this is a
+recommendation for a *future* phase, not this one: (a) fix the
+`validate_candidate` provenance-collapse bug so per-change provenance
+survives into `Version` — smallest, most concrete, and already fully
+specified by the existing gap; (b) implement `ContextPackage` as a real,
+reference-only, retrieval-result type with lineage metadata, without yet
+building the retrieval strategies that populate it; (c) implement
+`InquiryState` as a real but storage-backend-agnostic conceptual object
+(in-memory only, per the existing "no databases yet" constraint),
+proving the promotion path from `InquiryState` back through
+`CandidateDelta`/`validate_candidate` with a synthetic example before any
+retrieval or agent work begins.
+
+**Sources consulted** (TrustGraph's current documentation, fetched during
+this investigation):
+[Documentation • TrustGraph](https://docs.trustgraph.ai/) ·
+[Architecture • TrustGraph](https://docs.trustgraph.ai/overview/architecture.html) ·
+[Understanding Context Graphs • TrustGraph](https://trustgraph.ai/guides/key-concepts/context-graphs/) ·
+[Working with Context Cores • TrustGraph](https://docs.trustgraph.ai/guides/context-cores/) ·
+[Holons, Context Graphs, and Ontologies • TrustGraph](https://trustgraph.ai/guides/key-concepts/ontologies-holons-context-graphs/) ·
+[trustgraph-ai/trustgraph • GitHub](https://github.com/trustgraph-ai/trustgraph)
+
+---
+
 ## Final assessment
 
 This document does not introduce a verdict token of its own (the prompt
