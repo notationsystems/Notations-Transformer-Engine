@@ -17,7 +17,7 @@ no possible mismatch to detect here.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from evidence.identity import content_hash
 from evidence.types import ClaimedRelationship, Document, Observation, Record, Referent, Source
@@ -31,27 +31,52 @@ class EvidencePool:
         self._observations: Dict[str, Observation] = {}
         self._referents: Dict[str, Referent] = {}
         self._claimed_relationships: Dict[str, ClaimedRelationship] = {}
+        # Phase 16: append-only history of observed fingerprint() values.
+        # See fingerprint_history() below -- populated only from inside the
+        # six put_* methods, never from a read accessor (including
+        # fingerprint() itself, which stays exactly as it was in Phase 15).
+        self._fingerprint_history: List[str] = []
 
     # -- put: idempotent, append-only, never overwrites with different content (impossible by
     #    construction since ids are content hashes -- see module docstring) --
 
     def put_source(self, source: Source) -> None:
         self._sources[source.id] = source
+        self._observe_fingerprint()
 
     def put_document(self, document: Document) -> None:
         self._documents[document.id] = document
+        self._observe_fingerprint()
 
     def put_record(self, record: Record) -> None:
         self._records[record.id] = record
+        self._observe_fingerprint()
 
     def put_observation(self, observation: Observation) -> None:
         self._observations[observation.id] = observation
+        self._observe_fingerprint()
 
     def put_referent(self, referent: Referent) -> None:
         self._referents[referent.id] = referent
+        self._observe_fingerprint()
 
     def put_claimed_relationship(self, relationship: ClaimedRelationship) -> None:
         self._claimed_relationships[relationship.id] = relationship
+        self._observe_fingerprint()
+
+    def _observe_fingerprint(self) -> None:
+        """The Phase 16 observation boundary (`docs/RETRIEVAL_ARCHITECTURE.md`
+        §7): called after a put_* method has already stored its object, so
+        `self.fingerprint()` here reflects the post-write state. Appends
+        only when it differs from the last recorded entry -- the compare-
+        and-append rule from the approved Phase 16 specification, kept as
+        a plain private method (not a free-standing helper) since it is
+        shared by six call sites and has no reason to exist independent of
+        `EvidencePool`'s own state. `fingerprint()` itself is untouched:
+        this method calls it, it never calls back into this method."""
+        current = self.fingerprint()
+        if not self._fingerprint_history or self._fingerprint_history[-1] != current:
+            self._fingerprint_history.append(current)
 
     # -- get --
 
@@ -133,6 +158,28 @@ class EvidencePool:
             "claimed_relationships": sorted(self._claimed_relationships),
         }
         return content_hash(payload)
+
+    def fingerprint_history(self) -> Tuple[str, ...]:
+        """Append-only history of `fingerprint()` values actually observed
+        by this pool (Phase 16, `docs/RETRIEVAL_ARCHITECTURE.md` §7) --
+        one entry per successful put_* call whose resulting fingerprint
+        differed from the last recorded one; the empty pool's own
+        fingerprint (before any put_* has ever succeeded) is never
+        recorded, since observation only happens at write time.
+
+        This establishes exactly one fact per entry: "this evidence state
+        was observed by the system." It does NOT establish that the
+        evidence contents behind a historical entry can still be
+        recovered -- there is no method anywhere on this class, or
+        elsewhere in this codebase, that maps a fingerprint back to the
+        object ids that produced it. Historical evidence reconstruction
+        is a deliberately separate, undecided, unimplemented capability.
+
+        Pure read-only accessor: calling it never appends to the history
+        (only put_* does that) and never mutates the pool. Returns a
+        fresh tuple each call -- the caller can never obtain a reference
+        to the internal, mutable list."""
+        return tuple(self._fingerprint_history)
 
     def __len__(self) -> int:
         return (

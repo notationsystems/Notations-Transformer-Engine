@@ -170,18 +170,15 @@ and is met by including the whole-pool fingerprint in the result's
 identity hash, not just the returned id sets.
 
 **What `fingerprint()` does and does not establish, stated precisely
-(post-Phase-15 audit finding, resolved as a design decision — see §7):**
-`fingerprint()` gives every `RetrievalResult` and `ContextPackage` a
-stable, content-addressed *identity* tied to one moment of evidence
-state. It does **not** give the system any memory of that moment once
-the pool has moved on: `EvidencePool` retains no history of its own
-past fingerprints, so "what did the evidence look like when
-`evidence_version_id = X` was recorded" is only answerable while the
-pool's live content still happens to match `X` — the instant a new
-object is admitted, `X` becomes an identity that was once observed, not
-one that can be reconstructed from the pool alone. **Phase 16 resolves
-this as a design decision, not yet an implementation**: see the
-"Fingerprint history (Phase 16 design decision)" note under §7.
+(post-Phase-15 audit finding, resolved as a design decision in Phase 16
+and now implemented — see §7):** `fingerprint()` gives every
+`RetrievalResult` and `ContextPackage` a stable, content-addressed
+*identity* tied to one moment of evidence state. On its own it gives the
+system no memory of that moment once the pool has moved on. **Phase 16
+adds exactly one thing to close that gap: `EvidencePool.fingerprint_history()`**
+— an append-only record of which fingerprints were actually observed,
+described fully in §7. It does not change what `fingerprint()` itself
+returns or how it is computed (unchanged from Phase 15, byte-for-byte).
 
 ## 6. ContextPackage
 
@@ -245,40 +242,55 @@ the same discipline `tests/test_versioning.py` and
 cannot exercise `PYTHONHASHSEED` at all, since Python only applies it at
 interpreter startup.
 
-**Historically reconstructable (NOT guaranteed today — a separate,
-explicitly deferred capability):** given only a `ContextPackage` and the
-`evidence_version_id`/`evidence_version_ids` it recorded, can the exact
-evidence *contents* that produced it be recovered after the
-`EvidencePool` has since changed? **No.** `EvidencePool.fingerprint()`
-(§5) is a snapshot, not a history — the pool retains no record of its
-own past fingerprints. A `ContextPackage` built yesterday remains
-*deterministically identifiable* forever (its `id` never changes,
-and recomputing the identical query against a pool that still happens to
-match the recorded fingerprint reproduces it exactly), but if the pool
-has since grown, there is today no way to ask "show me the evidence that
-was live when fingerprint `X` was observed" — only "is the pool's
-current fingerprint `X`, yes or no."
+**Historically reconstructable evidence *contents* (still NOT
+guaranteed — a separate, explicitly deferred capability):** given only
+a `ContextPackage` and the `evidence_version_id`/`evidence_version_ids`
+it recorded, can the exact evidence *contents* that produced it be
+recovered after the `EvidencePool` has since changed? **No, and Phase 16
+does not change this answer.** `EvidencePool.fingerprint()` (§5) remains
+a snapshot of current content, not a content archive. A `ContextPackage`
+built yesterday remains *deterministically identifiable* forever (its
+`id` never changes, and recomputing the identical query against a pool
+that still happens to match the recorded fingerprint reproduces it
+exactly), but if the pool has since grown, there is still no way to ask
+"show me the evidence objects that were live when fingerprint `X` was
+observed" — only, now, "was fingerprint `X` ever observed at all" (see
+below), which is a strictly weaker, membership-only answer.
 
-**Fingerprint history (Phase 16 design decision — documented here,
-NOT implemented in this repository yet):** a post-Phase-15 architectural
-audit identified this gap and resolved it as a design decision, not an
-implementation. Phase 16 will introduce a minimal, append-only history
-of observed `EvidencePool` fingerprints — conceptually a
-`Tuple[str, ...]`, one entry per fingerprint value the system has ever
-observed, in order of observation. This establishes exactly one new
-fact: **"evidence state `F` existed and was observed by the system."**
-It deliberately does **not** establish "the complete evidence contents
-that produced `F` can still be reconstructed" — those are different
-claims, and the fingerprint history only ever supports the first one.
-Recovering actual historical evidence *contents* would require a
-separate, still-undecided mechanism (e.g. retaining old pool snapshots,
-or content-addressed archival storage) that this decision explicitly
-does not adopt, commit to, or design.
+**Fingerprint history (Phase 16 — implemented):** `EvidencePool` now
+maintains a minimal, append-only history of observed fingerprints,
+exposed as `EvidencePool.fingerprint_history() -> Tuple[str, ...]`. Each
+of the six `put_*` methods (`put_source`, `put_document`, `put_record`,
+`put_observation`, `put_referent`, `put_claimed_relationship`) is the
+observation boundary: immediately after an object is stored, the pool
+compares its own current `fingerprint()` against the last recorded
+history entry and appends only if they differ
+(`evidence/pool.py::_observe_fingerprint`, called from all six `put_*`
+methods, called by none of the read accessors). This is why a query
+executed many times, or `fingerprint()`/`fingerprint_history()` read
+many times, never grows the history — only a `put_*` call whose result
+actually changes the pool's fingerprint does
+(`tests/test_evidence_pool.py::test_fingerprint_history_unaffected_by_repeated_duplicate_put`,
+`::test_fingerprint_history_accessor_has_no_side_effects`). `fingerprint()`
+itself is byte-for-byte unchanged from Phase 15 — it neither calls nor
+is called by the history mechanism from its own body.
+
+This establishes exactly one new fact per entry: **"evidence state `F`
+existed and was observed by the system."** It deliberately does **not**
+establish "the complete evidence contents that produced `F` can still be
+reconstructed" — those are different claims, and the fingerprint history
+only ever supports the first one
+(`tests/test_evidence_pool.py::test_fingerprint_history_introduces_no_reconstruction_mechanism`
+asserts no method on `EvidencePool` maps a fingerprint back to object
+ids or contents). Recovering actual historical evidence *contents*
+would require a separate, still-undecided mechanism (e.g. retaining old
+pool snapshots, or content-addressed archival storage) that this
+implementation does not adopt, commit to, or design.
 
 *Why a fingerprint history rather than a `VersionStore` (design
-rationale):* `core.canonical.version.py::InMemoryVersionStore` was
-considered and rejected as the model to reuse here, for reasons worth
-recording rather than re-litigating later:
+rationale, recorded for continuity):* `core.canonical.version.py::InMemoryVersionStore`
+was considered and rejected as the model to reuse here, for reasons
+worth recording rather than re-litigating later:
 - **Minimal and additive** — a flat, append-only tuple of already-computed
   strings, not a new object graph.
 - **Deterministic** — each entry is exactly `EvidencePool.fingerprint()`'s
@@ -301,16 +313,26 @@ recording rather than re-litigating later:
   it will ever be needed, only records that it is not decided and not
   built.
 
-**Smallest additive implementation seam Phase 16 will eventually use**
-(specified here for continuity; not implemented by this change): a
-single new, append-only sequence living alongside `EvidencePool` —
-plausibly a new method such as `EvidencePool.fingerprint_history()` or a
-small wrapper object that calls `fingerprint()` at defined observation
-points (e.g., once per `run_scout` call, once per retrieval) and appends
-the result if it differs from the last recorded entry. Nothing about
-this seam requires touching `fingerprint()` itself, `retrieval/`'s
-existing semantics, or any existing identity hash — it is purely
-additive observation of a value `EvidencePool` already computes.
+**What was actually implemented, and what deliberately did not change:**
+one new private field (`EvidencePool._fingerprint_history`), one new
+private method (`_observe_fingerprint`, called from the six `put_*`
+methods only), and one new public accessor
+(`fingerprint_history() -> Tuple[str, ...]`, returning a fresh tuple
+copy each call — never a reference to the internal list). Nothing else
+in `evidence/pool.py` changed. `retrieval/` was not touched at all — no
+file under `retrieval/` appears in this change. `RetrievalResult.id` and
+`ContextPackage.id` were verified, not merely assumed, to be unaffected:
+the exact same fixture query against the exact same fixture evidence
+produces byte-identical `fingerprint()`, `RetrievalResult.id`, and
+`ContextPackage.id` values before and after this feature exists
+(confirmed against recorded values from the Phase 15 verification pass —
+see `tests/test_retrieval_engine.py::test_retrieval_result_id_unaffected_by_fingerprint_history_mechanism`
+for the regression form of this check). Retrieval remains strictly
+read-only with respect to `EvidencePool`: no file under `retrieval/`
+calls any `put_*` method or `_observe_fingerprint` directly, and the six
+`tests/test_retrieval_boundaries.py` checks (import boundaries, no
+`validate_candidate` calls, no pool-mutation calls) all still pass
+unmodified.
 
 ## 8. Minimum retrieval capabilities — what is and isn't implemented
 
@@ -449,11 +471,15 @@ returns; it does not get to redefine what a `RetrievalResult` or
 
 ## 15. Verification
 
-`python3 -m pytest -q` — 213 passed (174 pre-existing + 39 new: 6 query,
-16 engine, 9 context package, 2 amortization, 6 boundary). No file
-under `core/`, `morpho/`, `adapters/`, `backends/`, `runtime/`, or any
-existing `evidence/`/`scout/` behavior was modified — the only change to
-`evidence/` is the additive, read-only `EvidencePool.fingerprint()`
-method. `git status --short` (checked before commit) shows only new
-files plus the two documentation pointer updates in `README.md`/
-`docs/ARCHITECTURE.md` and the one line added to `evidence/pool.py`.
+`python3 -m pytest -q` — 235 passed as of Phase 16 (223 after Phase 15's
+verification pass + 12 new: 11 `fingerprint_history()` invariant tests in
+`tests/test_evidence_pool.py`, 1 identity-non-interference regression in
+`tests/test_retrieval_engine.py`). `ruff` and `mypy` clean on
+`evidence/pool.py` and every touched test file. Cross-`PYTHONHASHSEED`
+determinism reconfirmed for all four mechanisms that make such a claim
+(`Version.id`, `TrustGraph.connected_components`, `RetrievalResult.id`/
+`ContextPackage.id`, and now `fingerprint_history()`). No file under
+`core/`, `morpho/`, `adapters/`, `backends/`, `runtime/`, `scout/`, or
+`retrieval/` was modified by Phase 16 — the only implementation file
+touched is `evidence/pool.py`, and within it `fingerprint()` itself has
+zero diff lines.

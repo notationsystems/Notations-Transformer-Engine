@@ -214,6 +214,31 @@ def test_source_version_sensitivity():
     assert before.id != after.id
 
 
+def test_retrieval_result_id_unaffected_by_fingerprint_history_mechanism():
+    """Phase 16 regression check: EvidencePool.fingerprint_history() must
+    not leak into RetrievalResult.id or ContextPackage.id. For a FIXED,
+    unchanged pool state, calling fingerprint_history() (a pure read, per
+    tests/test_evidence_pool.py) any number of times, in between two
+    identical retrievals, must not change either identity."""
+    from retrieval.context import build_context_package
+
+    pool = _scouted_pool()
+    engine = DeterministicRetrievalEngine()
+    query = make_retrieval_query(entity_natural_keys=("FEP",), traversal_depth=2)
+
+    result_before = engine.retrieve(pool, query)
+    context_before = build_context_package((result_before,))
+
+    for _ in range(5):
+        pool.fingerprint_history()
+
+    result_after = engine.retrieve(pool, query)
+    context_after = build_context_package((result_after,))
+
+    assert result_before.id == result_after.id
+    assert context_before.id == context_after.id
+
+
 def test_empty_pool_retrieval_returns_empty_result_without_error():
     pool = EvidencePool()
     engine = DeterministicRetrievalEngine()
