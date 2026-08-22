@@ -25,6 +25,15 @@ class ProvenanceInfo:
     author: str
     transaction_id: str
     source: str  # "manual_edit" | "simulation" | "estimator" | "genesis" | ...
+    # Additive extension (documented before implementation -- see the
+    # session report for Phase 12): when was the underlying FACT true or
+    # measured, as opposed to Version.timestamp (when the version was
+    # accepted). Optional and defaulted so every existing construction
+    # site is unaffected. Mirrors morpho/provenance.py's ProvenanceRecord,
+    # which already had this field -- this closes that asymmetry rather
+    # than introducing a new concept. Not part of the Version.id content
+    # hash (§4 already excludes all of ProvenanceInfo from that hash).
+    timestamp: Optional[str] = None
 
 
 def _field_to_jsonable(f: Field):

@@ -118,16 +118,22 @@ def test_provenance_traces_from_every_backend_back_to_the_canonical_version():
 def test_values_are_semantically_readable_where_a_backend_renders_them():
     """Scoped, honest claim about value equivalence: the SVG backend
     visually renders each field's value (verified directly against the
-    schema defaults below); the Three.js backend currently encodes
-    IDENTITY and STRUCTURE only (fixed 1x1x1 box geometry, layout
-    position) with no per-value visual encoding, and the graph backend
-    is value-blind by design (it reports structure: node/edge counts,
-    adjacency, degree). This is not asserted as a defect -- nothing in
-    the frozen spec requires every backend to encode every value
-    visually, and a graph-analysis backend legitimately doesn't care
-    about magnitudes. It IS worth stating precisely rather than
-    over-claiming full value-parity across backends that don't attempt
-    it."""
+    schema defaults below), and the graph backend is value-blind by
+    design (it reports structure: node/edge counts, adjacency, degree).
+    This is not asserted as a defect -- nothing in the frozen spec
+    requires every backend to encode every value visually, and a
+    graph-analysis backend legitimately doesn't care about magnitudes.
+
+    UPDATE (Phase 12): the Three.js backend WAS value-invariant (fixed
+    1x1x1 box for every entity) when this test was first written -- that
+    limitation was named explicitly right here. It has since been
+    closed: backends/threejs/compiler.py now derives each box's size
+    from a deterministic min-max normalization of the entity's numeric
+    value against the other numeric values in the same scene (see that
+    module's docstring for the exact mapping). This assertion is updated
+    to match, not silently loosened -- see
+    test_threejs_geometry_size_reflects_normalized_value below for a
+    dedicated, tighter check of the new behavior."""
     version = create_genesis_version(MATERIAL_SCHEMA, "2026-08-22T00:00:00Z")
     ir_doc = _pipeline(version)
     svg = compile_svg(ir_doc, DiagramLayoutConfig())
@@ -141,13 +147,29 @@ def test_values_are_semantically_readable_where_a_backend_renders_them():
     for field_id, value in expected_values.items():
         assert f">{value}</text>" in svg, f"SVG does not render {field_id}={value}"
 
-    # Three.js: geometry size is currently value-invariant (fixed [1,1,1])
-    # for every entity, confirming values are NOT visually encoded there
-    # today -- documented as a known scope limitation, not silently
-    # assumed to be equivalent to the SVG's value rendering.
+    # Three.js: geometry size now varies with each entity's normalized
+    # value (Phase 12) -- these 4 distinct values must not all collapse
+    # to the same size.
     scene = compile_threejs(ir_doc, ThreeJSRenderConfig())
     sizes = {tuple(g["params"]["size"]) for g in scene.geometries}
-    assert sizes == {(1.0, 1.0, 1.0)}
+    assert len(sizes) > 1, "geometry size no longer varies by value -- Phase 12 regression"
+
+
+def test_threejs_geometry_size_reflects_normalized_value():
+    """Dedicated check of the Phase 12 value-encoding upgrade: the
+    entity with the highest numeric value gets the largest box, the
+    lowest gets the smallest, and the mapping stays within the
+    documented [_MIN_SCALE, _MAX_SCALE] bounds."""
+    version = create_genesis_version(MATERIAL_SCHEMA, "2026-08-22T00:00:00Z")
+    ir_doc = _pipeline(version)
+    scene = compile_threejs(ir_doc, ThreeJSRenderConfig())
+
+    size_by_id = {m["id"]: tuple(g["params"]["size"]) for m, g in zip(scene.meshes, scene.geometries)}
+    # molecular_weight (185000) is by far the largest value in this
+    # schema; crystallinity (0.38) is by far the smallest.
+    assert size_by_id["molecular_weight"] > size_by_id["crystallinity"]
+    for size in size_by_id.values():
+        assert 0.5 <= size[0] <= 2.0 and size[0] == size[1] == size[2]  # uniform cube, within documented bounds
 
 
 def test_no_backend_mutates_canonical_state_or_the_shared_ir():

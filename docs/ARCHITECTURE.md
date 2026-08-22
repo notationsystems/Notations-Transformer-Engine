@@ -31,8 +31,24 @@ already accepts — it does not modify `validate_candidate`,
 `CanonicalState`, or any invariant, it only adds one more optional
 *producer* of a shape that already existed. It's flagged here rather than
 silently presented as if `docs/ARCHITECTURE_SPEC.md` had always specified
-it. Only the interface shape is implemented (`adapters/interface.py`) —
-no real adapter (CSV, sensor, knowledge-graph, ML output, etc.) exists yet.
+it. `adapters/json_adapter.py` and `adapters/csv_adapter.py` (Phase 12)
+are real adapters built on that interface — see
+`docs/DATA_CAPABILITIES.md` for exactly what data shapes they handle and
+`tests/test_data_ingestion.py` for the full external-data -> canonical
+-> Morpho -> backend trace. Both are additive in the same sense as the
+interface itself: neither imports or calls `validate_candidate`,
+`make_version`, or `create_genesis_version` (checked by
+`tests/test_data_ingestion.py::test_adapters_never_import_validation_or_mint_machinery`).
+
+**One additive extension to core was made alongside them (Phase 12):**
+`core/canonical/version.py::ProvenanceInfo` gained an optional
+`timestamp: Optional[str] = None` field, so an adapter can preserve a
+per-measurement timestamp when the source data supplies one explicitly
+(as opposed to `Version.timestamp`, which records when a version was
+*accepted*). This mirrors a field `morpho/provenance.py::ProvenanceRecord`
+already had. It is backward compatible by construction (defaulted,
+excluded from the `Version.id` content hash per §4) and was documented
+before implementation, not applied silently.
 
 Enforced rules (checked by `tests/test_architecture_boundaries.py`,
 which walks the actual `import`/`from ... import` statements in every

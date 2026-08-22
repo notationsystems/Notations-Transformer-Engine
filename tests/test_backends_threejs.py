@@ -150,3 +150,53 @@ def test_threejs_backend_cannot_become_source_of_truth():
         )
     assert "VersionStore" not in source
     assert "validate_candidate" not in source
+
+
+# -- Phase 12 §5: deterministic value-to-geometry encoding -----------------
+
+
+def test_same_identity_different_value_yields_same_id_but_different_geometry(sample_schema, genesis_version):
+    """same canonical identity + different numeric value -> same entity
+    identity -> different deterministic geometry (Phase 12 §5, verbatim
+    requirement)."""
+    provenance = ProvenanceInfo(author="test", transaction_id="tx1", source="manual_edit")
+    candidate = CandidateDelta(
+        version_from=genesis_version.id,
+        transaction_id="tx1",
+        timestamp="2026-08-22T00:01:00Z",
+        changes=(
+            CandidateChange(
+                path="fields.mass.value", operation="replace", old_value=10, new_value=9999, provenance=provenance
+            ),
+        ),
+    )
+    v1 = validate_candidate(sample_schema, genesis_version.state, candidate)
+    assert not isinstance(v1, list), v1
+
+    config = ThreeJSRenderConfig()
+    scene_before = compile_threejs(compile_morpho(project_state(genesis_version), CompilerConfig()), config)
+    scene_after = compile_threejs(compile_morpho(project_state(v1), CompilerConfig()), config)
+
+    geom_before = next(g for g in scene_before.geometries if g["id"] == "mass")
+    geom_after = next(g for g in scene_after.geometries if g["id"] == "mass")
+
+    assert geom_before["id"] == geom_after["id"] == "mass"  # same entity identity
+    assert geom_before["params"]["size"] != geom_after["params"]["size"]  # different deterministic geometry
+
+
+def test_same_canonical_state_yields_byte_equivalent_scene_descriptor(genesis_version):
+    """same canonical state -> byte-equivalent scene descriptor (Phase 12
+    §5, verbatim requirement) -- recompiling from the identical Version
+    twice, including the new value-dependent geometry sizing, must be
+    exactly equal, not merely "close.\""""
+    config = ThreeJSRenderConfig()
+    ir_doc = compile_morpho(project_state(genesis_version), CompilerConfig())
+    scene1 = compile_threejs(ir_doc, config)
+    scene2 = compile_threejs(ir_doc, config)
+    assert scene1 == scene2
+
+    import json
+
+    assert json.dumps(
+        {"geometries": scene1.geometries, "meshes": scene1.meshes}, sort_keys=True
+    ) == json.dumps({"geometries": scene2.geometries, "meshes": scene2.meshes}, sort_keys=True)

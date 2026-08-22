@@ -40,11 +40,18 @@ runtime/                        feedback_loop.py: the only bridge from a
                                  canonical state, and it goes through
                                  validate_candidate like everything else
 adapters/                         interface.py: external-data -> CandidateDelta
-                                   boundary (Protocol shape only, no real
-                                   adapter implemented). NOT part of the
+                                   boundary (Protocol shape). NOT part of the
                                    original frozen spec's 23 sections --
                                    added on explicit request as a provisional
-                                   extension; see docs/ARCHITECTURE.md
+                                   extension; see docs/ARCHITECTURE.md.
+                                   json_adapter.py / csv_adapter.py: real
+                                   adapters (Phase 12) -- arbitrary JSON
+                                   (nested objects, arrays, units/timestamps
+                                   when supplied, relationships) and CSV
+                                   (single-row and multi-row) normalized onto
+                                   the same CandidateChange boundary. See
+                                   docs/DATA_CAPABILITIES.md for exactly what
+                                   is and isn't supported.
 renderer/                        index.html: the only place a real
                                   THREE.* object is constructed
 scripts/                          generate_sample_scene.py: demo data
@@ -58,12 +65,20 @@ tests/                             one file per architectural phase
                                     (one canonical state -> multiple
                                     backends), test_live_state_bridge.py
                                     (delta/replay scenarios), test_adapters.py,
-                                    and test_architecture_boundaries.py
+                                    test_data_ingestion.py (JSON/CSV -> field
+                                    -> Morpho entity -> backend, and
+                                    JSON/CSV/manual convergence),
+                                    test_time_series_representation.py, and
+                                    test_architecture_boundaries.py
 runtime/test_feedback_loop.py        kept colocated with the module it tests
                                       (verifies the "only validation.py may
                                       mint a Version" rule for the simulation/
                                       neural feedback path)
 ```
+
+See `docs/DATA_CAPABILITIES.md` for the full data-type capability
+matrix (SUPPORTED / PARTIALLY SUPPORTED / INTERFACE ONLY / NOT
+IMPLEMENTED, with a test cited for every claim).
 
 ## Canonical state
 
