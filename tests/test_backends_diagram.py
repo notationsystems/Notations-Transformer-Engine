@@ -3,6 +3,7 @@ backend before this pass -- this file is new, not a relocation.
 """
 
 import ast as pyast
+import copy
 import inspect
 import xml.etree.ElementTree as ET
 
@@ -10,6 +11,10 @@ import pytest
 
 from backends.diagram import compiler as diagram_compiler
 from backends.diagram.compiler import DiagramLayoutConfig, compile_svg
+from backends.threejs.compiler import ThreeJSRenderConfig, compile_threejs
+from core.canonical.delta import CandidateChange, CandidateDelta
+from core.canonical.validation import validate_candidate
+from core.canonical.version import ProvenanceInfo
 from core.projection.project import project_state
 from morpho.compiler import CompilerConfig, compile_morpho
 from morpho.ir import Entity, MorphoDocument, MorphoRelation
@@ -106,6 +111,103 @@ def test_compile_svg_strips_xml_illegal_control_characters():
     ET.fromstring(svg)
     assert "\x0b" not in svg
     assert "\x00" not in svg
+
+
+# -- The SVG backend consumes the SAME upstream Morpho IR as Three.js
+#    (§1, §15) -- these tests demonstrate that directly, per this
+#    session's Phase 8 checklist: identity, provenance, stable node/edge
+#    mapping, no canonical mutation, and cross-backend equivalence. --
+
+
+def test_svg_and_threejs_backends_agree_on_entity_identity(genesis_version):
+    """Same MorphoDocument in -> both backends must reference the exact
+    same set of entity ids (§9 identity model applies uniformly
+    regardless of which backend consumes the IR)."""
+    ir_doc = compile_morpho(project_state(genesis_version), CompilerConfig())
+
+    svg = compile_svg(ir_doc, DiagramLayoutConfig())
+    svg_ids = {e.id for e in ir_doc.entities if f'data-entity-id="{e.id}"' in svg}
+
+    scene = compile_threejs(ir_doc, ThreeJSRenderConfig())
+    threejs_ids = {m["id"] for m in scene.meshes}
+
+    canonical_ids = set(genesis_version.state.fields.keys())
+    assert svg_ids == threejs_ids == canonical_ids
+
+
+def test_svg_and_threejs_backends_consume_the_same_ir_object_unmutated(genesis_version):
+    """Neither backend may mutate the MorphoDocument it's handed --
+    compiling one representation must not corrupt or alter what the
+    other representation sees, since both read the same upstream IR
+    (§1: 'Structural State -> Morpho IR -> Representation')."""
+    ir_doc = compile_morpho(project_state(genesis_version), CompilerConfig())
+    ir_snapshot = copy.deepcopy(ir_doc)
+
+    compile_svg(ir_doc, DiagramLayoutConfig())
+    assert ir_doc == ir_snapshot  # unchanged after SVG compilation
+
+    compile_threejs(ir_doc, ThreeJSRenderConfig())
+    assert ir_doc == ir_snapshot  # unchanged after Three.js compilation too
+
+
+def test_compile_svg_does_not_mutate_canonical_state(genesis_version):
+    fields_before = dict(genesis_version.state.fields)
+    edges_before = genesis_version.state.edges
+
+    ir_doc = compile_morpho(project_state(genesis_version), CompilerConfig())
+    compile_svg(ir_doc, DiagramLayoutConfig())
+
+    assert genesis_version.state.fields == fields_before
+    assert genesis_version.state.edges == edges_before
+
+
+def test_svg_node_mapping_is_stable_across_a_value_change(sample_schema, genesis_version):
+    """Stable mapping of nodes (Phase 8 checklist item 4): the same
+    canonical field keeps the same data-entity-id in the SVG across two
+    versions differing only in that field's value -- mirrors
+    test_geometry_identity_survives_value_changes for the Three.js
+    backend."""
+    provenance = ProvenanceInfo(author="test", transaction_id="tx1", source="manual_edit")
+    candidate = CandidateDelta(
+        version_from=genesis_version.id,
+        transaction_id="tx1",
+        timestamp="2026-08-22T00:01:00Z",
+        changes=(
+            CandidateChange(
+                path="fields.mass.value", operation="replace", old_value=10, new_value=99, provenance=provenance
+            ),
+        ),
+    )
+    v1 = validate_candidate(sample_schema, genesis_version.state, candidate)
+    assert not isinstance(v1, list), v1
+
+    config = DiagramLayoutConfig()
+    svg_before = compile_svg(compile_morpho(project_state(genesis_version), CompilerConfig()), config)
+    svg_after = compile_svg(compile_morpho(project_state(v1), CompilerConfig()), config)
+
+    assert 'data-entity-id="mass"' in svg_before
+    assert 'data-entity-id="mass"' in svg_after  # same node identity, different value
+
+
+def test_svg_edge_mapping_is_stable_across_a_value_change():
+    """Stable mapping of edges (Phase 8 checklist item 5): a relation's
+    id/endpoints are unaffected by an unrelated entity's value changing
+    -- the edge mapping is a pure function of the IR's relations, not of
+    any particular entity's current value."""
+    provenance = canonical_provenance(origin_version="v0", compiler_version="1.0.0")
+    relation = MorphoRelation(
+        id="rel1", from_id="A", to_id="B", type="depends_on",
+        is_canonical=True, inference_status="explicit", provenance=provenance,
+    )
+    doc_before = MorphoDocument(entities=(_entity("A", value=1), _entity("B", value=2)), relations=(relation,))
+    doc_after = MorphoDocument(entities=(_entity("A", value=999), _entity("B", value=2)), relations=(relation,))
+
+    config = DiagramLayoutConfig()
+    svg_before = compile_svg(doc_before, config)
+    svg_after = compile_svg(doc_after, config)
+
+    assert 'data-relation-id="rel1"' in svg_before
+    assert 'data-relation-id="rel1"' in svg_after
 
 
 def test_diagram_backend_cannot_become_source_of_truth():

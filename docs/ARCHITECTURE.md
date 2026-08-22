@@ -11,17 +11,28 @@ during implementation and how they were resolved, see
 ## Module dependency graph
 
 ```
-core/canonical  --->  core/projection  --->  morpho  --->  backends/*  --->  runtime
-      ^                                                        |
-      |                                                        v
-      +--------------------------------------------------  (nothing; renderer/
-                                                              only consumes
-                                                              backends/threejs
-                                                              output as JSON,
-                                                              it is not a
-                                                              Python dependency
-                                                              of anything)
+adapters/*  --->  core/canonical  --->  core/projection  --->  morpho  --->  backends/*  --->  runtime
+ (optional,             ^                                                        |
+  upstream-only,        |                                                        v
+  see note below)       +--------------------------------------------------  (nothing; renderer/
+                                                                                only consumes
+                                                                                backends/threejs
+                                                                                output as JSON,
+                                                                                it is not a
+                                                                                Python dependency
+                                                                                of anything)
 ```
+
+**`adapters/` is not part of the original frozen specification.** It was
+added in a later session, on explicit request, to establish an
+external-data ingestion boundary: `Adapter.normalize()` turns an
+`ExternalRecord` into the same `CandidateChange` shape `validate_candidate`
+already accepts — it does not modify `validate_candidate`,
+`CanonicalState`, or any invariant, it only adds one more optional
+*producer* of a shape that already existed. It's flagged here rather than
+silently presented as if `docs/ARCHITECTURE_SPEC.md` had always specified
+it. Only the interface shape is implemented (`adapters/interface.py`) —
+no real adapter (CSV, sensor, knowledge-graph, ML output, etc.) exists yet.
 
 Enforced rules (checked by `tests/test_architecture_boundaries.py`,
 which walks the actual `import`/`from ... import` statements in every

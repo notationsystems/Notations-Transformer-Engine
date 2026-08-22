@@ -39,15 +39,26 @@ runtime/                        feedback_loop.py: the only bridge from a
                                  simulation/neural candidate back into
                                  canonical state, and it goes through
                                  validate_candidate like everything else
+adapters/                         interface.py: external-data -> CandidateDelta
+                                   boundary (Protocol shape only, no real
+                                   adapter implemented). NOT part of the
+                                   original frozen spec's 23 sections --
+                                   added on explicit request as a provisional
+                                   extension; see docs/ARCHITECTURE.md
 renderer/                        index.html: the only place a real
                                   THREE.* object is constructed
 scripts/                          generate_sample_scene.py: demo data
-tests/                             test_canonical, test_versioning, test_delta,
-                                    test_projection, test_morpho_compiler,
-                                    test_backends_threejs, test_backends_diagram,
-                                    test_replay -- one file per architectural
-                                    phase, plus test_architecture_boundaries.py
-                                    (dependency-direction audit)
+tests/                             one file per architectural phase
+                                    (test_canonical, test_versioning,
+                                    test_delta, test_projection,
+                                    test_morpho_compiler,
+                                    test_backends_threejs,
+                                    test_backends_diagram, test_replay),
+                                    plus test_representation_equivalence.py
+                                    (one canonical state -> multiple
+                                    backends), test_live_state_bridge.py
+                                    (delta/replay scenarios), test_adapters.py,
+                                    and test_architecture_boundaries.py
 runtime/test_feedback_loop.py        kept colocated with the module it tests
                                       (verifies the "only validation.py may
                                       mint a Version" rule for the simulation/
