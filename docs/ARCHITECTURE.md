@@ -40,6 +40,24 @@ interface itself: neither imports or calls `validate_candidate`,
 `make_version`, or `create_genesis_version` (checked by
 `tests/test_data_ingestion.py::test_adapters_never_import_validation_or_mint_machinery`).
 
+**`evidence/` and `scout/` are also not part of the original frozen
+specification.** They implement the (previously research-only)
+evidence-pool design from `docs/PHASE_14_DATA_POOL_ARCHITECTURE.md`:
+`evidence/` is a separate object domain (`Source`, `Document`, `Record`,
+`Observation`, `Referent`, `ClaimedRelationship`) with its own
+content-addressed identity, its own admission gate
+(`evidence/admission.py`), and its own derived graph view
+(`evidence/trust_graph.py`) — structurally similar to
+`core.canonical`/`validate_candidate`/Morpho but never the same objects,
+and never reachable from `core.canonical` in either direction (`core/`
+does not import `evidence/`; `evidence/` does not import
+`core.canonical.validation`). `scout/` is a producer built on top of
+`evidence/`, in the same relationship `adapters/` has to
+`core.canonical`. Full contract, network metrics, and FEP-facing
+interface: `docs/SCOUT_ARCHITECTURE.md`. Neither package calls
+`validate_candidate` or constructs a `CanonicalState`/`Version` — see
+`tests/test_scout_boundaries.py`.
+
 **One additive extension to core was made alongside them (Phase 12):**
 `core/canonical/version.py::ProvenanceInfo` gained an optional
 `timestamp: Optional[str] = None` field, so an adapter can preserve a

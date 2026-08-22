@@ -39,6 +39,22 @@ runtime/                        feedback_loop.py: the only bridge from a
                                  simulation/neural candidate back into
                                  canonical state, and it goes through
                                  validate_candidate like everything else
+evidence/                         the evidence pool: Source, Document,
+                                   Record, Observation, Referent,
+                                   ClaimedRelationship + a derived Trust
+                                   Graph view. NOT core.canonical -- holds
+                                   uncertain, conflicting, unreviewed data
+                                   that never reaches CanonicalState in
+                                   this codebase. See
+                                   docs/SCOUT_ARCHITECTURE.md.
+scout/                             SCOUT: the first external-intelligence
+                                    primitive. Observes a source, extracts
+                                    candidate evidence, attaches it to the
+                                    evidence pool via evidence/admission.py
+                                    -- never touches core.canonical. See
+                                    docs/SCOUT_ARCHITECTURE.md for the full
+                                    contract, network metrics, and FEP
+                                    interface.
 adapters/                         interface.py: external-data -> CandidateDelta
                                    boundary (Protocol shape). NOT part of the
                                    original frozen spec's 23 sections --
@@ -68,8 +84,11 @@ tests/                             one file per architectural phase
                                     test_data_ingestion.py (JSON/CSV -> field
                                     -> Morpho entity -> backend, and
                                     JSON/CSV/manual convergence),
-                                    test_time_series_representation.py, and
-                                    test_architecture_boundaries.py
+                                    test_time_series_representation.py,
+                                    test_architecture_boundaries.py, and
+                                    test_evidence_*.py / test_trust_graph.py /
+                                    test_scout_*.py (the evidence pool, Trust
+                                    Graph, network metrics, and SCOUT pipeline)
 runtime/test_feedback_loop.py        kept colocated with the module it tests
                                       (verifies the "only validation.py may
                                       mint a Version" rule for the simulation/
