@@ -79,6 +79,97 @@ def test_pool_has_no_delete_method():
         )
 
 
+def test_fingerprint_identical_for_identical_state():
+    """Two independently-built pools holding the identical set of
+    objects fingerprint identically -- `fingerprint()` is a pure
+    function of pool contents, not of which process or order built
+    them."""
+    pool_a, source_a, document_a, record_a = _seeded_pool()
+    pool_b, source_b, document_b, record_b = _seeded_pool()
+    assert source_a.id == source_b.id  # content-addressed: same inputs, same ids
+    assert pool_a.fingerprint() == pool_b.fingerprint()
+
+
+def test_fingerprint_changes_when_evidence_is_added():
+    pool, source, document, record = _seeded_pool()
+    before = pool.fingerprint()
+    pool.put_referent(make_referent(natural_key="FEP", kind="material"))
+    after = pool.fingerprint()
+    assert before != after
+
+
+def test_fingerprint_unchanged_by_redundant_put_of_identical_object():
+    """Re-putting an object that is already present (same content, same
+    content-addressed id) must NOT change the fingerprint -- this is
+    the "duplicate evidence" case, and by construction it is a true
+    no-op, not merely a fingerprint coincidence."""
+    pool, source, document, record = _seeded_pool()
+    before = pool.fingerprint()
+    pool.put_source(source)
+    pool.put_document(document)
+    pool.put_record(record)
+    assert pool.fingerprint() == before
+
+
+def test_fingerprint_is_insensitive_to_insertion_order():
+    """Insertion order carries no semantics for this pool (its own
+    module docstring: "no single current state" -- conflicting,
+    coexisting objects are the point). Two pools built by inserting the
+    identical objects in reverse order must fingerprint identically."""
+    fep = make_referent(natural_key="FEP", kind="material")
+    extrusion = make_referent(natural_key="extrusion", kind="process")
+    rheo = make_referent(natural_key="rheo-sim", kind="software")
+
+    pool_forward = EvidencePool()
+    for r in (fep, extrusion, rheo):
+        pool_forward.put_referent(r)
+
+    pool_reverse = EvidencePool()
+    for r in (rheo, extrusion, fep):
+        pool_reverse.put_referent(r)
+
+    assert pool_forward.fingerprint() == pool_reverse.fingerprint()
+
+
+def test_fingerprint_does_not_depend_on_python_hash_randomization():
+    """Cross-process check: PYTHONHASHSEED only takes effect at
+    interpreter startup, so this cannot be exercised in-process --
+    mirrors `tests/test_versioning.py`'s and `tests/test_trust_graph.py`'s
+    own PYTHONHASHSEED subprocess checks."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    script = (
+        "from evidence.pool import EvidencePool\n"
+        "from evidence.types import make_document, make_record, make_referent, make_source\n"
+        "pool = EvidencePool()\n"
+        "s = make_source(kind='paper', name='X')\n"
+        "pool.put_source(s)\n"
+        "d = make_document(source_id=s.id, raw_content='body', retrieval_method='fixture', retrieved_at='t')\n"
+        "pool.put_document(d)\n"
+        "r = make_record(document_id=d.id, locator='p1', raw_content='body')\n"
+        "pool.put_record(r)\n"
+        "for key in ('FEP', 'extrusion', 'rheo-sim'):\n"
+        "    pool.put_referent(make_referent(natural_key=key, kind='material'))\n"
+        "print(pool.fingerprint())\n"
+    )
+    outputs = set()
+    for seed in ("0", "1", "12345"):
+        proc = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repo_root,
+            env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        outputs.add(proc.stdout)
+    assert len(outputs) == 1, f"fingerprint differed across PYTHONHASHSEED values: {outputs}"
+
+
 def test_round_trip_content_hash_stable_for_serialized_observation():
     """An Observation's identity-defining payload survives a JSON
     round-trip unchanged -- the same discipline

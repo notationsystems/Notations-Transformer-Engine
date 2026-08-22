@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
+from evidence.identity import content_hash
 from evidence.types import ClaimedRelationship, Document, Observation, Record, Referent, Source
 
 
@@ -111,6 +112,27 @@ class EvidencePool:
 
     def all_observations(self) -> Tuple[Observation, ...]:
         return tuple(self._observations[k] for k in sorted(self._observations))
+
+    def fingerprint(self) -> str:
+        """A deterministic content hash of exactly which object ids this
+        pool currently holds (`docs/RETRIEVAL_ARCHITECTURE.md` §evidence
+        versioning). Read-only, pure with respect to `self` -- calling it
+        never mutates the pool. This is what lets a `RetrievalResult`
+        distinguish "the same evidence version" from "evidence changed
+        underneath the query" without needing a real version-store: two
+        pools with identical object ids always fingerprint identically,
+        regardless of insertion order (every id is content-addressed, and
+        this hashes the *sorted* id sets, not any dict's iteration
+        order)."""
+        payload = {
+            "sources": sorted(self._sources),
+            "documents": sorted(self._documents),
+            "records": sorted(self._records),
+            "observations": sorted(self._observations),
+            "referents": sorted(self._referents),
+            "claimed_relationships": sorted(self._claimed_relationships),
+        }
+        return content_hash(payload)
 
     def __len__(self) -> int:
         return (

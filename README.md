@@ -55,6 +55,16 @@ scout/                             SCOUT: the first external-intelligence
                                     docs/SCOUT_ARCHITECTURE.md for the full
                                     contract, network metrics, and FEP
                                     interface.
+retrieval/                          deterministic, read-only retrieval over
+                                     the evidence pool: RetrievalQuery ->
+                                     RetrievalEngine -> RetrievalResult ->
+                                     ContextPackage -> (seam only) future
+                                     InquiryState. No embeddings, no vector
+                                     search, no database -- exact/graph-
+                                     traversal/text-substring lookup only.
+                                     Never writes to evidence/ or
+                                     core.canonical. See
+                                     docs/RETRIEVAL_ARCHITECTURE.md.
 adapters/                         interface.py: external-data -> CandidateDelta
                                    boundary (Protocol shape). NOT part of the
                                    original frozen spec's 23 sections --
@@ -85,10 +95,15 @@ tests/                             one file per architectural phase
                                     -> Morpho entity -> backend, and
                                     JSON/CSV/manual convergence),
                                     test_time_series_representation.py,
-                                    test_architecture_boundaries.py, and
+                                    test_architecture_boundaries.py,
                                     test_evidence_*.py / test_trust_graph.py /
                                     test_scout_*.py (the evidence pool, Trust
-                                    Graph, network metrics, and SCOUT pipeline)
+                                    Graph, network metrics, and SCOUT
+                                    pipeline), and test_retrieval_*.py /
+                                    test_context_package.py (RetrievalQuery/
+                                    RetrievalResult/ContextPackage
+                                    determinism, reproducibility, and
+                                    read-only boundaries)
 runtime/test_feedback_loop.py        kept colocated with the module it tests
                                       (verifies the "only validation.py may
                                       mint a Version" rule for the simulation/

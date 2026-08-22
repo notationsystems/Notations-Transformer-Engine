@@ -58,6 +58,22 @@ interface: `docs/SCOUT_ARCHITECTURE.md`. Neither package calls
 `validate_candidate` or constructs a `CanonicalState`/`Version` — see
 `tests/test_scout_boundaries.py`.
 
+**`retrieval/` is the next layer downstream of `evidence/`, also not
+part of the original frozen specification.** It is deterministic and
+strictly read-only: `RetrievalQuery -> RetrievalEngine ->
+RetrievalResult -> ContextPackage`, plus a deliberately minimal
+`InquirySeam` marking (not implementing) the boundary toward a future
+`InquiryState`. It consumes `evidence.pool.EvidencePool` and
+`evidence.trust_graph.build_trust_graph` exactly as they already
+existed, plus one additive, pure, read-only method added to
+`EvidencePool` this phase (`fingerprint()` — a content hash of the
+pool's current object ids, used to detect when evidence has changed
+between two retrievals). `retrieval/` never imports
+`core.canonical.validation`, never calls `validate_candidate`, and never
+calls any of `EvidencePool`'s `put_*` mutators — see
+`tests/test_retrieval_boundaries.py`. Full contract, capability list,
+and authority-boundary table: `docs/RETRIEVAL_ARCHITECTURE.md`.
+
 **One additive extension to core was made alongside them (Phase 12):**
 `core/canonical/version.py::ProvenanceInfo` gained an optional
 `timestamp: Optional[str] = None` field, so an adapter can preserve a
