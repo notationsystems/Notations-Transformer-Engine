@@ -125,11 +125,12 @@ def admit_derived_value(pool: EvidencePool, derived_value: DerivedValue) -> Unio
     `admit_claimed_relationship`/`make_claimed_relationship`: a
     `DerivedValue` may be constructed whose `derived_from` ids are not
     (yet) in the pool, but it cannot be admitted until every one of them
-    is either a known `Observation` or a known `DerivedValue`. This is
-    also what makes a derivation cycle structurally impossible through
-    this gate: an id must already exist in the pool before anything can
-    successfully reference it, and nothing is ever mutated in place, so
-    no admitted `DerivedValue` can ever reference one admitted after it."""
+    is either a known `Observation` or a known `DerivedValue`. This gate
+    rejects a *dangling* reference -- an id that was never admitted at
+    all. A true derivation cycle (A referencing B, B referencing A) is
+    impossible for a separate, stronger reason that has nothing to do
+    with this gate: see `evidence/types.py::DerivedValue`'s docstring for
+    why content-addressed identity alone already rules it out."""
 
     errors: List[AdmissionError] = []
     if not derived_value.derived_from:

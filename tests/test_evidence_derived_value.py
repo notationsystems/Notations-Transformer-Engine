@@ -372,10 +372,14 @@ def test_derivation_chain_admits_successfully_in_order():
     pool.put_derived_value(d2)
 
 
-def test_reference_to_not_yet_admitted_derived_value_is_rejected():
-    """A cycle (or any forward reference) cannot be constructed through
-    the public admission path: referencing a DerivedValue id that has not
-    yet been put into the pool is rejected, not silently accepted."""
+def test_dangling_reference_to_a_never_admitted_derived_value_is_rejected():
+    """This proves admission rejects a *dangling* reference -- an id that
+    was never admitted into the pool at all -- not that a true cycle
+    (A referencing B, B referencing A) was attempted and blocked. A real
+    cycle is impossible for a stronger, separate reason (content-addressed
+    identity itself -- see `evidence/types.py::DerivedValue`'s docstring)
+    and cannot even be constructed to test against: computing either
+    object's id would require the other's id to already be concrete."""
     pool, o1, o2 = _pool_with_two_observations()
 
     not_yet_admitted = make_derived_value(
@@ -390,3 +394,36 @@ def test_reference_to_not_yet_admitted_derived_value_is_rejected():
     result = admit_derived_value(pool, dependent)
     assert isinstance(result, list)
     assert any(e.code == "UNKNOWN_INPUT" for e in result)
+
+
+def test_admission_rejection_never_mutates_pool():
+    """Atomicity, mirroring `tests/test_evidence_admission.py`'s
+    `test_admission_rejection_never_mutates_pool` for the other five
+    admission gates: a rejected DerivedValue leaves the pool's
+    DerivedValue store untouched. (Uses `all_derived_values()`, not
+    `len(pool)` -- `EvidencePool.__len__` deliberately does not count
+    DerivedValues; see the Phase 17 post-implementation audit.)"""
+    pool, o1, o2 = _pool_with_two_observations()
+    size_before = len(pool.all_derived_values())
+    bad = make_derived_value(derived_from=["ghost"], method="mean", content={"v": 1}, confidence=1.0, derived_at="t")
+    result = admit_derived_value(pool, bad)
+    assert isinstance(result, list)
+    # admission itself never calls pool.put_*; only the caller does, and only on success.
+    assert len(pool.all_derived_values()) == size_before
+
+
+def test_admission_reports_every_unknown_derived_from_id_not_just_the_first():
+    """admit_derived_value's validation loop iterates every id in
+    derived_from and appends one AdmissionError per unknown one -- this
+    is real, meaningful behavior to pin down (not a case where the
+    existing implementation intentionally reports only one error), so it
+    is tested directly rather than only inferred from the single-bad-id
+    tests above."""
+    pool, o1, o2 = _pool_with_two_observations()
+    dv = make_derived_value(
+        derived_from=["ghost-1", "ghost-2", o1.id], method="mean", content={"v": 1}, confidence=1.0, derived_at="t"
+    )
+    result = admit_derived_value(pool, dv)
+    assert isinstance(result, list)
+    unknown_input_errors = [e for e in result if e.code == "UNKNOWN_INPUT"]
+    assert len(unknown_input_errors) == 2  # one per unknown id, o1.id (known) contributes none

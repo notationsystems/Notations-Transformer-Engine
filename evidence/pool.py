@@ -80,9 +80,15 @@ class EvidencePool:
         only when it differs from the last recorded entry -- the compare-
         and-append rule from the approved Phase 16 specification, kept as
         a plain private method (not a free-standing helper) since it is
-        shared by six call sites and has no reason to exist independent of
+        shared by all seven put_* call sites (put_source, put_document,
+        put_record, put_observation, put_referent,
+        put_claimed_relationship, put_derived_value -- the last added in
+        Phase 17) and has no reason to exist independent of
         `EvidencePool`'s own state. `fingerprint()` itself is untouched:
-        this method calls it, it never calls back into this method."""
+        this method calls it, it never calls back into this method.
+        Any future put_* method must call this too -- nothing enforces
+        that structurally, it is a convention, not a guarantee (see the
+        Phase 17 post-implementation audit)."""
         current = self.fingerprint()
         if not self._fingerprint_history or self._fingerprint_history[-1] != current:
             self._fingerprint_history.append(current)

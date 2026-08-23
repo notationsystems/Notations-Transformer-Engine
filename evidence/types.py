@@ -236,10 +236,19 @@ class DerivedValue:
     referenced ids actually exist in the pool) is checked at admission
     (`evidence/admission.py::admit_derived_value`), not here -- exactly
     the same split `make_claimed_relationship`/`admit_claimed_relationship`
-    already establish. Because nothing is ever mutated in place and an id
-    must already exist in the pool before anything can reference it, a
-    derivation cycle cannot be constructed through the public admission
-    path -- see `tests/test_evidence_derived_value.py` for the proof."""
+    already establish.
+
+    A derivation cycle (A referencing B, B referencing A) cannot exist at
+    all, for a reason more fundamental than admission ordering: `id` is
+    computed from `content_hash({derived_from, ...})`, so a `derived_from`
+    containing the other object's id requires that id to already be a
+    concrete value. Two objects whose `derived_from` each named the
+    other's id could never have either id computed in the first place --
+    the mutual dependency has no resolution, independent of whether
+    admission is ever consulted. Admission's own, separate job is
+    narrower: rejecting a *dangling* reference to an id that was never
+    admitted at all (see `admit_derived_value`) -- see
+    `tests/test_evidence_derived_value.py` for that proof."""
 
     id: str
     derived_from: Tuple[str, ...]
