@@ -18,11 +18,32 @@ computes descriptive disagreement statistics only -- min/max/spread,
 never an average, a ranking, or a chosen "winner". Resolving or
 adjudicating a disagreement is explicitly out of scope: nothing here
 decides which measurement or prediction is correct.
+
+Phase 29 (COMPARABILITY): filtering by `property` alone is not enough
+to know two values are measurements/predictions of the *same physical
+state* -- `content` may carry additional keys (`temperature`, etc.)
+that distinguish otherwise same-labeled values. `_comparison_context`
+treats every `content` key except `property` and the measured-value key
+itself (`value` for Observation, `predicted_value` for DerivedValue) as
+part of that state -- this is a general, content-structure-driven rule,
+not a per-property special case: it produces one shared context (and
+therefore the same behavior as before) for tensile_strength/Tg, where
+no such extra key exists, and splits viscosity's 25C/40C readings into
+two contexts automatically, with no `if property == "viscosity"`
+anywhere. A key present on one value and absent on the other yields
+different (non-equal) contexts, deliberately -- "unknown" is never
+silently treated as "matches," the conservative choice per this phase's
+own instruction. `method`/`confidence`/`derived_at` are DerivedValue's
+own fields, never part of `content`, so two predictions from different
+models are still compared exactly like today whenever they share a
+context -- model identity was never, and is still not, a comparability
+signal here.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Mapping, Optional, Tuple
 
 from evidence.pool import EvidencePool
@@ -67,6 +88,24 @@ class Disagreement:
 
 
 @dataclass(frozen=True)
+class ComparisonGroup:
+    """Every observed (or predicted) value that shares an identical
+    comparison context -- same `content` apart from `property` and the
+    measured-value key -- and is therefore safe to compare against the
+    others in this group. `disagreement` is computed only within the
+    group (None if the group has fewer than two values); values in
+    different groups are never combined into one statistic."""
+
+    context: Mapping[str, object]
+    values: Tuple[float, ...]
+    disagreement: Optional[Disagreement]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "context", MappingProxyType(dict(self.context)))
+        object.__setattr__(self, "values", tuple(self.values))
+
+
+@dataclass(frozen=True)
 class GroundedPrediction:
     """One DerivedValue, unmodified, paired with its own provenance.
     Never merged with any other prediction's ancestry."""
@@ -81,12 +120,31 @@ class MaterialPropertyAnswer:
     property: str
     observed: Tuple[Observation, ...]
     predictions: Tuple[GroundedPrediction, ...]
+
+    # Unchanged in meaning from Phase 27: the Disagreement across ALL
+    # observed (or predicted) values -- but now only when they all
+    # share one comparison context. None whenever fewer than two values
+    # exist OR the values span more than one context (Phase 29): a flat
+    # spread across incomparable contexts would be exactly the
+    # misleading number Phase 28 demonstrated. Equivalent to
+    # `observed_comparison_groups[0].disagreement` when exactly one
+    # group exists, and to None otherwise.
     observed_disagreement: Optional[Disagreement]
     predicted_disagreement: Optional[Disagreement]
+
+    # Always populated (Phase 29): the full, never-collapsed picture --
+    # one group per distinct comparison context, even when there is
+    # only one context (the common case). This is what makes "these
+    # values belong to different comparison contexts" visible rather
+    # than silently disappearing into a bare `None`.
+    observed_comparison_groups: Tuple[ComparisonGroup, ...]
+    predicted_comparison_groups: Tuple[ComparisonGroup, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "observed", tuple(self.observed))
         object.__setattr__(self, "predictions", tuple(self.predictions))
+        object.__setattr__(self, "observed_comparison_groups", tuple(self.observed_comparison_groups))
+        object.__setattr__(self, "predicted_comparison_groups", tuple(self.predicted_comparison_groups))
 
 
 def _resolve_referent(pool: EvidencePool, natural_key: str) -> Referent:
@@ -125,6 +183,37 @@ def _disagreement(values: Tuple[float, ...]) -> Optional[Disagreement]:
     return Disagreement(minimum=min(values), maximum=max(values), spread=max(values) - min(values))
 
 
+def _comparison_context(content: Mapping[str, object], value_key: str) -> Mapping[str, object]:
+    """Every `content` key except `property` (already constant -- see
+    `analyze`'s property filter) and the measured-value key itself. A
+    key present on one value and missing on another produces unequal
+    contexts on purpose -- absence is never treated as a match."""
+    return {k: v for k, v in content.items() if k not in ("property", value_key)}
+
+
+def _group_by_comparison_context(
+    contents_and_values: Tuple[Tuple[Mapping[str, object], float], ...]
+) -> Tuple[ComparisonGroup, ...]:
+    groups: dict = {}
+    for context, value in contents_and_values:
+        key = tuple(sorted(context.items(), key=lambda kv: kv[0]))
+        bucket = groups.setdefault(key, {"context": context, "values": []})
+        bucket["values"].append(value)
+
+    result = [
+        ComparisonGroup(
+            context=bucket["context"],
+            values=tuple(bucket["values"]),
+            disagreement=_disagreement(tuple(bucket["values"])),
+        )
+        for bucket in groups.values()
+    ]
+    # Deterministic regardless of dict/insertion order -- sort by the
+    # same canonical (key, value) representation used to group.
+    result.sort(key=lambda g: repr(sorted(g.context.items(), key=lambda kv: kv[0])))
+    return tuple(result)
+
+
 def analyze(pool: EvidencePool, engine: RetrievalEngine, question: MaterialQuestion) -> MaterialPropertyAnswer:
     """Deterministic, side-effect-free: same evidence + same question
     always produces an equal `MaterialPropertyAnswer` (proven by
@@ -147,14 +236,24 @@ def analyze(pool: EvidencePool, engine: RetrievalEngine, question: MaterialQuest
         if _matches_property(dv.content, question.property)
     )
 
-    observed_values = tuple(_as_float(o.content["value"]) for o in observed)
-    predicted_values = tuple(_as_float(p.derived_value.content["predicted_value"]) for p in predictions)
+    observed_contexts_and_values = tuple(
+        (_comparison_context(o.content, "value"), _as_float(o.content["value"])) for o in observed
+    )
+    predicted_contexts_and_values = tuple(
+        (_comparison_context(p.derived_value.content, "predicted_value"), _as_float(p.derived_value.content["predicted_value"]))
+        for p in predictions
+    )
+
+    observed_groups = _group_by_comparison_context(observed_contexts_and_values)
+    predicted_groups = _group_by_comparison_context(predicted_contexts_and_values)
 
     return MaterialPropertyAnswer(
         material=referent,
         property=question.property,
         observed=observed,
         predictions=predictions,
-        observed_disagreement=_disagreement(observed_values),
-        predicted_disagreement=_disagreement(predicted_values),
+        observed_disagreement=observed_groups[0].disagreement if len(observed_groups) == 1 else None,
+        predicted_disagreement=predicted_groups[0].disagreement if len(predicted_groups) == 1 else None,
+        observed_comparison_groups=observed_groups,
+        predicted_comparison_groups=predicted_groups,
     )
