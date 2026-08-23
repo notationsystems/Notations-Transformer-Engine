@@ -77,12 +77,36 @@ def test_materials_only_imports_evidence_and_retrieval():
 
 
 def test_materials_never_mutates_pool():
-    """No admission or put_* call anywhere in materials/ -- it is a
-    read-only consumer, exactly like retrieval/."""
+    """No admission or put_* call anywhere in materials/ -- with exactly
+    ONE deliberate exception, `materials/results.py` (Phase 44): the
+    bridge from an executed campaign entry back into EvidencePool, using
+    only the existing, unmodified admission API. Every other file in
+    materials/ remains read-only, exactly like retrieval/ -- this test
+    still fails if admission spreads anywhere else."""
+    exempt = {"materials/results.py"}
     for path in _python_files(REPO_ROOT / "materials"):
+        if str(path.relative_to(REPO_ROOT)) in exempt:
+            continue
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr.startswith("put_"):
                 raise AssertionError(f"{path.relative_to(REPO_ROOT)} calls .{node.attr}(...) -- materials/ must be read-only")
             if isinstance(node, ast.Name) and node.id.startswith("admit_"):
                 raise AssertionError(f"{path.relative_to(REPO_ROOT)} references {node.id} -- materials/ must not admit evidence")
+
+
+def test_only_results_module_mutates_pool():
+    """The exemption above is exactly one file, not a growing list --
+    pins that `materials/results.py` is the ONLY module under materials/
+    that calls put_*/admit_*."""
+    mutators = []
+    for path in _python_files(REPO_ROOT / "materials"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr.startswith("put_"):
+                mutators.append(str(path.relative_to(REPO_ROOT)))
+                break
+            if isinstance(node, ast.Name) and node.id.startswith("admit_"):
+                mutators.append(str(path.relative_to(REPO_ROOT)))
+                break
+    assert set(mutators) == {"materials/results.py"}
