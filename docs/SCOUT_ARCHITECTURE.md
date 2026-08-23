@@ -117,6 +117,7 @@ project has repeatedly rejected (Phase 13 §Anti-pattern-check, Phase 14
 | `Observation` | A semantic, extracted fact | `content_hash({record_ids, extraction_method, content})` — excludes `confidence`/`extracted_at` | No |
 | `Referent` | The entity a fact is about | `content_hash({natural_key, kind})` | No |
 | `ClaimedRelationship` | An asserted connection between two Referents | `content_hash({from, to, type, observation_id})` | No |
+| `DerivedValue` (Phase 17) | A value synthesized from multiple Observations and/or DerivedValues, with a stated method — the first representation not tied to exactly one extraction event | `content_hash({derived_from, method, content})` — excludes `confidence`/`derived_at`, same discipline as `Observation` | No |
 
 Two fields the prompt's sketch suggested that were deliberately
 **excluded from these types**: `novelty`/`relevance`/`network_context`/

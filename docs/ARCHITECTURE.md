@@ -44,8 +44,10 @@ interface itself: neither imports or calls `validate_candidate`,
 specification.** They implement the (previously research-only)
 evidence-pool design from `docs/PHASE_14_DATA_POOL_ARCHITECTURE.md`:
 `evidence/` is a separate object domain (`Source`, `Document`, `Record`,
-`Observation`, `Referent`, `ClaimedRelationship`) with its own
-content-addressed identity, its own admission gate
+`Observation`, `Referent`, `ClaimedRelationship`, and — as of Phase 17 —
+`DerivedValue`, a value synthesized from multiple Observations and/or
+other DerivedValues rather than tied to one extraction event) with its
+own content-addressed identity, its own admission gate
 (`evidence/admission.py`), and its own derived graph view
 (`evidence/trust_graph.py`) — structurally similar to
 `core.canonical`/`validate_candidate`/Morpho but never the same objects,

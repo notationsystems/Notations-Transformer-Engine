@@ -180,6 +180,31 @@ adds exactly one thing to close that gap: `EvidencePool.fingerprint_history()`**
 described fully in §7. It does not change what `fingerprint()` itself
 returns or how it is computed (unchanged from Phase 15, byte-for-byte).
 
+**Phase 17: `fingerprint()` now covers seven categories, not six.**
+`evidence/types.py` gained a seventh peer type, `DerivedValue` (a value
+synthesized from multiple `Observation`s and/or other `DerivedValue`s,
+with a stated method — see `docs/SCOUT_ARCHITECTURE.md` §3). Because
+`fingerprint()`'s own contract is "a content hash of exactly which
+object ids this pool currently holds," omitting real pool content from
+it would be the actual defect — so its payload now includes
+`"derived_values"` unconditionally, even when empty. This changes
+`fingerprint()`'s *output value* relative to Phase 16 for every pool
+(the hashing algorithm and the six existing keys are otherwise
+unchanged), which is an intentional, accepted consequence, not a
+regression — no committed test in this repository asserts a literal
+fingerprint string. **`DerivedValue` is deliberately not retrievable in
+Phase 17**: it exists upstream in `evidence/`, participates in
+`fingerprint()`/`fingerprint_history()` exactly like every other
+category, but `RetrievalQuery`, `RetrievalResult`, and `ContextPackage`
+remain completely unaware it exists — no field references it, and
+`retrieval/` contains no mention of it anywhere
+(`tests/test_derived_value_boundaries.py`). `RetrievalQuery.id` has no
+dependency on evidence content at all and is therefore byte-for-byte
+unchanged from Phase 15/16; `RetrievalResult.id`/`ContextPackage.id`
+shift only because the opaque `evidence_version_id` they already
+depended on shifts — their own hash *inputs* (the same ten and six
+fields, respectively) are untouched.
+
 ## 6. ContextPackage
 
 ```python
@@ -471,15 +496,22 @@ returns; it does not get to redefine what a `RetrievalResult` or
 
 ## 15. Verification
 
-`python3 -m pytest -q` — 235 passed as of Phase 16 (223 after Phase 15's
-verification pass + 12 new: 11 `fingerprint_history()` invariant tests in
-`tests/test_evidence_pool.py`, 1 identity-non-interference regression in
-`tests/test_retrieval_engine.py`). `ruff` and `mypy` clean on
-`evidence/pool.py` and every touched test file. Cross-`PYTHONHASHSEED`
-determinism reconfirmed for all four mechanisms that make such a claim
-(`Version.id`, `TrustGraph.connected_components`, `RetrievalResult.id`/
-`ContextPackage.id`, and now `fingerprint_history()`). No file under
-`core/`, `morpho/`, `adapters/`, `backends/`, `runtime/`, `scout/`, or
-`retrieval/` was modified by Phase 16 — the only implementation file
-touched is `evidence/pool.py`, and within it `fingerprint()` itself has
-zero diff lines.
+`python3 -m pytest -q` — 268 passed as of Phase 17 (235 after Phase 16 +
+33 new: 31 in `tests/test_evidence_derived_value.py` covering
+`DerivedValue` identity/admission/pool/fingerprint semantics, 2 in
+`tests/test_derived_value_boundaries.py` proving `evidence/` never
+imports `retrieval/` and `retrieval/` never references `DerivedValue`).
+`ruff` and `mypy` clean on every file Phase 17 touched or added. Cross-
+`PYTHONHASHSEED` determinism reconfirmed for all seven mechanisms that
+make such a claim (`Version.id`, `TrustGraph.connected_components`,
+`RetrievalResult.id`/`ContextPackage.id`, `fingerprint_history()`, and
+now `DerivedValue.id` and `fingerprint()`/`fingerprint_history()` with
+`DerivedValue`s present). No file under `core/`, `morpho/`, `adapters/`,
+`backends/`, `runtime/`, `scout/`, or `retrieval/` was modified by
+Phase 17 — the only implementation files touched are `evidence/types.py`,
+`evidence/pool.py`, and `evidence/admission.py`. `RetrievalQuery.id` is
+byte-for-byte unchanged from before Phase 17 existed (verified against
+the value recorded in the Phase 15 audit); `RetrievalResult.id`/
+`ContextPackage.id` shift only through the already-opaque
+`evidence_version_id` they depended on before, not through any change to
+their own hash inputs.

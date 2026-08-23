@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import List, Union
 
 from evidence.pool import EvidencePool
-from evidence.types import ClaimedRelationship, Document, Observation, Record, Referent
+from evidence.types import ClaimedRelationship, DerivedValue, Document, Observation, Record, Referent
 
 
 @dataclass(frozen=True)
@@ -117,3 +117,36 @@ def admit_claimed_relationship(
             )
         )
     return errors if errors else relationship
+
+
+def admit_derived_value(pool: EvidencePool, derived_value: DerivedValue) -> Union[DerivedValue, List[AdmissionError]]:
+    """Referential integrity is checked HERE, not in `make_derived_value`
+    -- the same split already established by
+    `admit_claimed_relationship`/`make_claimed_relationship`: a
+    `DerivedValue` may be constructed whose `derived_from` ids are not
+    (yet) in the pool, but it cannot be admitted until every one of them
+    is either a known `Observation` or a known `DerivedValue`. This is
+    also what makes a derivation cycle structurally impossible through
+    this gate: an id must already exist in the pool before anything can
+    successfully reference it, and nothing is ever mutated in place, so
+    no admitted `DerivedValue` can ever reference one admitted after it."""
+
+    errors: List[AdmissionError] = []
+    if not derived_value.derived_from:
+        errors.append(
+            AdmissionError("DerivedValue", "NO_DERIVED_FROM", "DerivedValue must reference at least one input")
+        )
+    for did in derived_value.derived_from:
+        if not (pool.has_observation(did) or pool.has_derived_value(did)):
+            errors.append(
+                AdmissionError(
+                    "DerivedValue",
+                    "UNKNOWN_INPUT",
+                    f"derived_from id {did!r} is neither a known Observation nor a known DerivedValue",
+                )
+            )
+    if not derived_value.method:
+        errors.append(AdmissionError("DerivedValue", "NO_METHOD", "method is required"))
+    if not derived_value.content:
+        errors.append(AdmissionError("DerivedValue", "EMPTY_CONTENT", "DerivedValue.content is empty"))
+    return errors if errors else derived_value

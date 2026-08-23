@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping, Optional, Tuple
+from typing import Iterable, Mapping, Optional, Tuple
 
 from evidence.identity import content_hash
 
@@ -214,4 +214,71 @@ def make_claimed_relationship(
         type=type,
         observation_id=observation_id,
         confidence=confidence,
+    )
+
+
+@dataclass(frozen=True)
+class DerivedValue:
+    """A value synthesized *from* other Observations and/or DerivedValues
+    (`docs/COMPUTATIONAL_COMMONS.md` §B/§E) -- the first representation in
+    this codebase for "using O1, O2, and O3, method M, I derive value V,"
+    as opposed to `Observation`, which is always tied to exactly one
+    extraction event over one Record. Identity covers only what makes it
+    *this* derivation -- the inputs, the method, and the derived content
+    -- never `confidence` or `derived_at`, the same discipline
+    `Observation` already establishes and for the same reason: a
+    re-derivation with the identical inputs/method/content is the same
+    fact, even if its confidence or the moment it was recorded differs.
+
+    `derived_from` may reference Observation ids, DerivedValue ids, or a
+    mix of both -- a derivation may itself be re-derived (§E: "can itself
+    be superseded by a better derivation"). Referential integrity (do the
+    referenced ids actually exist in the pool) is checked at admission
+    (`evidence/admission.py::admit_derived_value`), not here -- exactly
+    the same split `make_claimed_relationship`/`admit_claimed_relationship`
+    already establish. Because nothing is ever mutated in place and an id
+    must already exist in the pool before anything can reference it, a
+    derivation cycle cannot be constructed through the public admission
+    path -- see `tests/test_evidence_derived_value.py` for the proof."""
+
+    id: str
+    derived_from: Tuple[str, ...]
+    method: str
+    content: Mapping[str, object]
+    confidence: float
+    derived_at: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "derived_from", tuple(self.derived_from))
+        object.__setattr__(self, "content", MappingProxyType(dict(self.content)))
+        if not (0.0 <= self.confidence <= 1.0):
+            raise ValueError(f"DerivedValue.confidence must be in [0, 1], got {self.confidence!r}")
+
+
+def make_derived_value(
+    derived_from: Iterable[str],
+    method: str,
+    content: Mapping[str, object],
+    confidence: float,
+    derived_at: str,
+) -> DerivedValue:
+    # Deduplicated AND sorted before hashing -- unlike make_observation's
+    # record_ids (sorted only), derived_from is explicitly deduplicated
+    # per this phase's specification, so citing the same input twice
+    # never changes identity.
+    derived_from = tuple(sorted(set(derived_from)))
+    derived_id = content_hash(
+        {
+            "derived_from": list(derived_from),
+            "method": method,
+            "content": dict(sorted(content.items())),
+        }
+    )
+    return DerivedValue(
+        id=derived_id,
+        derived_from=derived_from,
+        method=method,
+        content=content,
+        confidence=confidence,
+        derived_at=derived_at,
     )
