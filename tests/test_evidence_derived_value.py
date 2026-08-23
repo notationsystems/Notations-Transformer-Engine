@@ -216,8 +216,12 @@ def test_empty_derived_values_key_is_present_in_fingerprint_payload():
     """The fingerprint payload's "derived_values" key must exist
     unconditionally, even for a pool that never constructs a
     DerivedValue -- proven directly by reproducing the exact expected
-    seven-key payload independently and confirming it hashes identically
-    to a fresh EvidencePool's fingerprint()."""
+    payload independently and confirming it hashes identically to a
+    fresh EvidencePool's fingerprint(). Includes "derived_groundings"
+    (Phase 19's eighth key, also unconditional) since this test
+    reconstructs the payload's exact shape rather than merely checking
+    for "derived_values"'s presence -- it would otherwise assert a stale
+    schema."""
     from evidence.identity import content_hash
 
     pool = EvidencePool()
@@ -229,6 +233,7 @@ def test_empty_derived_values_key_is_present_in_fingerprint_payload():
         "referents": [],
         "claimed_relationships": [],
         "derived_values": [],
+        "derived_groundings": [],
     }
     assert pool.fingerprint() == content_hash(expected_empty_payload)
 

@@ -20,7 +20,16 @@ from __future__ import annotations
 from typing import Dict, List, Tuple
 
 from evidence.identity import content_hash
-from evidence.types import ClaimedRelationship, DerivedValue, Document, Observation, Record, Referent, Source
+from evidence.types import (
+    ClaimedRelationship,
+    DerivedGrounding,
+    DerivedValue,
+    Document,
+    Observation,
+    Record,
+    Referent,
+    Source,
+)
 
 
 class EvidencePool:
@@ -36,6 +45,12 @@ class EvidencePool:
         # directly). Same storage/identity/write-observation discipline as
         # every category above.
         self._derived_values: Dict[str, DerivedValue] = {}
+        # Phase 19: DerivedGrounding -- an eighth evidence category,
+        # declaring which Referent(s) a DerivedValue is about. Strictly
+        # additive: it does not touch DerivedValue's own storage or
+        # identity, and is never consulted by provenance (evidence/
+        # provenance.py) or the Trust Graph (evidence/trust_graph.py).
+        self._derived_groundings: Dict[str, DerivedGrounding] = {}
         # Phase 16: append-only history of observed fingerprint() values.
         # See fingerprint_history() below -- populated only from inside the
         # six put_* methods, never from a read accessor (including
@@ -73,6 +88,10 @@ class EvidencePool:
         self._derived_values[derived_value.id] = derived_value
         self._observe_fingerprint()
 
+    def put_derived_grounding(self, grounding: DerivedGrounding) -> None:
+        self._derived_groundings[grounding.id] = grounding
+        self._observe_fingerprint()
+
     def _observe_fingerprint(self) -> None:
         """The Phase 16 observation boundary (`docs/RETRIEVAL_ARCHITECTURE.md`
         §7): called after a put_* method has already stored its object, so
@@ -80,15 +99,15 @@ class EvidencePool:
         only when it differs from the last recorded entry -- the compare-
         and-append rule from the approved Phase 16 specification, kept as
         a plain private method (not a free-standing helper) since it is
-        shared by all seven put_* call sites (put_source, put_document,
+        shared by all eight put_* call sites (put_source, put_document,
         put_record, put_observation, put_referent,
-        put_claimed_relationship, put_derived_value -- the last added in
-        Phase 17) and has no reason to exist independent of
-        `EvidencePool`'s own state. `fingerprint()` itself is untouched:
-        this method calls it, it never calls back into this method.
-        Any future put_* method must call this too -- nothing enforces
-        that structurally, it is a convention, not a guarantee (see the
-        Phase 17 post-implementation audit)."""
+        put_claimed_relationship, put_derived_value -- added Phase 17,
+        put_derived_grounding -- added Phase 19) and has no reason to
+        exist independent of `EvidencePool`'s own state. `fingerprint()`
+        itself is untouched: this method calls it, it never calls back
+        into this method. Any future put_* method must call this too --
+        nothing enforces that structurally, it is a convention, not a
+        guarantee (see the Phase 17 post-implementation audit)."""
         current = self.fingerprint()
         if not self._fingerprint_history or self._fingerprint_history[-1] != current:
             self._fingerprint_history.append(current)
@@ -113,6 +132,9 @@ class EvidencePool:
     def get_derived_value(self, derived_value_id: str) -> DerivedValue:
         return self._derived_values[derived_value_id]
 
+    def get_derived_grounding(self, grounding_id: str) -> DerivedGrounding:
+        return self._derived_groundings[grounding_id]
+
     def has_referent(self, referent_id: str) -> bool:
         return referent_id in self._referents
 
@@ -130,6 +152,9 @@ class EvidencePool:
 
     def has_derived_value(self, derived_value_id: str) -> bool:
         return derived_value_id in self._derived_values
+
+    def has_derived_grounding(self, grounding_id: str) -> bool:
+        return grounding_id in self._derived_groundings
 
     # -- query: every Observation/ClaimedRelationship ever admitted, unfiltered and
     #    un-deduplicated -- §E requires conflicting evidence to coexist, so these
@@ -162,6 +187,9 @@ class EvidencePool:
     def all_derived_values(self) -> Tuple[DerivedValue, ...]:
         return tuple(self._derived_values[k] for k in sorted(self._derived_values))
 
+    def all_derived_groundings(self) -> Tuple[DerivedGrounding, ...]:
+        return tuple(self._derived_groundings[k] for k in sorted(self._derived_groundings))
+
     def fingerprint(self) -> str:
         """A deterministic content hash of exactly which object ids this
         pool currently holds (`docs/RETRIEVAL_ARCHITECTURE.md` §evidence
@@ -174,17 +202,18 @@ class EvidencePool:
         this hashes the *sorted* id sets, not any dict's iteration
         order).
 
-        Phase 17: extended with a seventh key, `"derived_values"`, always
-        present (even when empty) -- omitting a real evidence category
-        from this hash would leave it invisible to `fingerprint_history()`
-        and to every `evidence_version_id` claim built on it, which would
-        be the actual defect. This intentionally changes `fingerprint()`'s
-        *output value* relative to Phase 16 for every pool, including ones
-        that never construct a `DerivedValue` -- the hashing algorithm and
-        every other key are unchanged; no committed test in this
-        repository asserts a literal fingerprint string, so nothing here
-        breaks any existing assertion, only the values a fresh run
-        produces."""
+        Phase 17 extended this with a seventh key, `"derived_values"`;
+        Phase 19 adds an eighth, `"derived_groundings"` -- both always
+        present (even when empty) for the same reason: omitting a real
+        evidence category from this hash would leave it invisible to
+        `fingerprint_history()` and to every `evidence_version_id` claim
+        built on it, which would be the actual defect. Each addition
+        intentionally changes `fingerprint()`'s *output value* relative to
+        the prior phase for every pool, including ones that never
+        construct the new category -- the hashing algorithm and every
+        other key are unchanged; no committed test in this repository
+        asserts a literal fingerprint string, so nothing here breaks any
+        existing assertion, only the values a fresh run produces."""
         payload = {
             "sources": sorted(self._sources),
             "documents": sorted(self._documents),
@@ -193,6 +222,7 @@ class EvidencePool:
             "referents": sorted(self._referents),
             "claimed_relationships": sorted(self._claimed_relationships),
             "derived_values": sorted(self._derived_values),
+            "derived_groundings": sorted(self._derived_groundings),
         }
         return content_hash(payload)
 

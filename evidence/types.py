@@ -291,3 +291,46 @@ def make_derived_value(
         confidence=confidence,
         derived_at=derived_at,
     )
+
+
+@dataclass(frozen=True)
+class DerivedGrounding:
+    """What a DerivedValue is ABOUT, kept strictly separate from what it
+    was derived FROM (Phase 18's `derived_from`/`ancestry_of`) --
+    `docs/PHASE_14_DATA_POOL_ARCHITECTURE.md` §M sketches an `--about-->`
+    arrow from evidence to a Referent, but no code anywhere implemented
+    it before this phase, for any type.
+
+    Identity is `content_hash({derived_value_id, referent_ids})` --
+    `DerivedValue.id` itself is deliberately untouched: folding
+    `referent_ids` into DerivedValue's own identity would mean a
+    derivation-fact (inputs + method + content) could never be shared or
+    reused across two different asserted subjects, the same reason
+    `ClaimedRelationship` is a separate object from `Observation` rather
+    than a field on it. `referent_ids` is one-or-more, not a from/to
+    pair -- most derived facts are unary ("82% conversion for Reactor
+    A"), not a relationship between two Referents, and forcing a unary
+    fact into a binary shape would require an unjustified second
+    referent. What *kind* of connection this is stays in
+    `DerivedValue.method`/`content`, exactly as `Observation.content`
+    already carries semantic detail without a forced schema -- this
+    object states only WHICH Referent(s), nothing about WHY.
+
+    Multiple, even conflicting, groundings for the same DerivedValue can
+    coexist -- content-addressed identity already makes this automatic,
+    the same discipline `ClaimedRelationship` establishes for
+    conflicting claims -- so no new conflict-resolution mechanism is
+    introduced here."""
+
+    id: str
+    derived_value_id: str
+    referent_ids: Tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "referent_ids", tuple(self.referent_ids))
+
+
+def make_derived_grounding(derived_value_id: str, referent_ids: Iterable[str]) -> DerivedGrounding:
+    referent_ids = tuple(sorted(set(referent_ids)))
+    grounding_id = content_hash({"derived_value_id": derived_value_id, "referent_ids": list(referent_ids)})
+    return DerivedGrounding(id=grounding_id, derived_value_id=derived_value_id, referent_ids=referent_ids)

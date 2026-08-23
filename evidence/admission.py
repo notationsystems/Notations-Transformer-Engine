@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import List, Union
 
 from evidence.pool import EvidencePool
-from evidence.types import ClaimedRelationship, DerivedValue, Document, Observation, Record, Referent
+from evidence.types import ClaimedRelationship, DerivedGrounding, DerivedValue, Document, Observation, Record, Referent
 
 
 @dataclass(frozen=True)
@@ -151,3 +151,31 @@ def admit_derived_value(pool: EvidencePool, derived_value: DerivedValue) -> Unio
     if not derived_value.content:
         errors.append(AdmissionError("DerivedValue", "EMPTY_CONTENT", "DerivedValue.content is empty"))
     return errors if errors else derived_value
+
+
+def admit_derived_grounding(
+    pool: EvidencePool, grounding: DerivedGrounding
+) -> Union[DerivedGrounding, List[AdmissionError]]:
+    """Referential integrity only, same split every other admit_* gate
+    already establishes: does the referenced DerivedValue exist, does
+    every referenced Referent exist, is there at least one. Nothing here
+    judges whether the grounding is *correct* -- that is not this gate's
+    job for any evidence type."""
+
+    errors: List[AdmissionError] = []
+    if not pool.has_derived_value(grounding.derived_value_id):
+        errors.append(
+            AdmissionError(
+                "DerivedGrounding",
+                "UNKNOWN_DERIVED_VALUE",
+                f"derived_value_id {grounding.derived_value_id!r} not in pool",
+            )
+        )
+    if not grounding.referent_ids:
+        errors.append(
+            AdmissionError("DerivedGrounding", "NO_REFERENT_IDS", "DerivedGrounding must reference at least one Referent")
+        )
+    for rid in grounding.referent_ids:
+        if not pool.has_referent(rid):
+            errors.append(AdmissionError("DerivedGrounding", "UNKNOWN_REFERENT", f"referent_id {rid!r} not in pool"))
+    return errors if errors else grounding
