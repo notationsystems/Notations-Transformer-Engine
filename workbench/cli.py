@@ -110,6 +110,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     )),
     ("review", (
         ("timeline [n]", "the real state trajectory, and one state within it"),
+        ("thread [n|terms]", "one candidate's projection through that trajectory"),
         ("history", "transition narrative for this candidate"),
         ("diagnostics", "full detail for every transition"),
     )),
@@ -1129,6 +1130,163 @@ def format_timeline_state(state: WorkbenchState, index: int) -> str:
     )
 
 
+# -- PHASE 91: candidate evidence threads -------------------------------------------------------------
+#
+# A thread is a PROJECTION of the global real-state trajectory, not a
+# second history. The state ids are the global `ModelState.id`s; no
+# candidate-local state identity is invented, because none exists.
+#
+# The whole derivation rests on one existing fact: the assessment that
+# advanced the session out of a state carries its own `candidate_id`. If
+# it matches the thread's candidate, that transition is this candidate's
+# evidence; if it does not, the global state advanced and this
+# candidate's evidence did not. Those are different statements and the
+# view makes them differently.
+
+
+def _thread_rows(
+    state: WorkbenchState, candidate: ActionCandidate, index: int, unit: str,
+) -> List[Tuple[str, str]]:
+    """One global state, read through one candidate. An observation or a
+    residual appears ONLY when the transition into this state belonged to
+    this candidate."""
+    history = state.session.state_history
+    model_state = history[index]
+    rows: List[Tuple[str, str]] = []
+
+    if index > 0:
+        assessment = state.assessment_for_transition(history[index - 1].id)
+        if assessment is not None and assessment.candidate_id == candidate.id:
+            rows.append(("observation", theme.quantity(assessment.observed_value, unit)))
+            rows.append(("residual", theme.quantity(assessment.residual, unit, signed=True)))
+        else:
+            # the global chain moved; this candidate's evidence did not. Naming
+            # the candidate that WAS observed keeps the two facts separate.
+            other = None
+            if assessment is not None:
+                other = next(
+                    (c for c in state.list_candidates() if c.id == assessment.candidate_id), None)
+            rows.append(("global state", theme.paint("ADVANCED", theme.VALUE)))
+            rows.append((
+                "this candidate",
+                theme.paint("EVIDENCE UNCHANGED", theme.WARN)
+                + (theme.paint(f"   {_short_candidate_line(state, other)} was observed", theme.MUTED)
+                   if other is not None else "")))
+
+    prediction = state.prediction_at(candidate, model_state)
+    rows.append(("samples", theme.paint(str(prediction.sample_count), theme.VALUE)))
+    rows.append(("prediction", theme.quantity(prediction.predicted_value, unit)))
+
+    decision = state.decision_at(model_state.id)
+    if decision is not None:
+        chosen = [o for o in decision.optimizations if o.status == "SELECTED"]
+        recommended_id = chosen[0].candidate_id if chosen else None
+        if recommended_id == candidate.id:
+            rows.append(("decision", theme.paint("RECOMMENDED THIS CANDIDATE", theme.ACCENT)))
+        elif recommended_id is None:
+            rows.append(("decision", theme.paint("no candidate was selectable", theme.WARN)))
+        else:
+            other = next(
+                (c for c in state.list_candidates() if c.id == recommended_id), None)
+            rows.append((
+                "decision",
+                theme.paint("OTHER CANDIDATE", theme.MUTED)
+                + (theme.paint(f"   {_short_candidate_line(state, other)}", theme.MUTED)
+                   if other is not None else "")))
+    return rows
+
+
+def format_thread(state: WorkbenchState, candidate: ActionCandidate) -> str:
+    """One candidate's projection through the global real trajectory.
+    Every global state is represented -- a thread is a projection of that
+    history, not a list of this candidate's observations -- but a state
+    that did not change this candidate's evidence says so."""
+    history = state.session.state_history
+    unit = _unit_for(state)
+    current_id = state.session.state.id
+    observations = state.assessments_for(candidate)
+    with_evidence = sum(
+        1 for s in history if state.prediction_at(candidate, s).sample_count > 0)
+    current = state.prediction_at(candidate, state.session.state)
+    information = state.information_value_estimate(candidate, state.session.state)
+
+    body: List[str] = [
+        "",
+        theme.kv("candidate", _candidate_line(state, candidate)),
+        theme.kv("property", theme.paint(candidate.property, theme.VALUE)),
+        theme.kv("context", theme.context(candidate.target_context)),
+        theme.kv("candidate_id", theme.ident(candidate.id, size=24)),
+        "",
+        theme.paint("  A projection of the global real-state history.", theme.MUTED),
+        theme.paint("  The state identities below are the global ones.", theme.MUTED),
+        "",
+        theme.divider("current"),
+        "",
+        theme.kv("samples", theme.paint(str(current.sample_count), theme.VALUE)),
+        theme.kv("prediction", theme.quantity(current.predicted_value, unit)),
+        theme.kv("uncertainty", theme.quantity(current.uncertainty)),
+        theme.kv("information", theme.paint(
+            information.estimate_status,
+            theme.WARN if information.estimate is None else theme.VALUE)),
+        theme.kv("observations", theme.paint(str(len(observations)), theme.VALUE)
+                 + theme.paint("   admitted for this candidate", theme.MUTED)),
+        theme.kv("global states", theme.paint(str(len(history)), theme.VALUE)),
+        theme.kv("with evidence", theme.paint(str(with_evidence), theme.VALUE)
+                 + theme.paint("   states where this candidate has any sample", theme.MUTED)),
+        "",
+        theme.divider("projection"),
+        "",
+    ]
+
+    for index, model_state in enumerate(history):
+        marker = (theme.paint("  " + theme.ARROW + " CURRENT", theme.ACCENT)
+                  if model_state.id == current_id else "")
+        body.append(
+            theme.paint(f"S{index}", theme.TITLE) + "  "
+            + theme.ident(model_state.id) + marker
+        )
+        body.extend(theme.tree(_thread_rows(state, candidate, index, unit), label_width=14))
+
+        projections = [
+            b for b in state.branches_from(model_state.id) if b.candidate_id == candidate.id
+        ]
+        if projections:
+            body.append("")
+            body.append("      " + theme.paint("side projections · not in this chain", theme.MUTED))
+        for offset, branch in enumerate(projections):
+            position = state.branches.index(branch) + 1
+            stem = theme.TREE_END if offset == len(projections) - 1 else theme.TREE_MID
+            body.append(
+                "      " + theme.paint(stem + " HYPOTHETICAL", theme.WARN) + "  "
+                + theme.paint(f"branch {theme.index(position)}", theme.WARN) + "  "
+                + theme.ident(branch.projected_state_id)
+            )
+            body.append(
+                "        " + theme.paint(
+                    f"y = {theme.num(branch.hypothetical_value)}", theme.WARN)
+                + (theme.paint(f" {unit}", theme.MUTED) if unit else "")
+                + theme.paint("   NOT ADMITTED", theme.WARN)
+            )
+
+        if index < len(history) - 1:
+            body.append("")
+            body.append("    " + theme.paint("│", theme.STRUCTURE))
+            body.append("    " + theme.paint("▼  REAL", theme.ACCENT))
+        body.append("")
+
+    body.append(theme.divider("legend"))
+    body.append("")
+    body.append(theme.paint(
+        "  CURRENT marks the current GLOBAL state. A thread has no current", theme.MUTED))
+    body.append(theme.paint(
+        "  state of its own -- it is one reading of the chain above.", theme.MUTED))
+    body.append("")
+    return theme.panel(
+        "candidate thread", body,
+        right=f"{len(observations)} observation(s) · {len(history)} global state(s)",
+    )
+
+
 # -- PHASE 89: comparison operands ---------------------------------------------------------------------
 #
 # An operand is NEVER a new object. It is one of two things that already
@@ -1727,6 +1885,22 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
     return format_selection(state, resolved)
 
 
+def _cmd_thread(state: WorkbenchState, args: List[str]) -> str:
+    """Observational only. Reuses Phase 84's semantic resolver, so
+    `thread baseline 80`, `thread 03` and `thread formulation=baseline`
+    all name a candidate the same way `select` and `inspect` do. No
+    second selector grammar is introduced, and an ambiguous selector
+    stays ambiguous."""
+    if not args:
+        if state.selected_candidate is None:
+            return _no_selection_notice()
+        return format_thread(state, state.selected_candidate)
+    resolved = resolve_candidate(state, args)
+    if isinstance(resolved, str):
+        return resolved
+    return format_thread(state, resolved)
+
+
 def _cmd_timeline(state: WorkbenchState, args: List[str]) -> str:
     """Observational only. With no argument, the whole real trajectory;
     with a number, one state by DISPLAY index (identity remains the
@@ -1843,6 +2017,8 @@ def _cmd_inspect(state: WorkbenchState, args: List[str]) -> str:
     another. Anything else is a candidate inspection, unchanged."""
     if args and args[0].lower() == "state":
         return _cmd_timeline(state, args[1:] or ["__missing__"])
+    if args and args[0].lower() == "thread":
+        return _cmd_thread(state, args[1:])
     return _cmd_inspect_candidate(state, args)
 
 
@@ -1977,6 +2153,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "thread":
+        return _cmd_thread(state, args)
     if command == "timeline":
         return _cmd_timeline(state, args)
     if command == "compare":

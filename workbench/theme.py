@@ -290,11 +290,13 @@ def tree(rows: Sequence[Tuple[str, str]], *, label_width: int = 14) -> List[str]
     out: List[str] = []
     for i, (label, value) in enumerate(rows):
         stem = TREE_END if i == len(rows) - 1 else TREE_MID
-        out.append(
-            paint("    " + stem + " ", STRUCTURE)
-            + paint(pad(label, label_width), LABEL)
-            + value
-        )
+        # `pad` leaves an already-oversized label untouched, which would butt
+        # it straight against its value. A label that fills its own column
+        # must still be separated from what it labels.
+        column = pad(label, label_width)
+        if visible_len(column) >= label_width and visible_len(label) >= label_width:
+            column = column + " "
+        out.append(paint("    " + stem + " ", STRUCTURE) + paint(column, LABEL) + value)
     return out
 
 

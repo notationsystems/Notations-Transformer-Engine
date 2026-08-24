@@ -437,6 +437,15 @@ class WorkbenchState:
                 return assessment
         return None
 
+    def assessments_for(self, candidate: ActionCandidate) -> List[PredictionAssessment]:
+        """Every admitted assessment belonging to ONE candidate, in
+        admission order. Matched on `PredictionAssessment.candidate_id`
+        -- an `ActionCandidate.id` already encodes formulation, property
+        and target context, so agreeing on it is agreeing on the cell.
+        Never matched by position in `assessments`, and never by the
+        position of a transition in `state_history`."""
+        return [a for a in self.assessments if a.candidate_id == candidate.id]
+
     def branches_from(self, state_id: str) -> List[CounterfactualOutcome]:
         """Retained branches projected from a given real state, in
         registry order. Matched on the branch's own frozen
