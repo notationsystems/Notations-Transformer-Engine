@@ -39,6 +39,19 @@ runtime/                        feedback_loop.py: the only bridge from a
                                  simulation/neural candidate back into
                                  canonical state, and it goes through
                                  validate_candidate like everything else
+daf/                               the Data Acquisition Fabric: one layer
+                                   upstream of SCOUT. Artifact (stable
+                                   resource identity) -> ArtifactVersion
+                                   (content-addressed, immutable) ->
+                                   AcquisitionRecord (a single acquisition
+                                   occurrence, kept deliberately separate
+                                   from ArtifactVersion) -> optional
+                                   NormalizedRecord (Parser + SchemaVersion
+                                   provenance) -> daf.bridge, which admits
+                                   evidence.types.Document/Record/
+                                   Observation through evidence/admission.py,
+                                   same one door scout.pipeline uses. See
+                                   docs/DAF_ARCHITECTURE.md.
 evidence/                         the evidence pool: Source, Document,
                                    Record, Observation, Referent,
                                    ClaimedRelationship + a derived Trust
@@ -99,11 +112,15 @@ tests/                             one file per architectural phase
                                     test_evidence_*.py / test_trust_graph.py /
                                     test_scout_*.py (the evidence pool, Trust
                                     Graph, network metrics, and SCOUT
-                                    pipeline), and test_retrieval_*.py /
+                                    pipeline), test_retrieval_*.py /
                                     test_context_package.py (RetrievalQuery/
                                     RetrievalResult/ContextPackage
                                     determinism, reproducibility, and
-                                    read-only boundaries)
+                                    read-only boundaries), and test_daf_*.py
+                                    (Artifact/ArtifactVersion/AcquisitionRecord
+                                    identity, idempotent storage, transformation
+                                    provenance, and the DAF -> evidence.types
+                                    bridge)
 runtime/test_feedback_loop.py        kept colocated with the module it tests
                                       (verifies the "only validation.py may
                                       mint a Version" rule for the simulation/
