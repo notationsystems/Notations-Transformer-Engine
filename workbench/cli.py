@@ -51,13 +51,14 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import List, Optional, Sequence, Tuple
+from typing import List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from materials.assessment import PredictionAssessment
 from materials.candidates import ActionCandidate
 from materials.diagnostics import StateTransitionDiagnostic
 from materials.ensemble import CounterfactualOutcome
-from materials.model_state import Prediction
+from materials.trajectory import PredictionDelta
+from materials.model_state import ModelState, Prediction
 from materials.optimization import OptimizationResult
 from experiment.session import trajectory_of
 from materials.diagnostics import diagnose_transitions
@@ -101,6 +102,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("explore <value>", "project a hypothetical outcome"),
         ("branches", "every hypothetical branch projected this session"),
         ("branch <n>", "re-inspect one retained hypothetical branch"),
+        ("compare [operands]", "place two states, branches or decisions side by side"),
     )),
     ("admit", (
         ("observe <value> [unit]", "admit an externally supplied result"),
@@ -924,6 +926,321 @@ def format_branch(state: WorkbenchState, outcome: CounterfactualOutcome, positio
     )
 
 
+# -- PHASE 89: comparison operands ---------------------------------------------------------------------
+#
+# An operand is NEVER a new object. It is one of two things that already
+# exist, each of which can yield a `Prediction` for a candidate:
+#
+#   a real `ModelState`        from `session.state_history`
+#   a `CounterfactualOutcome`  from the Phase 88 branch registry
+#
+# `materials.trajectory.compare_predictions` then does the comparing, and
+# `materials.diagnostics.StateTransitionDiagnostic` supplies the
+# observation and signed residual for an adjacent real pair. No
+# `Comparison` domain object is introduced, because none is missing.
+
+
+class _Operand(NamedTuple):
+    """A presentation-only handle on an EXISTING object. Carries no
+    quantity of its own -- `state` is the real or projected `ModelState`
+    that already existed, `branch` is the retained outcome when this
+    operand is hypothetical, and `label`/`identity` are display strings
+    derived from ids that already existed."""
+
+    kind: str          # "real" | "hypothetical"
+    label: str
+    state: ModelState
+    branch: Optional[CounterfactualOutcome]
+    candidate: Optional[ActionCandidate]
+
+
+def _real_operand(state: WorkbenchState, model_state: ModelState, position: int) -> _Operand:
+    return _Operand(
+        kind="real", label=f"state {theme.index(position)}",
+        state=model_state, branch=None, candidate=state.selected_candidate,
+    )
+
+
+def _branch_operand(state: WorkbenchState, outcome: CounterfactualOutcome, position: int) -> _Operand:
+    return _Operand(
+        kind="hypothetical", label=f"branch {theme.index(position)}",
+        state=outcome.projected_state, branch=outcome,
+        candidate=_branch_candidate(state, outcome),
+    )
+
+
+def _operand_badge(operand: _Operand) -> str:
+    if operand.kind == "real":
+        return theme.badge("real", theme.ACCENT)
+    return theme.badge("hypothetical", theme.WARN)
+
+
+def _resolve_operand(state: WorkbenchState, tokens: List[str]) -> Union[_Operand, str]:
+    """Consumes `state <n>` or `branch <n>` from the front of `tokens`.
+    Returns the operand, or an already-rendered notice explaining exactly
+    what was expected. Deliberately reuses the two selector words the
+    workbench already uses -- no second selector grammar is introduced."""
+    kind = tokens[0].lower()
+    if len(tokens) < 2:
+        return theme.notice(
+            "incomplete operand", f"{kind} requires a number.",
+            hint="compare state <n>   ·   compare branch <n>",
+        )
+    try:
+        position = int(tokens[1])
+    except ValueError:
+        return theme.notice(
+            "unreadable operand", f"{tokens[1]!r} is not a number.",
+            hint="compare state <n>   ·   compare branch <n>",
+        )
+    if kind == "branch":
+        outcome = state.branch_at(position)
+        if outcome is None:
+            return theme.notice(
+                "no such branch", f"branch {position} is not in this session's registry.",
+                hint=f"branch <1-{len(state.branches)}>" if state.branches else "explore <value>   first",
+            )
+        return _branch_operand(state, outcome, position)
+    history = state.session.state_history
+    if not 1 <= position <= len(history):
+        return theme.notice(
+            "no such state", f"state {position} is not in this session's real history.",
+            hint=f"state <1-{len(history)}>",
+        )
+    return _real_operand(state, history[position - 1], position)
+
+
+def _comparison_rows(
+    state: WorkbenchState, left: _Operand, right: _Operand, candidate: ActionCandidate,
+    delta: PredictionDelta, unit: str,
+) -> List[str]:
+    """The shared readout. Every row is a field that already exists on
+    `Prediction`/`PredictionDelta`/`InformationValueEstimate`; nothing is
+    synthesised to fill the table, and an undetermined side stays
+    UNDETERMINED rather than becoming a number."""
+    left_prediction = state.prediction_at(candidate, left.state)
+    right_prediction = state.prediction_at(candidate, right.state)
+    left_information = state.information_value_estimate(candidate, left.state)
+    right_information = state.information_value_estimate(candidate, right.state)
+
+    def row(label: str, a: str, b: str) -> str:
+        """FROM and TO are two independent cells, separated by the same
+        transition glyph every other before/after readout in this console
+        uses. The separator is structural, not decorative: an
+        UNDETERMINED on one side must never read as qualifying a numeral
+        on the other."""
+        return theme.kv(label, theme.transition(a, b, width_before=22))
+
+    rows = [
+        row("samples",
+            theme.paint(str(left_prediction.sample_count), theme.VALUE),
+            theme.paint(str(right_prediction.sample_count), theme.VALUE)),
+        row("prediction",
+            theme.quantity(left_prediction.predicted_value, unit),
+            theme.quantity(right_prediction.predicted_value, unit)),
+        row("uncertainty",
+            theme.quantity(left_prediction.uncertainty),
+            theme.quantity(right_prediction.uncertainty)),
+        row("information",
+            theme.paint(left_information.estimate_status,
+                        theme.WARN if left_information.estimate is None else theme.VALUE),
+            theme.paint(right_information.estimate_status,
+                        theme.WARN if right_information.estimate is None else theme.VALUE)),
+        "",
+        theme.divider("change"),
+        "",
+        # a delta gets its own full-width row so an undetermined one can be
+        # spelled out rather than clipped into a column.
+        theme.kv("prediction", theme.quantity(
+            delta.delta_predicted_value, unit, signed=True)),
+        theme.kv("uncertainty", theme.quantity(
+            delta.delta_uncertainty, signed=True)),
+    ]
+    return rows
+
+
+def _operand_header(left: _Operand, right: _Operand) -> List[str]:
+    return [
+        theme.kv("from", theme.pad(_operand_badge(left), 20) + theme.paint(left.label.upper(), theme.MUTED)),
+        theme.kv("to", theme.pad(_operand_badge(right), 20) + theme.paint(right.label.upper(), theme.MUTED)),
+        theme.kv("state id", theme.pad(theme.ident(left.state.id), 24) + theme.ident(right.state.id)),
+    ]
+
+
+def format_comparison(state: WorkbenchState, left: _Operand, right: _Operand) -> str:
+    """One comparison panel for any operand pair. Double-ruled whenever
+    EITHER side is hypothetical -- the Phase 88 rule holds: a view that
+    shows a projection is never single-ruled."""
+    candidate = left.candidate if left.candidate is not None else right.candidate
+    if candidate is None:
+        return _no_selection_notice()
+    if (left.branch is not None and right.branch is not None
+            and left.branch.candidate_id != right.branch.candidate_id):
+        return theme.notice(
+            "incomparable branches",
+            "these two branches project different candidates, so their predictions "
+            "are not two readings of one quantity.",
+            hint="compare branches that share a candidate   ·   branches   lists them",
+        )
+
+    unit = _unit_for(state)
+    hypothetical = left.kind == "hypothetical" or right.kind == "hypothetical"
+    delta = state.delta_between(
+        state.prediction_at(candidate, left.state), state.prediction_at(candidate, right.state))
+
+    body: List[str] = ["", *_operand_header(left, right), ""]
+    body.append(theme.kv("candidate", _candidate_line(state, candidate)))
+    body.append("")
+
+    for side, operand in (("from", left), ("to", right)):
+        if operand.branch is not None:
+            body.append(theme.kv(f"{side} hypothesis", theme.paint(
+                f"y = {theme.num(operand.branch.hypothetical_value)}", theme.WARN)
+                + (theme.paint(f" {unit}", theme.MUTED) if unit else "")))
+            body.append(theme.kv(f"{side} parent", theme.ident(operand.branch.source_state_id)))
+    if hypothetical:
+        body.append("")
+
+    body.append(theme.divider("readout"))
+    body.append("")
+    body.append(theme.kv("", theme.paint(theme.transition(
+        theme.pad("FROM", 22), "TO", width_before=22), theme.LABEL)))
+    body.extend(_comparison_rows(state, left, right, candidate, delta, unit))
+    body.append("")
+
+    body.append(theme.divider("evidence"))
+    body.append("")
+    diagnostic = (
+        state.transition_between(candidate, left.state.id, right.state.id)
+        if not hypothetical else None
+    )
+    if hypothetical:
+        body.append(theme.kv("admitted", theme.pad(
+            theme.badge("no" if left.kind == "hypothetical" else "yes",
+                        theme.WARN if left.kind == "hypothetical" else theme.ACCENT), 24)
+            + theme.badge("no" if right.kind == "hypothetical" else "yes",
+                          theme.WARN if right.kind == "hypothetical" else theme.ACCENT)))
+        body.append(theme.kv("observation", theme.paint("NO OBSERVATION", theme.WARN)
+                             + theme.paint("   a projection is never an observation", theme.MUTED)))
+        body.append(theme.kv("residual", theme.paint(theme.UNDETERMINED, theme.WARN)
+                             + theme.paint("   nothing admitted to compare against", theme.MUTED)))
+    elif diagnostic is None:
+        body.append(theme.kv("observation", theme.paint("NOT AVAILABLE", theme.WARN)))
+        body.append(theme.kv("", theme.paint(
+            "not one admitted transition apart", theme.MUTED)))
+        body.append(theme.kv("residual", theme.paint(theme.UNDETERMINED, theme.WARN)))
+    else:
+        body.append(theme.kv("observation", theme.quantity(diagnostic.observation_value, unit)))
+        body.append(theme.kv("residual", theme.quantity(
+            diagnostic.residual_against_previous_prediction, unit, signed=True)))
+        body.append(theme.kv("abs residual", theme.quantity(diagnostic.absolute_residual, unit)))
+    body.append("")
+
+    if hypothetical:
+        body.append(theme.paint("HYPOTHETICAL", theme.WARN))
+        body.append(theme.paint("NOT ADMITTED AS EVIDENCE", theme.WARN))
+        body.append(theme.paint(
+            "One side of this comparison was projected, not observed. Neither side", theme.MUTED))
+        body.append(theme.paint(
+            "is preferable to the other; this states a computed difference only.", theme.MUTED))
+    else:
+        body.append(theme.paint(
+            "This states a computed difference between two real states.", theme.MUTED))
+        body.append(theme.paint(
+            "No claim is made about any material.", theme.MUTED))
+    body.append("")
+
+    title = "counterfactual comparison" if hypothetical else "state comparison"
+    return theme.panel(
+        title, body,
+        right=("hypothetical · not evidence" if hypothetical else "real · admitted evidence"),
+        tone=theme.WARN if hypothetical else theme.ACCENT, double=hypothetical,
+    )
+
+
+def format_decision_comparison(state: WorkbenchState) -> str:
+    """Places the two decision objects the session ALREADY holds side by
+    side. Neither is recomputed: `previous_decision` and `last_decision`
+    are the exact `OptimizationResult`s `decide` produced."""
+    previous, current = state.previous_decision, state.last_decision
+    if current is None:
+        return theme.notice(
+            "no decision yet", "nothing has been decided in this session.",
+            hint="decide   then   compare decisions", tone=theme.WARN,
+        )
+    if previous is None:
+        return theme.notice(
+            "only one decision", "this session has computed one decision, so there is "
+            "nothing to compare it against.",
+            hint="observe <value>   then   decide   then   compare decisions", tone=theme.WARN,
+        )
+
+    def recommended(optimization: OptimizationResult) -> Optional[ActionCandidate]:
+        chosen = [o for o in optimization.optimizations if o.status == "SELECTED"]
+        if not chosen:
+            return None
+        return next((c for c in state.list_candidates() if c.id == chosen[0].candidate_id), None)
+
+    def utility_of(optimization: OptimizationResult) -> str:
+        chosen = [o for o in optimization.optimizations if o.status == "SELECTED"]
+        if not chosen:
+            return theme.paint("NOT AVAILABLE", theme.WARN)
+        return theme.quantity(chosen[0].utility.utility)
+
+    before, after = recommended(previous), recommended(current)
+    body: List[str] = ["", theme.divider("previous decision"), ""]
+    body.append(theme.kv("recommended", _candidate_line(state, before) if before is not None
+                         else theme.paint("no candidate was selectable", theme.WARN)))
+    body.append(theme.kv("utility", utility_of(previous)))
+    body.append(theme.kv("computed at", theme.ident(state.previous_decision_state_id)
+                         if state.previous_decision_state_id is not None
+                         else theme.paint("NOT AVAILABLE", theme.WARN)))
+    body.append("")
+
+    body.append(theme.divider("current decision"))
+    body.append("")
+    body.append(theme.kv("recommended", _candidate_line(state, after) if after is not None
+                         else theme.paint("no candidate was selectable", theme.WARN)))
+    body.append(theme.kv("utility", utility_of(current)))
+    body.append(theme.kv("computed at", theme.ident(state.last_decision_state_id)
+                         if state.last_decision_state_id is not None
+                         else theme.paint("NOT AVAILABLE", theme.WARN)))
+    body.append("")
+
+    body.append(theme.divider("change"))
+    body.append("")
+    changed = (before.id if before else None) != (after.id if after else None)
+    body.append(theme.kv("recommendation", theme.paint(
+        "CHANGED" if changed else "UNCHANGED", theme.WARN if changed else theme.VALUE)))
+    if changed and before is not None and after is not None:
+        body.append(theme.transition(
+            theme.truncate(_short_candidate_line(state, before), 22),
+            _short_candidate_line(state, after), width_before=24))
+    body.append("")
+
+    body.append(theme.divider("basis"))
+    body.append("")
+    # the basis says what actually happened between the two decisions -- it is
+    # never a stock sentence asserting a change that did not occur.
+    advanced = (
+        state.previous_decision_state_id is not None
+        and state.last_decision_state_id is not None
+        and state.previous_decision_state_id != state.last_decision_state_id
+    )
+    if advanced and changed:
+        body.append(theme.paint("  The observed evidence changed the computed state, which", theme.VALUE))
+        body.append(theme.paint("  changed the subsequent utility landscape and recommendation.", theme.VALUE))
+    elif advanced:
+        body.append(theme.paint("  The observed evidence changed the computed state. The", theme.VALUE))
+        body.append(theme.paint("  recommendation the utility landscape yields is unchanged.", theme.VALUE))
+    else:
+        body.append(theme.paint("  Both decisions were computed at the same state, so nothing", theme.VALUE))
+        body.append(theme.paint("  in the utility landscape could have changed between them.", theme.VALUE))
+    body.append(theme.paint("  No scientific claim is made by this comparison.", theme.MUTED))
+    body.append("")
+    return theme.panel("decision comparison", body, right="computed recommendations")
+
+
 def format_assessment(
     state: WorkbenchState, candidate: ActionCandidate, predecessor_state_id: str,
     prediction: Prediction, assessment: PredictionAssessment,
@@ -1207,6 +1524,60 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
     return format_selection(state, resolved)
 
 
+def _cmd_compare(state: WorkbenchState, args: List[str]) -> str:
+    """Observational only. Resolves operands from the vocabulary the
+    workbench already uses (`state <n>`, `branch <n>`), or defaults to
+    the last real transition. Never advances anything."""
+    tokens = [a.lower() for a in args]
+    if tokens[:1] == ["decisions"] or tokens[:1] == ["decision"]:
+        return format_decision_comparison(state)
+
+    if not tokens:
+        history = state.session.state_history
+        if len(history) < 2:
+            return theme.notice(
+                "no previous real state",
+                "this session has one real state, so there is no earlier state to compare it with.",
+                hint="select <n>   then   observe <value>   ·   compare branch <n>",
+            )
+        if state.selected_candidate is None:
+            return _no_selection_notice()
+        return format_comparison(
+            state,
+            _real_operand(state, history[-2], len(history) - 1),
+            _real_operand(state, history[-1], len(history)),
+        )
+
+    if tokens[0] not in ("state", "branch"):
+        return theme.notice(
+            "unknown operand", f"{args[0]!r} is not a comparison operand.",
+            hint="compare   ·   compare branch <n>   ·   compare state <n> state <m>   "
+                 "·   compare decisions",
+        )
+
+    first = _resolve_operand(state, tokens)
+    if isinstance(first, str):
+        return first
+    rest = tokens[2:]
+    if not rest:
+        # one operand named: compare it against the CURRENT real state.
+        current = _real_operand(
+            state, state.session.state, len(state.session.state_history))
+        if first.kind == "hypothetical":
+            return format_comparison(state, current, first)
+        return format_comparison(state, first, current)
+
+    if rest[0] not in ("state", "branch"):
+        return theme.notice(
+            "unknown operand", f"{rest[0]!r} is not a comparison operand.",
+            hint="compare state <n> state <m>   ·   compare branch <n> branch <m>",
+        )
+    second = _resolve_operand(state, rest)
+    if isinstance(second, str):
+        return second
+    return format_comparison(state, first, second)
+
+
 def _cmd_branch(state: WorkbenchState, args: List[str]) -> str:
     """Inspection only. PHASE 88 sec.8 -- there is deliberately no
     commit/apply/merge/choose: a branch is an analysis, not an
@@ -1371,6 +1742,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "compare":
+        return _cmd_compare(state, args)
     if command == "branches":
         return format_branches(state)
     if command == "branch":

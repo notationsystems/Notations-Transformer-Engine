@@ -35,7 +35,12 @@ VIEW_SCRIPT = (
     ("branches", []), ("branch", ["1"]),  # before anything: empty registry
     ("explore", ["70"]), ("explore", ["90"]), ("explore", ["110"]),
     ("branches", []), ("branch", ["1"]), ("branch", ["2"]), ("branch", ["3"]),
+    ("compare", []), ("compare", ["branch", "1"]),                  # no history yet
+    ("compare", ["branch", "1", "branch", "2"]), ("compare", ["decisions"]),
     ("observe", ["80"]), ("observe", ["100"]),
+    ("compare", []), ("compare", ["branch", "1"]),                  # real -> hypothetical
+    ("compare", ["state", "1", "state", "3"]),                      # non-adjacent real pair
+    ("decide", []), ("compare", ["decisions"]),
     ("branches", []), ("branch", ["1"]),  # branches survive a real observation
     ("history", []), ("diagnostics", []), ("status", []), ("inspect", []),
     ("candidates", []), ("decide", []), ("explain", []),
@@ -43,6 +48,8 @@ VIEW_SCRIPT = (
     ("observe", ["abc"]), ("observe", []), ("explore", ["abc"]), ("explore", []),
     ("inspect", ["99"]),
     ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
+    ("compare", ["state", "99"]), ("compare", ["branch", "x"]),
+    ("compare", ["state"]), ("compare", ["nonsense"]),
     ("bogus", []),
 )
 
@@ -236,6 +243,8 @@ def test_every_error_state_names_what_was_expected(state: WorkbenchState):
         ("explore", ["abc"]), ("explore", []),
         ("inspect", ["99"]),
         ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
+        ("compare", ["state", "99"]), ("compare", ["branch", "x"]),
+        ("compare", ["state"]), ("compare", ["nonsense"]),
         ("bogus", []),
     ):
         text = dispatch(state, command, args)
@@ -248,7 +257,7 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     dispatchable = {
         "help", "scenario", "status", "candidates", "decide", "select",
         "predict", "explore", "observe", "inspect", "explain",
-        "branches", "branch", "history", "diagnostics", "quit",
+        "branches", "branch", "compare", "history", "diagnostics", "quit",
     }
     assert documented == dispatchable
     text = dispatch(state, "help", [])

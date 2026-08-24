@@ -140,17 +140,22 @@ from materials.campaign import ExperimentalCampaign, assemble_experimental_campa
 from materials.candidates import ActionCandidate, CandidateSet, generate_candidates
 from materials.decision import make_criterion
 from materials.design import assemble_experimental_design
-from materials.diagnostics import StateTransitionDiagnosticSet, diagnose_transitions
+from materials.diagnostics import (
+    StateTransitionDiagnostic, StateTransitionDiagnosticSet, diagnose_transitions,
+)
 from materials.ensemble import CounterfactualOutcome
 from materials.evaluation import evaluate_candidates
 from materials.information import InformationValueEstimate, estimate_information_value
 from materials.iteration import MaterialsIteration, reevaluate_program
-from materials.model_state import ModelState, ModelStateInformationValueModel, Prediction, resolve_model_state_key
+from materials.model_state import (
+    ModelState, ModelStateInformationValueModel, Prediction, predict, resolve_model_state_key,
+)
 from materials.optimization import OptimizationPolicy, OptimizationResult, optimize_candidates
 from materials.plan import assemble_experiment_plan
 from materials.program import make_material_program_query
 from materials.results import admit_experimental_result, make_experimental_result
 from materials.selection import SelectionPolicy, select_candidates
+from materials.trajectory import PredictionDelta, compare_predictions
 from materials.utility import ExperimentUtilityInput, evaluate_utility_set
 from materials.value import evaluate_candidate_information_values
 from retrieval.engine import DeterministicRetrievalEngine, RetrievalEngine
@@ -354,6 +359,13 @@ class WorkbenchState:
     # in its own frozen `source_state_id`, so a superseded parent can never
     # be silently rewritten to the new one.
     branches: List[CounterfactualOutcome] = field(default_factory=list)
+    # PHASE 89: which real state each retained decision was computed against.
+    # `OptimizationResult` carries no state id of its own, and the workbench
+    # knows this at `decide()` time -- so it is RECORDED (an existing
+    # `ModelState.id`, never a minted one) rather than left unknowable. This
+    # is what makes the D -> observation -> S' -> D' loop legible.
+    last_decision_state_id: Optional[str] = None
+    previous_decision_state_id: Optional[str] = None
     scenario: Optional[ResearchScenario] = None
 
     def list_candidates(self) -> Tuple[ActionCandidate, ...]:
@@ -396,6 +408,45 @@ class WorkbenchState:
         model = ModelStateInformationValueModel(target_state)
         return estimate_information_value(candidate, self.session.iteration, model)
 
+    def prediction_at(self, candidate: ActionCandidate, state: Optional[ModelState] = None) -> Prediction:
+        """`materials.model_state.predict` at an EXPLICIT state -- exactly
+        the same override shape `information_value_estimate` already
+        established, and the same shape `ExperimentSession.predict` uses
+        against its own current state. Needed by PHASE 89 so a comparison
+        can read a prediction at a historical real state or at a
+        hypothetical projected state without `workbench.cli` calling a
+        `materials.*` function directly. Introduces no mathematics: the
+        prediction at a state is already a pure function of
+        `(state.id, candidate.id)`."""
+        target_state = state if state is not None else self.session.state
+        return predict(target_state, candidate)
+
+    def delta_between(self, prediction_a: Prediction, prediction_b: Prediction) -> PredictionDelta:
+        """`materials.trajectory.compare_predictions`, unmodified -- the
+        comparison primitive this project already owns. Signed, and
+        `None` on either side whenever a quantity is undetermined. Both
+        predictions must concern the same candidate; that requirement is
+        `compare_predictions`'s own, and PHASE 89 reports it to the user
+        rather than working around it."""
+        return compare_predictions(prediction_a, prediction_b)
+
+    def transition_between(
+        self, candidate: ActionCandidate, predecessor_state_id: str, successor_state_id: str,
+    ) -> Optional[StateTransitionDiagnostic]:
+        """The EXISTING `StateTransitionDiagnostic` for one adjacent real
+        pair, if a real transition connects them for this candidate. It
+        already carries both predictions, both deltas, the admitted
+        observation and the signed residual, so a real-to-real comparison
+        needs no comparison object of its own. Returns None when the two
+        states are not adjacent in this candidate's real trajectory."""
+        for diagnostic in diagnose_transitions(
+            trajectory_of(self.session), candidate, tuple(self.assessments),
+        ).diagnostics:
+            if (diagnostic.predecessor_state_id == predecessor_state_id
+                    and diagnostic.successor_state_id == successor_state_id):
+                return diagnostic
+        return None
+
     def decide(self) -> OptimizationResult:
         """`evaluate_decision`, bound to this session's current state and
         candidate set, remembered as `self.last_decision` for `status` to
@@ -409,7 +460,9 @@ class WorkbenchState:
         # already-immutable OptimizationResults, held by reference, never recomputed.
         if self.last_decision is not None:
             self.previous_decision = self.last_decision
+            self.previous_decision_state_id = self.last_decision_state_id
         self.last_decision = result
+        self.last_decision_state_id = self.session.state.id
         return result
 
     def _require_selected_candidate(self) -> ActionCandidate:
@@ -524,7 +577,9 @@ class WorkbenchState:
         # `explain` reports across an observation. Demote it, do not discard it.
         if self.last_decision is not None:
             self.previous_decision = self.last_decision
+            self.previous_decision_state_id = self.last_decision_state_id
         self.last_decision = None
+        self.last_decision_state_id = None
         return assessment, prediction
 
     def history(self) -> StateTransitionDiagnosticSet:
