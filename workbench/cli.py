@@ -56,6 +56,7 @@ from typing import List, Optional, Sequence, Tuple
 from materials.assessment import PredictionAssessment
 from materials.candidates import ActionCandidate
 from materials.diagnostics import StateTransitionDiagnostic
+from materials.ensemble import CounterfactualOutcome
 from materials.model_state import Prediction
 from materials.optimization import OptimizationResult
 from experiment.session import trajectory_of
@@ -98,6 +99,8 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("select <n|terms>", "activate a candidate by number or by name"),
         ("select clear", "deactivate the current candidate"),
         ("explore <value>", "project a hypothetical outcome"),
+        ("branches", "every hypothetical branch projected this session"),
+        ("branch <n>", "re-inspect one retained hypothetical branch"),
     )),
     ("admit", (
         ("observe <value> [unit]", "admit an externally supplied result"),
@@ -806,6 +809,121 @@ def format_counterfactual(state: WorkbenchState, candidate: ActionCandidate, liv
     )
 
 
+def _branch_candidate(state: WorkbenchState, outcome: CounterfactualOutcome) -> Optional[ActionCandidate]:
+    """Correspondence by `candidate_id` -- never by registry position and
+    never by the candidate that happens to be selected right now."""
+    return next((c for c in state.list_candidates() if c.id == outcome.candidate_id), None)
+
+
+def _parent_note(state: WorkbenchState, outcome: CounterfactualOutcome) -> str:
+    """PHASE 88 sec.7 -- a branch is never re-parented onto a newer real
+    state. When the real session has advanced past the state a branch
+    projected from, the view SAYS so rather than rewriting the branch."""
+    if outcome.source_state_id == state.session.state.id:
+        return theme.paint("   current real state", theme.MUTED)
+    return theme.paint("   superseded · real session advanced", theme.MUTED)
+
+
+def format_branches(state: WorkbenchState) -> str:
+    """The registry. Same frame system, same identity formatting, same
+    NOT ADMITTED language as the projection view -- double-ruled and
+    amber, because every row in it is hypothetical."""
+    if not state.branches:
+        return theme.notice(
+            "no counterfactual branches",
+            "nothing has been projected in this session.",
+            hint="select <n>   then   explore <value>",
+        )
+
+    unit = _unit_for(state)
+    body: List[str] = [""]
+    for position, outcome in enumerate(state.branches, start=1):
+        candidate = _branch_candidate(state, outcome)
+        label = _short_candidate_line(state, candidate) if candidate is not None else theme.paint(
+            theme.ident(outcome.candidate_id), theme.MUTED)
+        body.append(
+            "  " + theme.paint(theme.index(position), theme.ACCENT) + "  " + label
+        )
+        body.extend(theme.tree([
+            ("parent", theme.ident(outcome.source_state_id) + _parent_note(state, outcome)),
+            ("hypothesis", theme.paint(
+                f"y = {theme.num(outcome.hypothetical_value)}", theme.WARN)
+                + (theme.paint(f" {unit}", theme.MUTED) if unit else "")),
+            ("projected", theme.ident(outcome.projected_state_id)),
+            ("evidence", theme.paint("NOT ADMITTED", theme.WARN)),
+        ], label_width=12))
+        body.append("")
+
+    body.append(theme.paint("These are analyses, not alternative histories.", theme.WARN))
+    body.append(theme.paint(
+        "No branch has been admitted as evidence and none can be applied.", theme.MUTED))
+    body.append("")
+    return theme.panel(
+        "counterfactual branches", body,
+        right=f"{len(state.branches)} hypothetical · not evidence",
+        tone=theme.WARN, double=True,
+    )
+
+
+def format_branch(state: WorkbenchState, outcome: CounterfactualOutcome, position: int) -> str:
+    """One retained branch, re-inspected. Reads only what the branch
+    already carries plus what `materials` computes AT the projected
+    state -- `WorkbenchState.information_value_estimate` already accepts
+    that state override, so nothing is recomputed here and no new
+    mathematics is introduced."""
+    candidate = _branch_candidate(state, outcome)
+    unit = _unit_for(state)
+
+    body: List[str] = [
+        "",
+        *theme.lineage([
+            ("real state", theme.ident(outcome.source_state_id) + _parent_note(state, outcome)),
+            ("hypothetical", theme.paint(f"y = {theme.num(outcome.hypothetical_value)}", theme.WARN)
+             + (theme.paint(f" {unit}", theme.MUTED) if unit else "")),
+            ("projected", theme.ident(outcome.projected_state_id)),
+        ]),
+        "",
+    ]
+    if candidate is not None:
+        body.append(theme.kv("candidate", _candidate_line(state, candidate)))
+    body.append(theme.kv("candidate_id", theme.ident(outcome.candidate_id)))
+    body.append(theme.kv("model_state_key", theme.ident(outcome.model_state_key)))
+    body.append("")
+
+    body.append(theme.divider("readout · projected"))
+    body.append("")
+    if candidate is not None:
+        body.extend(_readout_rows(
+            state, candidate, outcome.prediction_after, unit,
+            at_state=outcome.projected_state, delta=outcome.delta,
+        ))
+    else:
+        body.append(theme.kv("prediction", theme.quantity(outcome.prediction_after.predicted_value, unit)))
+        body.append(theme.kv("uncertainty", theme.quantity(outcome.prediction_after.uncertainty)))
+    body.append("")
+
+    body.append(theme.divider("provenance"))
+    body.append("")
+    body.append(theme.kv("basis", theme.badge("hypothetical", theme.WARN)
+                         + theme.paint("   a projection, never an observation", theme.MUTED)))
+    body.append(theme.kv("admitted", theme.badge("no", theme.WARN)
+                         + theme.paint("   nothing was written to the evidence pool", theme.MUTED)))
+    body.append(theme.kv("real state", theme.ident(state.session.state.id)))
+    body.append("")
+    body.append(theme.paint("HYPOTHETICAL", theme.WARN))
+    body.append(theme.paint("NOT ADMITTED AS EVIDENCE", theme.WARN))
+    body.append(theme.paint(
+        "This state was projected from a hypothesis. It is not real history,", theme.MUTED))
+    body.append(theme.paint(
+        "it validates nothing, and the real session is unchanged.", theme.MUTED))
+    body.append("")
+    return theme.panel(
+        "counterfactual branch", body,
+        right=f"branch {theme.index(position)} · not evidence",
+        tone=theme.WARN, double=True,
+    )
+
+
 def format_assessment(
     state: WorkbenchState, candidate: ActionCandidate, predecessor_state_id: str,
     prediction: Prediction, assessment: PredictionAssessment,
@@ -1089,6 +1207,39 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
     return format_selection(state, resolved)
 
 
+def _cmd_branch(state: WorkbenchState, args: List[str]) -> str:
+    """Inspection only. PHASE 88 sec.8 -- there is deliberately no
+    commit/apply/merge/choose: a branch is an analysis, not an
+    alternative reality, and no semantics for adopting one has been
+    established."""
+    if not state.branches:
+        return theme.notice(
+            "no counterfactual branches",
+            "nothing has been projected in this session.",
+            hint="select <n>   then   explore <value>",
+        )
+    if not args:
+        return theme.notice(
+            "no branch named", "branch requires the number of a retained branch.",
+            hint=f"branch <1-{len(state.branches)}>   ·   branches   lists them",
+        )
+    raw = args[0]
+    try:
+        position = int(raw)
+    except ValueError:
+        return theme.notice(
+            "unreadable branch number", f"{raw!r} is not a number.",
+            hint=f"branch <1-{len(state.branches)}>   ·   branches   lists them",
+        )
+    outcome = state.branch_at(position)
+    if outcome is None:
+        return theme.notice(
+            "no such branch", f"branch {raw} is not in this session's registry.",
+            hint=f"branch <1-{len(state.branches)}>   ·   branches   lists them",
+        )
+    return format_branch(state, outcome, position)
+
+
 def _cmd_inspect(state: WorkbenchState, args: List[str]) -> str:
     if not args:
         if state.selected_candidate is None:
@@ -1220,6 +1371,10 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "branches":
+        return format_branches(state)
+    if command == "branch":
+        return _cmd_branch(state, args)
     if command == "observe":
         return _cmd_observe(state, args)
     if command == "history":

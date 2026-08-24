@@ -346,6 +346,14 @@ class WorkbenchState:
     last_counterfactual: Optional[CounterfactualOutcome] = None
     last_decision: Optional[OptimizationResult] = None
     previous_decision: Optional[OptimizationResult] = None
+    # PHASE 88: the counterfactual branch registry. A plain, ordered list of
+    # the EXISTING `materials.ensemble.CounterfactualOutcome` objects this
+    # session has projected -- no branch model of its own, no duplicated
+    # mathematics, no second identity scheme. Branches survive a real
+    # `observe`: each one permanently names the real state it branched from
+    # in its own frozen `source_state_id`, so a superseded parent can never
+    # be silently rewritten to the new one.
+    branches: List[CounterfactualOutcome] = field(default_factory=list)
     scenario: Optional[ResearchScenario] = None
 
     def list_candidates(self) -> Tuple[ActionCandidate, ...]:
@@ -427,11 +435,49 @@ class WorkbenchState:
         """`ExperimentSession.inspect_counterfactual`, unmodified. Never
         advances `self.session` -- the returned `CounterfactualOutcome.
         projected_state` is a separate, hypothetical object; nothing here
-        rebinds `self.session`."""
+        rebinds `self.session`.
+
+        PHASE 88 -- the outcome is also RETAINED, by reference, in
+        `self.branches`. It is already a frozen dataclass holding a
+        frozen `ModelState`, so retaining it copies nothing, can diverge
+        from nothing, and needs no workbench-side representation of its
+        own: `CounterfactualOutcome` already carries every field a
+        "branch" requires (`source_state_id` = the real parent,
+        `candidate_id`, `hypothetical_value`, `projected_state` and its
+        content-addressed `projected_state_id`). Introducing a parallel
+        Branch object here would duplicate an existing materials object
+        and add a second provenance system, so none is introduced.
+
+        Registration is by content-addressed identity, not by call
+        count: exploring the same value on the same candidate from the
+        same real state twice yields a `projected_state_id` that is
+        literally the same branch, so it registers once."""
         candidate = self._require_selected_candidate()
         outcome = self.session.inspect_counterfactual(candidate, hypothetical_value)
         self.last_counterfactual = outcome
+        if not any(self._same_branch(existing, outcome) for existing in self.branches):
+            self.branches.append(outcome)
         return outcome
+
+    @staticmethod
+    def _same_branch(a: CounterfactualOutcome, b: CounterfactualOutcome) -> bool:
+        """Two projections are the same branch when they project the same
+        candidate from the same real state to the same content-addressed
+        projected state. All three are already content hashes."""
+        return (
+            a.source_state_id == b.source_state_id
+            and a.candidate_id == b.candidate_id
+            and a.projected_state_id == b.projected_state_id
+        )
+
+    def branch_at(self, index: int) -> Optional[CounterfactualOutcome]:
+        """1-based display index into the registry, in the deterministic
+        order the branches were projected. Returns None rather than
+        raising, so the caller renders the workbench's own uniform
+        out-of-range guidance."""
+        if 1 <= index <= len(self.branches):
+            return self.branches[index - 1]
+        return None
 
     def _next_locator(self) -> str:
         self.locator_counter += 1

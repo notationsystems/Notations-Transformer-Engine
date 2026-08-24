@@ -32,13 +32,18 @@ VIEW_SCRIPT = (
     ("inspect", []), ("explain", []),  # before anything: no selection, no decision
     ("decide", []),
     ("select", ["1"]), ("predict", []), ("inspect", []), ("explain", []),
-    ("explore", ["90"]),
+    ("branches", []), ("branch", ["1"]),  # before anything: empty registry
+    ("explore", ["70"]), ("explore", ["90"]), ("explore", ["110"]),
+    ("branches", []), ("branch", ["1"]), ("branch", ["2"]), ("branch", ["3"]),
     ("observe", ["80"]), ("observe", ["100"]),
+    ("branches", []), ("branch", ["1"]),  # branches survive a real observation
     ("history", []), ("diagnostics", []), ("status", []), ("inspect", []),
     ("candidates", []), ("decide", []), ("explain", []),
     ("select", ["99"]), ("select", ["x"]), ("select", []),
     ("observe", ["abc"]), ("observe", []), ("explore", ["abc"]), ("explore", []),
-    ("inspect", ["99"]), ("bogus", []),
+    ("inspect", ["99"]),
+    ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
+    ("bogus", []),
 )
 
 
@@ -161,13 +166,22 @@ def test_no_view_renders_an_undetermined_quantity_as_zero(state: WorkbenchState)
 # -- consistency rules from the presentation contract -------------------------------------------------
 
 
-def test_only_the_counterfactual_view_uses_the_double_frame(state: WorkbenchState):
-    """A double rule means hypothetical. If any other view adopted it,
-    a projection could be mistaken for admitted evidence."""
+def test_the_double_frame_means_hypothetical_and_nothing_else(state: WorkbenchState):
+    """A double rule means hypothetical -- BOTH ways. No view that shows a
+    projection may be single-ruled (it could be read as admitted
+    evidence), and no view that shows real evidence may be double-ruled
+    (it could be dismissed as a projection).
+
+    PHASE 88 generalised this from an allowlist of one view name to the
+    property the allowlist was standing in for. `branches`/`branch` are
+    double-ruled for exactly the same reason `explore` is: every row in
+    them is hypothetical."""
     for name, text in _rendered_views(state):
-        uses_double = any(theme._ANSI.sub("", line).startswith(("╔", "╚", "║")) for line in text.splitlines())
-        assert uses_double == (name == "explore" and "HYPOTHETICAL" in text), (
-            f"{name}: double frame used outside the counterfactual view"
+        plain = theme._ANSI.sub("", text)
+        uses_double = any(line.startswith(("╔", "╚", "║")) for line in plain.splitlines())
+        is_hypothetical = "HYPOTHETICAL" in plain or "NOT ADMITTED" in plain
+        assert uses_double == is_hypothetical, (
+            f"{name}: double frame {'used on a real view' if uses_double else 'missing from a projection'}"
         )
 
 
@@ -220,7 +234,9 @@ def test_every_error_state_names_what_was_expected(state: WorkbenchState):
         ("select", ["99"]), ("select", ["x"]), ("select", []),
         ("observe", ["abc"]), ("observe", []),
         ("explore", ["abc"]), ("explore", []),
-        ("inspect", ["99"]), ("bogus", []),
+        ("inspect", ["99"]),
+        ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
+        ("bogus", []),
     ):
         text = dispatch(state, command, args)
         assert "EXPECTED" in text, f"{command} {args}: no expected-form guidance"
@@ -232,7 +248,7 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     dispatchable = {
         "help", "scenario", "status", "candidates", "decide", "select",
         "predict", "explore", "observe", "inspect", "explain",
-        "history", "diagnostics", "quit",
+        "branches", "branch", "history", "diagnostics", "quit",
     }
     assert documented == dispatchable
     text = dispatch(state, "help", [])

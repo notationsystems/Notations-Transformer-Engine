@@ -113,7 +113,10 @@ def test_materials_never_imports_workbench():
     imports it (Phase 70 sec.13's explicit `core --X--> workbench` check,
     alongside the pre-existing `materials --X--> workbench`/`experiment
     --X--> workbench` checks)."""
-    for package in ("materials", "experiment", "core"):
+    # PHASE 88: `evidence`/`retrieval` sit BELOW materials and were never in
+    # this sweep, though the invariant ("no lower layer imports workbench")
+    # always covered them. Added rather than assumed.
+    for package in ("materials", "experiment", "core", "evidence", "retrieval"):
         for path in _python_files(REPO_ROOT / package):
             for module in _imported_modules(path):
                 assert not module.startswith("workbench"), (
