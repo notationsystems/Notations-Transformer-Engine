@@ -12,29 +12,87 @@ where S_t is `ModelState`, y_t is a newly admitted `Observation` (via an
 `ExperimentalResult`, Phase 44), x is an `ActionCandidate` (Phase 37),
 and y_hat is `Prediction`.
 
-STATE VARIABLES: for each (formulation, property) cell, the state holds
-the full, immutable list of `Sample`s (value + observation_id) seen so
-far for that cell. `predict` computes mean/variance from that list ON
-DEMAND; nothing is incrementally accumulated, so there is no
-floating-point-order-dependence to reason about, and the state's own
+STATE VARIABLES (Phase 53 resolution -- see `resolve_model_state_key`):
+each cell means "evidence about `property` for `formulation` under the
+experimental context a candidate/criterion explicitly declares" -- never
+"all evidence about property P for formulation F regardless of
+condition" (Phase 52's interim simplification, now superseded) and never
+"one cell per distinct raw observation content," which would silently
+promote incidental metadata (e.g. `unit`) to a predictive feature. For
+each cell, the state holds the full, immutable list of `Sample`s (value
++ observation_id) seen so far. `predict` computes mean/variance from
+that list ON DEMAND; nothing is incrementally accumulated, so there is
+no floating-point-order-dependence to reason about, and the state's own
 content-hash `id` (reusing `evidence.identity.content_hash`, no new
 hashing system) is trivially order-independent because the canonical
 hash payload sorts every sample list before hashing.
 
-An earlier version of this module keyed cells by
-`(formulation, property, comparison-context)`, reusing
-`materials.analysis._comparison_context` to decide which observations
-are "comparable." That was found, while writing this module's own
-tests, to be wrong: `_comparison_context` retains every content key
-except `property`/`value` (e.g. `unit`), while an `ActionCandidate`'s
-declared `target_context` is a CRITERION context, which
-`materials.decision._context_matches` treats as a SUBSET a group's
-context must merely contain -- `{}` legitimately matches a group
-carrying `{"unit": "MPa"}`. Comparing those two context values for
-exact equality silently produced empty predictions. See `_state_key`
-below for the resolution actually adopted: this reference model pools
-by `(formulation, property)` alone and does not attempt condition-level
-granularity.
+TWO DIFFERENT KINDS OF "CONTEXT" -- Phase 53's central finding, reached
+by direct inspection of `materials.analysis`/`materials.decision`/
+`materials.candidates`, not by assumption:
+
+  EVIDENCE COMPARISON CONTEXT (`materials.analysis._comparison_context`)
+  -- every `Observation`/`DerivedValue.content` key except `property`
+  and the measured-value key itself, e.g. `{"unit": "MPa"}` or
+  `{"temperature": 100}`. Grouped by EXACT equality
+  (`materials.analysis._group_by_comparison_context`) to decide which
+  raw values are safe to compute a `Disagreement` (min/max/spread)
+  across. Necessarily includes incidental measurement metadata like
+  `unit` alongside genuine experimental conditions like `temperature`,
+  because it is derived mechanically from whatever keys a content
+  mapping happens to carry -- it does not, and structurally cannot,
+  distinguish the two.
+
+  MODEL STATE CONDITIONING CONTEXT (`ActionCandidate.target_context` ==
+  `EvidenceRequirement.criterion_context`, Phase 35-37) -- a caller-
+  authored, deliberately curated declaration of which conditions a
+  particular `Criterion` cares about, e.g. `{"temperature": 25}`. A
+  caller writing a criterion about tensile strength has no reason to put
+  `unit` in its `context` (a criterion asks "does the material pass
+  under condition C," not "what unit was this recorded in") the same
+  way `materials.decision._context_matches` already treats
+  `criterion.context` as the small set of conditions that must match,
+  never every content key that happens to be present.
+
+  These overlap (both may name `temperature`) but are NOT the same
+  thing, and Phase 52's bug was exactly conflating them: `predict`
+  read the second (via `candidate.target_context`) while `update` read
+  the first (via `_comparison_context(observation.content, "value")`),
+  and comparing those two DIFFERENT representations for exact equality
+  silently produced empty predictions (`{}` != `{"unit": "MPa"}`, even
+  though `materials.decision`'s own subset-matching rule would call `{}`
+  a match for any context).
+
+RESOLUTION ADOPTED: `ModelState` cells are keyed by the SECOND kind --
+`resolve_model_state_key(formulation_id, property, target_context)`,
+where `target_context` is always `ActionCandidate.target_context`,
+sourced identically on both sides of the loop (`predict` reads it
+directly off the `ActionCandidate` it is given; `update` now also takes
+the originating `ActionCandidate` explicitly, rather than trying to
+re-derive a conditioning context from raw `Observation.content`). Using
+one consistent source, compared by plain equality, sidesteps Phase 52's
+mismatch WITHOUT reimplementing `materials.decision`'s subset-matching
+inside this module (an earlier draft of this fix considered exactly
+that, and rejected it as unnecessary complexity a "reference" model
+should not need) and WITHOUT inventing a scheme to classify which
+`Observation.content` keys are causal conditioning variables versus
+incidental metadata (unit, instrument, etc.) -- a distinction nothing
+upstream of this module records, so fabricating one here would be
+exactly the invented ontology this phase's own instructions forbid.
+
+CONSEQUENCE, verified directly by this module's tests: two candidates
+for the same (formulation, property) with DIFFERENT explicitly-declared
+`target_context` values (e.g. one criterion scoped to 25C, another to
+100C) occupy different cells and are never pooled together. Two
+candidates that both declare no context (`target_context == {}`, the
+common case in this codebase's fixtures so far) share one cell
+regardless of what a later observation's raw content records -- an
+honest, caller-controlled coarsening (the criterion's author chose not
+to distinguish by condition), not a silent bug and not a claim that
+condition never matters. A caller that needs finer-grained state must
+author finer-grained criteria/candidates upstream; this module has never
+had, and still does not have, any basis for inferring that distinction
+on its own.
 
 WHY THIS IS A "REFERENCE" MODEL, NOT A MATERIALS-PHYSICS MODEL: `predict`
 reports only what the model's OWN running statistics already contain --
@@ -81,9 +139,15 @@ even after `ModelState_(t+1)` exists; nothing here ever asserts that a
 prediction "became true" because a later observation happened to agree
 with it, and this module never writes to `EvidencePool` -- `update`
 takes an already-admitted `Observation` (via `ExperimentalResult`,
-Phase 44's own write boundary) as a plain input value, exactly the same
-way `materials.value`/`materials.evaluation` consume already-resolved
-objects without ever touching the pool themselves.
+Phase 44's own write boundary) and the originating `ActionCandidate` as
+plain input values, exactly the same way `materials.value`/
+`materials.evaluation` consume already-resolved objects without ever
+touching the pool themselves. `update` trusts, rather than
+re-validates, that `candidate`/`result`/`observation` describe the same
+measurement -- the same discipline every other `materials/` layer
+already applies to caller-supplied objects -- but does assert the one
+cheap, free identity check available (`candidate.id == result.candidate_id`)
+since both ids are already in hand.
 """
 
 from __future__ import annotations
@@ -129,29 +193,33 @@ class ModelState:
         object.__setattr__(self, "samples", MappingProxyType(normalized))
 
 
-def _state_key(formulation_id: str, property: str) -> str:
-    """Which state cell a sample belongs to -- formulation + property
-    only, deliberately NOT further split by comparison context.
+def resolve_model_state_key(formulation_id: str, property: str, target_context: Mapping[str, object]) -> str:
+    """Evidence/Candidate/Context -> ModelState key -- Phase 53's
+    explicit state-resolution primitive. A cell means "evidence about
+    `property` for formulation `formulation_id` under the experimental
+    context `target_context`."
 
-    An earlier version of this function keyed cells by
-    (formulation, property, context) using
-    `materials.analysis._comparison_context`'s own comparability rule.
-    That is wrong for this reference model: `_comparison_context` keeps
-    every content key except `property`/`value` (e.g. `unit`), while an
-    `ActionCandidate.target_context` is the CRITERION's context, which
-    `materials.decision._context_matches` treats as a SUBSET a group's
-    context must contain -- `{}` (no context declared) legitimately
-    matches a group carrying `{"unit": "MPa"}`. Replicating that
-    subset-matching (including its own ambiguous-multiple-match case)
-    inside a "reference" model would be exactly the kind of complexity
-    this phase asks to keep minimal. Keying by (formulation, property)
-    alone sidesteps it honestly: this reference model pools all observed
-    values for a property regardless of condition, a real, documented
-    simplification -- not a silent bug, and not a claim that condition
-    never matters. A model that needed condition-level granularity would
-    need to actually implement `materials.decision`'s subset-matching
-    (or something equivalent), which is future work, not this phase's."""
-    return content_hash({"formulation_id": formulation_id, "property": property})
+    `target_context` must always be `ActionCandidate.target_context` (==
+    `EvidenceRequirement.criterion_context`) -- a caller-curated
+    declaration of which conditions matter, NEVER
+    `materials.analysis._comparison_context`'s automatically-derived,
+    every-remaining-content-key context (see this module's own docstring
+    for why those two are different things, and why conflating them was
+    Phase 52's bug). Compared by plain equality on both the `predict`
+    and `update` side (both now read it from the same place, an
+    `ActionCandidate`), so no subset-matching logic needs to live here.
+
+    Deliberately takes explicit `(formulation_id, property,
+    target_context)` fields rather than a single `candidate_or_observation`
+    object: an `Observation` has no `target_context` of its own (only a
+    raw `content` mapping mixing conditioning variables with incidental
+    metadata), so accepting one polymorphically would invite exactly the
+    wrong input back in through a side door. Callers extract the three
+    fields from whichever object they hold (`ActionCandidate` today);
+    this function itself stays a small, explicit, pure key derivation."""
+    return content_hash({
+        "formulation_id": formulation_id, "property": property, "target_context": dict(target_context),
+    })
 
 
 def make_model_state(samples: Mapping[str, Tuple[Sample, ...]]) -> ModelState:
@@ -199,7 +267,7 @@ def predict(state: ModelState, candidate: ActionCandidate) -> Prediction:
     reads `candidate.action_class`, rank, or utility -- only the
     formulation/property/target_context identity needed to select the
     right state cell."""
-    key = _state_key(candidate.formulation.id, candidate.property)
+    key = resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context)
     samples = state.samples.get(key, ())
     n = len(samples)
 
@@ -218,22 +286,33 @@ def predict(state: ModelState, candidate: ActionCandidate) -> Prediction:
     )
 
 
-def update(state: ModelState, result: ExperimentalResult, observation: Observation) -> ModelState:
-    """S_(t+1) = F(S_t, y_t). `result` supplies the formulation identity
-    an `Observation` alone cannot (the formulation<->observation link
-    lives in a `ClaimedRelationship`, external to `Observation` itself
-    -- exactly the same gap `materials.results.ExperimentalResult` was
-    already built to close); `observation` supplies the real,
-    content-addressed id `admit_experimental_result` assigned. Both
+def update(state: ModelState, candidate: ActionCandidate, result: ExperimentalResult, observation: Observation) -> ModelState:
+    """S_(t+1) = F(S_t, y_t). `candidate` is the `ActionCandidate` whose
+    proposed action `result`/`observation` fulfill -- it supplies
+    `target_context`, so the cell `update` writes into is resolved from
+    exactly the same source `predict` reads from (see
+    `resolve_model_state_key` and this module's own docstring for why
+    that consistency is the actual Phase 53 fix, not a re-derivation
+    from `observation.content`). `result` supplies the formulation
+    identity an `Observation` alone cannot (the formulation<->observation
+    link lives in a `ClaimedRelationship`, external to `Observation`
+    itself -- exactly the same gap `materials.results.ExperimentalResult`
+    was already built to close); `observation` supplies the real,
+    content-addressed id `admit_experimental_result` assigned. All three
     should describe the same measurement -- this function trusts that,
     the same way every other `materials/` layer trusts an
     already-constructed object handed to it rather than re-validating
-    substrate invariants a caller is responsible for.
+    substrate invariants a caller is responsible for, except for the one
+    cheap identity check below.
 
     Never mutates `state`; always returns a new `ModelState`."""
+    assert candidate.id == result.candidate_id, (
+        f"candidate {candidate.id!r} does not match result.candidate_id {result.candidate_id!r} -- "
+        "update() requires the ActionCandidate that this ExperimentalResult actually fulfills"
+    )
     value = observation.content.get("value")
     assert isinstance(value, (int, float)), f"expected a numeric Observation.content['value'], got {value!r}"
-    key = _state_key(result.formulation.id, result.property)
+    key = resolve_model_state_key(result.formulation.id, result.property, candidate.target_context)
 
     new_sample = Sample(value=float(value), observation_id=observation.id)
     existing = state.samples.get(key, ())

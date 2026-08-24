@@ -1,10 +1,12 @@
-"""Phase 52: materials.model_state -- the first dynamic-state layer.
-Small focused test set proving the state-transition machinery end to
-end: initial construction, deterministic identity, prediction from
-state, observation update producing a new state, historical-state
-immutability, prediction's dependence on state, uncertainty changing
-only when mathematically warranted, and the InformationValueModel seam
-consuming the model's own output correctly across two different states.
+"""Phase 52/53: materials.model_state -- the first dynamic-state layer,
+plus Phase 53's state-resolution semantics. Small focused test set:
+initial construction, deterministic identity, prediction from state,
+observation update producing a new state, historical-state immutability,
+prediction's dependence on state, uncertainty changing only when
+mathematically warranted, the InformationValueModel seam consuming the
+model's own output correctly across two different states, and (Phase 53)
+`resolve_model_state_key` semantics, context separation, and
+update/predict consistency.
 """
 
 from evidence.admission import (
@@ -22,7 +24,8 @@ from materials.evaluation import evaluate_candidates
 from materials.information import ESTIMATED, NOT_DETERMINABLE, estimate_information_value
 from materials.iteration import reevaluate_program
 from materials.model_state import (
-    EMPTY_MODEL_STATE, ModelStateInformationValueModel, Sample, make_model_state, predict, update,
+    EMPTY_MODEL_STATE, ModelStateInformationValueModel, Sample, make_model_state, predict,
+    resolve_model_state_key, update,
 )
 from materials.plan import assemble_experiment_plan
 from materials.program import make_material_program_query
@@ -83,7 +86,7 @@ def _setup():
     entry = next(e for e in campaign.entries if e.candidate_id == conflict_candidate.id)
     hardness_entry = next(e for e in campaign.entries if e.candidate_id == hardness_candidate.id)
 
-    return pool, doc, iteration, conflict_candidate, campaign, entry, hardness_entry
+    return pool, doc, iteration, conflict_candidate, campaign, entry, hardness_entry, hardness_candidate
 
 
 def _admit_result(pool, doc, campaign, entry, locator, value):
@@ -117,7 +120,7 @@ def test_1_2_initial_state_construction_and_deterministic_identity():
 
 
 def test_3_6_prediction_from_state_and_depends_on_state():
-    pool, doc, iteration, candidate, campaign, entry, hardness_entry = _setup()
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
     empty_prediction = predict(EMPTY_MODEL_STATE, candidate)
     assert empty_prediction.sample_count == 0
     assert empty_prediction.predicted_value is None
@@ -125,7 +128,7 @@ def test_3_6_prediction_from_state_and_depends_on_state():
     assert empty_prediction.state_id == EMPTY_MODEL_STATE.id
 
     result1, obs1 = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
-    state1 = update(EMPTY_MODEL_STATE, result1, obs1)
+    state1 = update(EMPTY_MODEL_STATE, candidate, result1, obs1)
     prediction1 = predict(state1, candidate)
     assert prediction1.sample_count == 1
     assert prediction1.predicted_value == 80.0
@@ -137,13 +140,13 @@ def test_3_6_prediction_from_state_and_depends_on_state():
 
 
 def test_4_5_update_produces_new_state_historical_unchanged():
-    pool, doc, iteration, candidate, campaign, entry, hardness_entry = _setup()
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
     result1, obs1 = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
-    state1 = update(EMPTY_MODEL_STATE, result1, obs1)
+    state1 = update(EMPTY_MODEL_STATE, candidate, result1, obs1)
     before_state0_repr = repr(EMPTY_MODEL_STATE)
 
     result2, obs2 = _admit_result(pool, doc, campaign, entry, "ts-90", 90)
-    state2 = update(state1, result2, obs2)
+    state2 = update(state1, candidate, result2, obs2)
 
     assert state2.id != state1.id
     assert repr(EMPTY_MODEL_STATE) == before_state0_repr  # never mutated
@@ -155,11 +158,11 @@ def test_4_5_update_produces_new_state_historical_unchanged():
 
 
 def test_7_uncertainty_changes_only_when_warranted():
-    pool, doc, iteration, candidate, campaign, entry, hardness_entry = _setup()
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
     result1, obs1 = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
-    state1 = update(EMPTY_MODEL_STATE, result1, obs1)
+    state1 = update(EMPTY_MODEL_STATE, candidate, result1, obs1)
     result2, obs2 = _admit_result(pool, doc, campaign, entry, "ts-90", 90)
-    state2 = update(state1, result2, obs2)
+    state2 = update(state1, candidate, result2, obs2)
 
     prediction2 = predict(state2, candidate)
     assert prediction2.predicted_value == 85.0
@@ -176,7 +179,7 @@ def test_7_uncertainty_changes_only_when_warranted():
         record_id=rec.id, extracted_at="2026-08-23T03:00:00Z",
     )
     obs3, _ = admit_experimental_result(pool, result3, confidence=1.0)
-    state3 = update(state2, result3, obs3)
+    state3 = update(state2, hardness_candidate, result3, obs3)
 
     prediction3 = predict(state3, candidate)
     assert prediction3.uncertainty == prediction2.uncertainty == 25.0
@@ -189,16 +192,16 @@ def test_7_uncertainty_changes_only_when_warranted():
 
 
 def test_8_information_value_seam_before_and_after():
-    pool, doc, iteration, candidate, campaign, entry, hardness_entry = _setup()
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
     result1, obs1 = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
-    state1 = update(EMPTY_MODEL_STATE, result1, obs1)
+    state1 = update(EMPTY_MODEL_STATE, candidate, result1, obs1)
 
     estimate_before = estimate_information_value(candidate, iteration, ModelStateInformationValueModel(state1))
     assert estimate_before.estimate is None
     assert estimate_before.estimate_status == NOT_DETERMINABLE  # only 1 sample -- honestly undetermined
 
     result2, obs2 = _admit_result(pool, doc, campaign, entry, "ts-90", 90)
-    state2 = update(state1, result2, obs2)
+    state2 = update(state1, candidate, result2, obs2)
     estimate_after = estimate_information_value(candidate, iteration, ModelStateInformationValueModel(state2))
     assert estimate_after.estimate == 25.0
     assert estimate_after.estimate_status == ESTIMATED
@@ -227,8 +230,8 @@ def test_9_pythonhashseed_determinism():
         "formulation=f1, property='tensile_strength', role='OBSERVED', target_context={})\n"
         "state = make_model_state({})\n"
         "key_samples = {}\n"
-        "from materials.model_state import _state_key\n"
-        "key = _state_key(f1.id, 'tensile_strength')\n"
+        "from materials.model_state import resolve_model_state_key\n"
+        "key = resolve_model_state_key(f1.id, 'tensile_strength', {})\n"
         "state = make_model_state({key: (Sample(80.0, 'o1'), Sample(90.0, 'o2'))})\n"
         "prediction = predict(state, candidate)\n"
         "print(state.id, prediction.predicted_value, prediction.uncertainty, prediction.sample_count)\n"
@@ -246,3 +249,123 @@ def test_9_pythonhashseed_determinism():
         assert proc.returncode == 0, proc.stderr
         outputs.add(proc.stdout)
     assert len(outputs) == 1, f"model_state differed across PYTHONHASHSEED values: {outputs}"
+
+
+# -- Phase 53, item 1/3: resolve_model_state_key semantics + deterministic key generation ------------------
+
+
+def test_10_resolve_model_state_key_semantics():
+    # Different declared target_context -> different cell, even for the
+    # same (formulation, property) -- cases A vs B from the phase spec
+    # (25C vs 100C), whenever a caller actually declares that distinction.
+    key_25 = resolve_model_state_key("f1", "tensile_strength", {"temperature": 25})
+    key_100 = resolve_model_state_key("f1", "tensile_strength", {"temperature": 100})
+    assert key_25 != key_100
+
+    # Same declared context, regardless of dict insertion order -> same
+    # cell -- deterministic key generation, independent of key order.
+    key_a = resolve_model_state_key("f1", "tensile_strength", {"temperature": 25, "batch": "x"})
+    key_b = resolve_model_state_key("f1", "tensile_strength", {"batch": "x", "temperature": 25})
+    assert key_a == key_b
+
+    # Different property (case C) or different formulation (case D) with
+    # an IDENTICAL declared context still produce different cells.
+    assert resolve_model_state_key("f1", "viscosity", {}) != resolve_model_state_key("f1", "tensile_strength", {})
+    assert resolve_model_state_key("f2", "tensile_strength", {}) != resolve_model_state_key("f1", "tensile_strength", {})
+
+    # No declared context at all (the common case in this codebase's
+    # fixtures) -> one shared cell for the property/formulation pair,
+    # deterministically reproduced across repeated calls.
+    assert resolve_model_state_key("f1", "tensile_strength", {}) == resolve_model_state_key("f1", "tensile_strength", {})
+
+
+# -- Phase 53, item 2/4: context separation is preserved end to end through predict/update -------------------
+
+
+def _setup_two_contexts():
+    """Two candidates for the SAME (formulation, property) with two
+    DIFFERENT explicitly-declared criterion contexts (25C vs 100C) --
+    the direct end-to-end test of Phase 53's resolution: `predict`/
+    `update` must keep these in separate cells without this module
+    reimplementing `materials.decision`'s subset-matching."""
+    pool = EvidencePool()
+    source = make_source(kind="lab_notebook", name="QC")
+    pool.put_source(source)
+    doc = make_document(source_id=source.id, raw_content="panel", retrieval_method="manual_entry", retrieved_at="2026-08-23T00:00:00Z")
+    admit_document(pool, doc)
+    pool.put_document(doc)
+    process = make_referent(natural_key="process-std-190c", kind="process")
+    admit_referent(pool, process)
+    pool.put_referent(process)
+    f1 = make_referent(natural_key="formulation-f1", kind="formulation")
+    admit_referent(pool, f1)
+    pool.put_referent(f1)
+
+    criterion_25c = make_criterion("tensile_strength", ">=", 80, context={"temperature": 25})
+    criterion_100c = make_criterion("tensile_strength", ">=", 80, context={"temperature": 100})
+    query = make_material_program_query(["formulation-f1"], "process-std-190c", ("tensile_strength",))
+    iteration = reevaluate_program(pool, ENGINE, query, (criterion_25c, criterion_100c))
+    candidates = generate_candidates(iteration.specification)
+    candidate_25c = next(c for c in candidates.candidates if c.target_context.get("temperature") == 25)
+    candidate_100c = next(c for c in candidates.candidates if c.target_context.get("temperature") == 100)
+    assert candidate_25c.id != candidate_100c.id
+    assert candidate_25c.target_context != candidate_100c.target_context
+
+    evaluations = evaluate_candidates(candidates)
+    selection = select_candidates(evaluations, ALLOW_ALL)
+    plan = assemble_experiment_plan(selection)
+    design = assemble_experimental_design(plan)
+    campaign = assemble_experimental_campaign(design)
+    entry_25c = next(e for e in campaign.entries if e.candidate_id == candidate_25c.id)
+    entry_100c = next(e for e in campaign.entries if e.candidate_id == candidate_100c.id)
+
+    return pool, doc, campaign, candidate_25c, candidate_100c, entry_25c, entry_100c
+
+
+def test_11_context_separation_end_to_end():
+    pool, doc, campaign, candidate_25c, candidate_100c, entry_25c, entry_100c = _setup_two_contexts()
+
+    rec = make_record(document_id=doc.id, locator="ts-25c", raw_content="ts-25c")
+    admit_record(pool, rec)
+    pool.put_record(rec)
+    result_25c = make_experimental_result(
+        campaign, entry_25c, content={"property": "tensile_strength", "value": 82, "unit": "MPa"},
+        record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
+    )
+    obs_25c, _ = admit_experimental_result(pool, result_25c, confidence=1.0)
+
+    state1 = update(EMPTY_MODEL_STATE, candidate_25c, result_25c, obs_25c)
+
+    # update/predict consistency: the same candidate that produced the
+    # sample sees it immediately.
+    prediction_25c = predict(state1, candidate_25c)
+    assert prediction_25c.sample_count == 1
+    assert prediction_25c.predicted_value == 82.0
+
+    # context separation: the OTHER candidate (same formulation/property,
+    # different declared context) sees nothing -- the 25C sample never
+    # leaks into the 100C cell.
+    prediction_100c = predict(state1, candidate_100c)
+    assert prediction_100c.sample_count == 0
+    assert prediction_100c.predicted_value is None
+
+
+def test_12_update_rejects_mismatched_candidate():
+    pool, doc, campaign, candidate_25c, candidate_100c, entry_25c, entry_100c = _setup_two_contexts()
+
+    rec = make_record(document_id=doc.id, locator="ts-25c-b", raw_content="ts-25c-b")
+    admit_record(pool, rec)
+    pool.put_record(rec)
+    result_25c = make_experimental_result(
+        campaign, entry_25c, content={"property": "tensile_strength", "value": 82, "unit": "MPa"},
+        record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
+    )
+    obs_25c, _ = admit_experimental_result(pool, result_25c, confidence=1.0)
+
+    # result_25c.candidate_id names candidate_25c -- passing candidate_100c
+    # instead is a caller error update() actively rejects.
+    try:
+        update(EMPTY_MODEL_STATE, candidate_100c, result_25c, obs_25c)
+        assert False, "expected an AssertionError for a mismatched candidate/result pair"
+    except AssertionError as e:
+        assert "does not match" in str(e)
