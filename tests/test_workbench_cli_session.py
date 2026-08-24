@@ -43,7 +43,7 @@ def test_a_bootstrap_no_fabricated_prediction():
 
     dispatch(state, "select", ["1"])
     predict_output = dispatch(state, "predict", [])
-    assert "PREDICTED VALUE" in predict_output and "UNDETERMINED" in predict_output
+    assert "PREDICTION" in predict_output and "UNDETERMINED" in predict_output
     assert "SAMPLES" in predict_output
     assert state.session.predict(state.selected_candidate).predicted_value is None
 

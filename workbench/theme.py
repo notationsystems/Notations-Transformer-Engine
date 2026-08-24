@@ -231,6 +231,13 @@ def panel(
 
     label = title.upper()
     annotation = right.upper() if right else ""
+    # A narrow frame must never break the top rule. Shed the annotation
+    # first (it is always secondary), then clip the title if even that
+    # does not fit -- the same precedence a reader would apply.
+    if annotation and len(label) + len(annotation) + 8 > frame:
+        annotation = ""
+    if len(label) + 6 > frame:
+        label = truncate(label, frame - 6)
     head_plain = f"{tl}{h} {label} " if label else f"{tl}{h}{h}"
     tail_plain = f" {annotation} {h}{tr}" if annotation else f"{h}{tr}"
     fill = max(0, frame - len(head_plain) - len(tail_plain))
@@ -289,6 +296,30 @@ def tree(rows: Sequence[Tuple[str, str]], *, label_width: int = 14) -> List[str]
             + value
         )
     return out
+
+
+def lineage(steps: Sequence[Tuple[str, str]]) -> List[str]:
+    """A provenance tree: each step indented under the one above, so the
+    derivation of what is being shown is visible as geometry rather than
+    prose. `predict` and `explore` render the SAME tree rooted at the
+    same real state -- one stops at the first branch, the other
+    continues into the hypothetical one."""
+    out: List[str] = []
+    for depth, (label, value) in enumerate(steps):
+        stem = "" if depth == 0 else "  " * (depth - 1) + "  " + TREE_END + " "
+        # pad the whole stem+label prefix to one common column, so values
+        # stay aligned however deep the branch goes and however long the
+        # label is -- a longer label pushes its own value, never the frame.
+        prefix = paint(stem, STRUCTURE) + paint(label.upper(), LABEL)
+        out.append(pad(prefix, 18) + value)  # 18 == kv's label column, so both blocks align
+    return out
+
+
+def transition(before: str, after: str, *, width_before: int = 20) -> str:
+    """`before  →  after` -- the shape every before/after pair in the
+    interface uses, so a state transition reads the same way whether it
+    is a sample count, a prediction, or a state identity."""
+    return pad(before, width_before) + paint(f"{TRANSITION}  ", STRUCTURE) + after
 
 
 def badge(text: str, tone: str = ACCENT, *, filled: bool = False) -> str:

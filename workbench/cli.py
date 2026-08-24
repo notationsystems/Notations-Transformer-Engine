@@ -419,24 +419,62 @@ def format_candidates(state: WorkbenchState) -> str:
     )
 
 
+def _readout_rows(
+    state: WorkbenchState, candidate: ActionCandidate, prediction: Prediction, unit: str,
+    *, at_state=None, delta=None,
+) -> List[str]:
+    """The IDENTICAL readout vocabulary `predict` and `explore` both
+    render -- prediction, uncertainty, samples, information -- so the
+    two views are immediately recognisable as projections of the same
+    research state. Every value is read off the `Prediction` it is
+    given; `explore` passes the one `materials.ensemble.project_outcome`
+    already computed, so nothing is calculated twice.
+
+    `delta` (a `PredictionDelta`, when the caller has one) appends the
+    signed change against the real state on the same rows."""
+    estimate = state.information_value_estimate(candidate, at_state)
+    rows = [
+        theme.kv("prediction", theme.quantity(prediction.predicted_value, unit)),
+        theme.kv("uncertainty", theme.quantity(prediction.uncertainty)),
+        theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)),
+        theme.kv("information", theme.paint(
+            estimate.estimate_status, theme.WARN if estimate.estimate is None else theme.VALUE,
+        )),
+    ]
+    if delta is not None:
+        rows[0] = theme.pad(rows[0], 40) + theme.paint("Δ  ", theme.STRUCTURE) + theme.quantity(
+            delta.delta_predicted_value, signed=True)
+        rows[1] = theme.pad(rows[1], 40) + theme.paint("Δ  ", theme.STRUCTURE) + theme.quantity(
+            delta.delta_uncertainty, signed=True)
+    return rows
+
+
 def format_prediction(state: WorkbenchState, candidate: ActionCandidate, prediction: Prediction) -> str:
+    """The REAL-state projection. Same frame vocabulary as `explore`,
+    single-ruled and rooted at the real state -- the lineage tree stops
+    at PREDICTION because nothing hypothetical is involved."""
     body = [
         "",
+        *theme.lineage([
+            ("real state", theme.ident(prediction.state_id)),
+            ("prediction", theme.paint("from admitted evidence in this cell", theme.MUTED)),
+        ]),
+        "",
         theme.kv("candidate", _candidate_line(state, candidate)),
-        theme.kv("model state", theme.ident(prediction.state_id)),
         "",
         theme.divider("readout"),
         "",
-        theme.kv("predicted value", theme.quantity(prediction.predicted_value, _unit_for(state))),
-        theme.kv("uncertainty", theme.quantity(prediction.uncertainty)),
-        theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)),
+        *_readout_rows(state, candidate, prediction, _unit_for(state)),
         "",
     ]
     if prediction.predicted_value is None:
         body.append(theme.paint("No samples exist for this cell.", theme.MUTED))
         body.append(theme.paint("The model reports no value rather than assuming one.", theme.MUTED))
         body.append("")
-    return theme.panel("prediction", body, right=f"candidate {theme.index(_display_index(state, candidate))}")
+    return theme.panel(
+        "projection · real state", body,
+        right=f"candidate {theme.index(_display_index(state, candidate))}",
+    )
 
 
 def format_decision(state: WorkbenchState, optimization: OptimizationResult) -> str:
@@ -536,40 +574,47 @@ def format_selection(state: WorkbenchState, candidate: ActionCandidate) -> str:
 
 
 def format_counterfactual(state: WorkbenchState, candidate: ActionCandidate, live_unchanged: bool) -> str:
+    """The HYPOTHETICAL projection. Deliberately the same frame, the
+    same lineage tree and the same readout rows as `format_prediction`
+    -- but double-ruled, amber, and rooted one branch deeper, so the
+    user reads it as the same instrument pointed at a branch that is
+    not evidence."""
     outcome = state.last_counterfactual
     assert outcome is not None  # guaranteed: only rendered after a successful state.explore()
-    estimate_after = state.information_value_estimate(candidate, outcome.projected_state)
     unit = _unit_for(state)
 
     body = [
         "",
+        *theme.lineage([
+            ("real state", theme.ident(outcome.source_state_id)),
+            ("hypothetical", theme.paint(f"y = {theme.num(outcome.hypothetical_value)}", theme.WARN)
+             + (theme.paint(f" {unit}", theme.MUTED) if unit else "")),
+            ("projected", theme.ident(outcome.projected_state_id)),
+        ]),
+        "",
         theme.kv("candidate", _candidate_line(state, candidate)),
-        theme.kv("hypothetical", theme.quantity(outcome.hypothetical_value, unit), tone=theme.WARN),
         "",
-        theme.divider("projection"),
+        theme.divider("readout · projected"),
         "",
-        theme.kv("source state", theme.ident(outcome.source_state_id)),
-        theme.kv("projected state", theme.ident(outcome.projected_state_id)),
-        theme.kv("prediction after", theme.quantity(outcome.delta.to_predicted_value, unit)),
-        theme.kv("Δ prediction", theme.quantity(outcome.delta.delta_predicted_value, signed=True)),
-        theme.kv("Δ uncertainty", theme.quantity(outcome.delta.delta_uncertainty, signed=True)),
-        theme.kv("information", theme.paint(
-            estimate_after.estimate_status,
-            theme.WARN if estimate_after.estimate is None else theme.VALUE,
-        )),
+        *_readout_rows(
+            state, candidate, outcome.prediction_after, unit,
+            at_state=outcome.projected_state, delta=outcome.delta,
+        ),
         "",
         theme.divider("isolation"),
         "",
-        theme.kv("evidence admitted", theme.badge("no", theme.WARN)),
+        theme.kv("admitted", theme.badge("no", theme.WARN)
+                 + theme.paint("   nothing was written to the evidence pool", theme.MUTED)),
         theme.kv("live session", theme.badge("unchanged" if live_unchanged else "CHANGED", theme.WARN)),
-        theme.kv("model state", theme.ident(state.session.state.id)),
+        theme.kv("real state", theme.ident(state.session.state.id)),
         "",
-        theme.paint("This branch is hypothetical.", theme.WARN),
-        theme.paint("It has NOT been admitted as evidence. The live session is unchanged.", theme.MUTED),
+        theme.paint("NOT REAL EVIDENCE.", theme.WARN),
+        theme.paint("This branch is hypothetical. It has NOT been admitted as evidence,", theme.MUTED),
+        theme.paint("and the real session is unchanged.", theme.MUTED),
         "",
     ]
     return theme.panel(
-        "counterfactual projection", body,
+        "projection · hypothetical branch", body,
         right="hypothetical · not evidence", tone=theme.WARN, double=True,
     )
 
@@ -578,13 +623,19 @@ def format_assessment(
     state: WorkbenchState, candidate: ActionCandidate, predecessor_state_id: str,
     prediction: Prediction, assessment: PredictionAssessment,
 ) -> str:
+    """An observation rendered as a STATE TRANSITION, not a printed
+    number. `prediction` is the projection that existed immediately
+    before admission; `after` is the one the advanced session reports
+    now. Both already exist -- the before/after columns pair them, they
+    do not recompute anything."""
     unit = assessment.result.content.get("unit")
     unit = unit if isinstance(unit, str) else ""
-    samples = state.session.predict(candidate).sample_count
+    after = state.session.predict(candidate)
 
     body = [
         "",
         theme.kv("candidate", _candidate_line(state, candidate)),
+        theme.kv("context", theme.paint(theme.context(candidate.target_context), theme.VALUE)),
         theme.kv("provenance", theme.paint("externally supplied experimental observation", theme.VALUE)),
         theme.kv("observation", theme.ident(assessment.observation.id)),
         "",
@@ -597,38 +648,54 @@ def format_assessment(
         "",
         theme.divider("state transition"),
         "",
-        theme.kv("S(t)", theme.ident(predecessor_state_id), upper=False),
-        theme.kv("S(t+1)", theme.ident(state.session.state.id), upper=False),
-        theme.kv("samples", theme.paint(str(samples), theme.VALUE)),
+        theme.kv("samples", theme.transition(
+            theme.paint(str(prediction.sample_count), theme.VALUE),
+            theme.paint(str(after.sample_count), theme.VALUE),
+        )),
+        theme.kv("prediction", theme.transition(
+            theme.quantity(prediction.predicted_value, unit), theme.quantity(after.predicted_value, unit),
+        )),
+        theme.kv("uncertainty", theme.transition(
+            theme.quantity(prediction.uncertainty), theme.quantity(after.uncertainty),
+        )),
+        theme.kv("state", theme.transition(
+            theme.ident(predecessor_state_id), theme.ident(state.session.state.id),
+        )),
         "",
         theme.paint("Prior session retained and immutable.", theme.MUTED),
         "",
     ]
-    return theme.panel("observation admitted", body, right="external source", tone=theme.OK)
+    return theme.panel("observation accepted", body, right="external source", tone=theme.OK)
 
 
 def format_transition(index: int, d: StateTransitionDiagnostic, unit: str = "") -> List[str]:
-    """The narrative view `history` uses: state before, prediction
-    before, what was observed, the signed residual, state after."""
-    header = (
-        theme.paint(theme.index(index), theme.ACCENT) + "   "
-        + theme.ident(d.predecessor_state_id)
-        + theme.paint(f"  {theme.TRANSITION}  ", theme.STRUCTURE)
-        + theme.ident(d.successor_state_id)
+    """RESEARCH CHRONOLOGY: what was expected, what came back, how far
+    off it was, and where the state moved. Same identifiers and the same
+    `theme.transition` vocabulary diagnostics uses, so one transition is
+    recognisable in both views."""
+    header = theme.paint(theme.index(index), theme.ACCENT) + "   " + theme.paint(
+        _short_candidate_line_from(d), theme.VALUE)
+    observed = (
+        theme.paint("no observation for this candidate", theme.MUTED) if d.assessment is None
+        else theme.quantity(d.observation_value, unit)
     )
-    if d.assessment is None:
-        rows = [
-            ("predicted", theme.quantity(d.previous_prediction.predicted_value, unit)),
-            ("observed", theme.paint("no observation for this candidate", theme.MUTED)),
-            ("residual", theme.paint("n/a", theme.MUTED)),
-        ]
-    else:
-        rows = [
-            ("predicted", theme.quantity(d.previous_prediction.predicted_value, unit)),
-            ("observed", theme.quantity(d.observation_value, unit)),
-            ("residual", theme.quantity(d.residual_against_previous_prediction, unit, signed=True)),
-        ]
-    return [header, *theme.tree(rows, label_width=12)]
+    rows = [
+        ("prediction → observation", theme.transition(
+            theme.quantity(d.previous_prediction.predicted_value, unit), observed, width_before=18)),
+        ("residual", theme.paint("n/a", theme.MUTED) if d.assessment is None
+         else theme.quantity(d.residual_against_previous_prediction, unit, signed=True)),
+        ("state", theme.transition(
+            theme.ident(d.predecessor_state_id), theme.ident(d.successor_state_id), width_before=18)),
+    ]
+    return [header, *theme.tree(rows, label_width=26)]
+
+
+def _short_candidate_line_from(d: StateTransitionDiagnostic) -> str:
+    """The candidate/context label for a transition, taken from the
+    embedded `Prediction` -- which already carries the formulation and
+    the target context, so nothing is looked up or re-derived."""
+    prediction = d.previous_prediction
+    return f"{prediction.formulation.natural_key} {theme.DOT} {theme.context(prediction.context)}"
 
 
 def format_diagnostic(index: int, d: StateTransitionDiagnostic, unit: str = "") -> List[str]:
@@ -643,6 +710,8 @@ def format_diagnostic(index: int, d: StateTransitionDiagnostic, unit: str = "") 
     rows: List[Tuple[str, str]] = [
         ("candidate_id", theme.ident(d.candidate_id)),
         ("model_state_key", theme.ident(d.model_state_key)),
+        ("state_t", theme.ident(d.predecessor_state_id)),
+        ("state_t+1", theme.ident(d.successor_state_id)),
         ("samples t", theme.paint(str(d.previous_prediction.sample_count), theme.VALUE)),
         ("samples t+1", theme.paint(str(d.new_prediction.sample_count), theme.VALUE)),
         ("prediction t", theme.quantity(d.previous_prediction.predicted_value, unit)),
@@ -754,6 +823,16 @@ def _cmd_observe(state: WorkbenchState, args: List[str]) -> str:
             "invalid value", f"{args[0]!r} is not a numeric value.", hint="observe <value> [unit]",
         )
     unit = args[1] if len(args) == 2 else None
+    if unit is not None:
+        try:
+            float(unit)
+        except ValueError:
+            pass
+        else:
+            return theme.notice(
+                "invalid unit", f"{unit!r} is a number, not a unit of measurement.",
+                hint="observe <value> [unit]   e.g.  observe 90 MPa",
+            )
     predecessor_state_id = state.session.state.id
     try:
         assessment, prediction = state.observe(value, unit)

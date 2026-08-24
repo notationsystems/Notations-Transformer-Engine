@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from materials.model_state import HYPOTHETICAL_SAMPLE_PREFIX
 from workbench import theme
 from workbench.cli import (
     COMMAND_GROUPS, dispatch, format_masthead, format_prompt, format_scenario_banner,
@@ -144,9 +145,14 @@ def test_no_view_renders_an_undetermined_quantity_as_zero(state: WorkbenchState)
     numeral -- the two are never mixed on one line."""
     for name, text in _rendered_views(state):
         for line in text.splitlines():
-            if theme.UNDETERMINED in line:
-                after = line.split(theme.UNDETERMINED, 1)[1]
-                assert not any(ch.isdigit() for ch in after), f"{name}: numeral after UNDETERMINED: {line!r}"
+            # a `before → after` pair is two independent cells; UNDETERMINED on one
+            # side says nothing about a numeral on the other.
+            for cell in line.split(theme.TRANSITION):
+                if theme.UNDETERMINED in cell:
+                    after = cell.split(theme.UNDETERMINED, 1)[1]
+                    assert not any(ch.isdigit() for ch in after), (
+                        f"{name}: numeral beside UNDETERMINED in one cell: {line!r}"
+                    )
 
 
 # -- consistency rules from the presentation contract -------------------------------------------------
@@ -157,7 +163,7 @@ def test_only_the_counterfactual_view_uses_the_double_frame(state: WorkbenchStat
     a projection could be mistaken for admitted evidence."""
     for name, text in _rendered_views(state):
         uses_double = any(theme._ANSI.sub("", line).startswith(("╔", "╚", "║")) for line in text.splitlines())
-        assert uses_double == (name == "explore" and "COUNTERFACTUAL" in text), (
+        assert uses_double == (name == "explore" and "HYPOTHETICAL" in text), (
             f"{name}: double frame used outside the counterfactual view"
         )
 
@@ -167,7 +173,7 @@ def test_counterfactual_view_states_its_isolation_explicitly(state: WorkbenchSta
     text = dispatch(state, "explore", ["90"])
     assert "HYPOTHETICAL" in text
     assert "NOT been admitted as evidence" in text
-    assert "EVIDENCE ADMITTED" in text and "NO" in text
+    assert "ADMITTED" in text and "NO" in text
     assert "LIVE SESSION" in text and "UNCHANGED" in text
 
 
@@ -450,8 +456,202 @@ def test_history_stays_narrative_while_diagnostics_stays_technical(state: Workbe
     for technical in ("model_state_key", "candidate_id", "samples t"):
         assert technical not in history
         assert technical in diagnostics
-    for narrative in ("predicted", "observed", "residual"):
+    for narrative in ("prediction → observation", "residual", "state"):
         assert narrative in history
-    # both describe the same two transitions and agree on the residual
-    assert history.count("→") == diagnostics.count("→") == 2
+    # both describe the same transitions and agree on the residual
+    count = len(state.history().diagnostics)
+    assert count == 2
+    for view in (history, diagnostics):
+        assert f"{count} TRANSITIONS" in view
     assert "+9.0" in history and "+9.0" in diagnostics  # 91 - 82
+
+
+# -- Phase 77: predict and explore as one instrument -----------------------------------------------------
+
+
+def test_predict_and_explore_share_candidate_and_state_context(state: WorkbenchState):
+    """Both views are rooted at the SAME real state and name the SAME
+    candidate -- that shared context is what makes them read as two
+    projections of one research state."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    real_state_id = state.session.state.id
+
+    predict_text = dispatch(state, "predict", [])
+    explore_text = dispatch(state, "explore", ["120"])
+
+    for text in (predict_text, explore_text):
+        assert "REAL STATE" in text
+        assert theme.ident(real_state_id) in text           # same root state
+        assert "baseline · tensile_strength · 25 C" in text  # same candidate
+        assert "PROJECTION" in text
+        # the identical readout vocabulary
+        for row in ("PREDICTION", "UNCERTAINTY", "SAMPLES", "INFORMATION"):
+            assert row in text
+
+
+def test_explore_renders_the_hypothetical_branch_one_level_deeper(state: WorkbenchState):
+    """The lineage tree is the visual carrier of the distinction:
+    predict stops at the real state, explore continues into a branch."""
+    dispatch(state, "select", ["1"])
+    predict_text = dispatch(state, "predict", [])
+    explore_text = dispatch(state, "explore", ["120"])
+
+    assert "HYPOTHETICAL" not in predict_text
+    assert "PROJECTED" not in predict_text
+    assert "HYPOTHETICAL" in explore_text
+    assert "PROJECTED" in explore_text
+    assert "NOT REAL EVIDENCE." in explore_text
+    assert "real session is unchanged" in explore_text
+
+
+def test_exploration_leaves_real_history_pool_and_prediction_untouched(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    before_state = state.session.state.id
+    before_fingerprint = state.pool.fingerprint()
+    before_history = len(state.session.state_history)
+    before_predict = dispatch(state, "predict", [])
+
+    dispatch(state, "explore", ["120"])
+
+    assert state.session.state.id == before_state
+    assert state.pool.fingerprint() == before_fingerprint
+    assert len(state.session.state_history) == before_history
+    assert dispatch(state, "predict", []) == before_predict  # the real projection is unchanged
+
+
+def test_hypothetical_marker_survives_in_the_projected_state(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    outcome = state.explore(120.0)
+    marked = [
+        s for samples in outcome.projected_state.samples.values() for s in samples
+        if s.observation_id.startswith(HYPOTHETICAL_SAMPLE_PREFIX)
+    ]
+    assert len(marked) == 1 and marked[0].value == 120.0
+    for samples in state.session.state.samples.values():  # never in real history
+        for sample in samples:
+            assert not sample.observation_id.startswith(HYPOTHETICAL_SAMPLE_PREFIX)
+
+
+def test_repeated_identical_exploration_is_deterministic(state: WorkbenchState):
+    """The same hypothetical against the same real state renders
+    identically -- including the content-derived projected-state id,
+    which is a function of that content and nothing else."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    first = dispatch(state, "explore", ["120"])
+    second = dispatch(state, "explore", ["120"])
+    assert first == second
+
+
+# -- Phase 78: observation as a state transition ----------------------------------------------------------
+
+
+def test_observation_renders_every_before_and_after_pair(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    text = dispatch(state, "observe", ["100"])
+
+    assert "STATE TRANSITION" in text
+    transition_rows = {
+        line.strip("│ ").split()[0]: line for line in text.splitlines()
+        if theme.TRANSITION in line and line.startswith("│")
+    }
+    assert {"SAMPLES", "PREDICTION", "UNCERTAINTY", "STATE"} <= set(transition_rows)
+    assert "1" in transition_rows["SAMPLES"] and "2" in transition_rows["SAMPLES"]
+    assert "80.0" in transition_rows["PREDICTION"] and "90.0" in transition_rows["PREDICTION"]
+    assert "CONTEXT" in text and "25 C" in text
+
+
+def test_first_observation_shows_undetermined_on_both_sides_of_the_residual(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    text = dispatch(state, "observe", ["80"])
+    measurement = text.split("MEASUREMENT")[1].split("STATE TRANSITION")[0]
+    predicted = next(line for line in measurement.splitlines() if "PREDICTED" in line)
+    residual = next(line for line in measurement.splitlines() if line.strip("│ ").startswith("RESIDUAL"))
+    assert theme.UNDETERMINED in predicted and not any(ch.isdigit() for ch in predicted.split("PREDICTED")[1])
+    assert theme.UNDETERMINED in residual
+
+
+def test_negative_residual_is_never_shown_as_positive(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["100"])
+    dispatch(state, "observe", ["80"])
+    text = dispatch(state, "observe", ["30"])  # 30 - mean(100, 80) = -60
+    assert "-60.0" in text
+    assert "+60.0" not in text
+    assert state.assessments[-1].residual == -60.0
+
+
+# -- Phase 79: one transition, recognisable in both views ---------------------------------------------------
+
+
+def test_the_same_transition_is_recognisable_in_history_and_diagnostics(state: WorkbenchState):
+    """Candidate identity, residual, state transition and sample counts
+    must agree across the two views -- they are layers of one telemetry
+    system, not two calculations."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["80"])
+    dispatch(state, "observe", ["100"])
+    dispatch(state, "observe", ["60"])
+
+    history = dispatch(state, "history", [])
+    diagnostics = dispatch(state, "diagnostics", [])
+    diagnostic_set = state.history()
+    assert len(diagnostic_set.diagnostics) == 3
+
+    for d in diagnostic_set.diagnostics:
+        # the same state identities appear in both views
+        for identity in (theme.ident(d.predecessor_state_id), theme.ident(d.successor_state_id)):
+            assert identity in history
+            assert identity in diagnostics
+        if d.assessment is not None:
+            residual = theme.num(d.residual_against_previous_prediction, signed=True)
+            assert residual in history
+            assert residual in diagnostics
+
+    # diagnostics additionally carries the technical telemetry history omits
+    for technical in ("candidate_id", "model_state_key", "state_t", "state_t+1", "samples t", "samples t+1"):
+        assert technical in diagnostics
+    assert "candidate_id" not in history
+    # and both agree on the candidate
+    assert "baseline · 25 C" in history
+
+
+# -- Phase 80: interaction hardening -------------------------------------------------------------------------
+
+
+def test_a_numeric_unit_is_rejected_as_a_likely_mistyped_value(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    text = dispatch(state, "observe", ["90", "100"])
+    assert "INVALID UNIT" in text
+    assert "EXPECTED" in text
+    assert not state.assessments  # nothing was admitted
+
+
+def test_a_real_unit_is_accepted_and_shown_on_the_measurement(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    text = dispatch(state, "observe", ["90", "GPa"])
+    assert "GPa" in text
+    assert state.assessments[-1].result.content["unit"] == "GPa"
+
+
+def test_empty_history_and_diagnostics_explain_the_next_step(state: WorkbenchState):
+    dispatch(state, "select", ["1"])
+    for view in ("history", "diagnostics"):
+        text = dispatch(state, view, [])
+        assert "NO TRANSITIONS YET" in text
+        assert "observe <value>" in text
+
+
+def test_selection_survives_a_changed_recommendation(state: WorkbenchState):
+    """Selecting is the user's choice; a later recommendation change
+    never silently moves it."""
+    dispatch(state, "select", ["1"])
+    chosen = state.selected_candidate
+    dispatch(state, "observe", ["80"])
+    dispatch(state, "decide", [])  # the recommendation moves off candidate 1
+    assert state.selected_candidate is not None
+    assert state.selected_candidate.id == chosen.id
