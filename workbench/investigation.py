@@ -34,23 +34,36 @@ policy.ExperimentPolicy.utility_input_source`'s signature is
 `Callable[[InformationValueEstimate], ExperimentUtilityInput]` -- it
 receives only the already-computed information-value ESTIMATE, not the
 candidate's raw sample count. The utility policy this investigation
-needs (see `_utility_input_for` below) must distinguish "zero real
-samples" (an unexplored candidate, worth an exploratory bootstrap
-benefit) from "one real sample" (partially explored, uncertainty not
-yet computable, but no longer a wholly fresh unknown) -- a distinction
-`InformationValueEstimate` alone cannot answer (its `estimate`/`.basis`
-free-text string is not something a caller should parse to recover a
-number; `materials.model_state.ModelStateInformationValueModel.estimate`
-reports the same `None` for zero samples and for one sample alike).
-This means a policy shaped like this investigation's could not be
-plugged into `run_experiment_step` via that one callback alone; it
-could still be expressed by composing the same underlying primitives
-directly, exactly as this module does, and exactly as `run_experiment_step`
-itself does internally. This is worth recording, but it is NOT the
-"genuinely missing primitive" Phase 69 sec.12 asks about: it is a
-narrower callback shape on one particular composition helper, not a gap
-in `predict`/`estimate_information_value`/`evaluate_utility_set`/
-`optimize_candidates` themselves.
+needs (`workbench.interaction._utility_input_for`) must distinguish
+"zero real samples" (an unexplored candidate, worth an exploratory
+bootstrap benefit) from "one real sample" (partially explored,
+uncertainty not yet computable, but no longer a wholly fresh unknown) --
+a distinction `InformationValueEstimate` alone cannot answer (its
+`estimate`/`.basis` free-text string is not something a caller should
+parse to recover a number; `materials.model_state.
+ModelStateInformationValueModel.estimate` reports the same `None` for
+zero samples and for one sample alike). This means a policy shaped like
+this investigation's could not be plugged into `run_experiment_step` via
+that one callback alone; it could still be expressed by composing the
+same underlying primitives directly, exactly as this module does, and
+exactly as `run_experiment_step` itself does internally. This is worth
+recording, but it is NOT the "genuinely missing primitive" Phase 69
+sec.12 asks about: it is a narrower callback shape on one particular
+composition helper, not a gap in `predict`/`estimate_information_value`/
+`evaluate_utility_set`/`optimize_candidates` themselves.
+
+PHASE 70 UPDATE: the scenario-bootstrap and utility-policy logic this
+module used to define locally (`_bootstrap_investigation_scenario`'s own
+construction, `_utility_input_for`, `_sample_count`, `DECISION_POLICY`,
+`MEASUREMENT_COST`, `BOOTSTRAP_BENEFIT`, `PARTIAL_EXPLORATION_BENEFIT`)
+now live in `workbench/interaction.py` as `bootstrap_multi_candidate_
+scenario`/`_utility_input_for`/`evaluate_decision` and friends -- the
+same interactive workbench's own default decision policy, since Phase 70
+needed exactly this policy for its `decide`/`candidates` commands to be
+meaningful out of the box. This module imports them rather than keeping
+a second copy; nothing about this module's own tested behavior changes
+(same policy, same numbers, same scenario), only where the shared logic
+is defined.
 """
 
 from __future__ import annotations
@@ -58,77 +71,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, List, Tuple
 
-from evidence.admission import admit_document, admit_record, admit_referent
-from evidence.pool import EvidencePool
-from evidence.types import make_document, make_record, make_referent, make_source
-from experiment.session import ExperimentSession, make_experiment_session
+from evidence.admission import admit_record
+from evidence.types import make_record
+from experiment.session import ExperimentSession
 from materials.assessment import PredictionAssessment
-from materials.campaign import assemble_experimental_campaign
-from materials.candidates import ActionCandidate, CandidateSet, generate_candidates
-from materials.decision import make_criterion
-from materials.design import assemble_experimental_design
+from materials.candidates import ActionCandidate, CandidateSet
 from materials.diagnostics import StateTransitionDiagnosticSet, diagnose_transitions
 from materials.ensemble import (
     CounterfactualInformationValue, CounterfactualOutcome, CounterfactualSet,
     evaluate_counterfactual_information_value, make_counterfactual_set, project_outcome,
 )
-from materials.evaluation import evaluate_candidates
-from materials.information import estimate_information_value
-from materials.iteration import MaterialsIteration, reevaluate_program
-from materials.model_state import ModelStateInformationValueModel, resolve_model_state_key
-from materials.optimization import OptimizationPolicy, OptimizationResult, optimize_candidates
-from materials.plan import assemble_experiment_plan
-from materials.program import make_material_program_query
+from materials.iteration import MaterialsIteration
+from materials.optimization import OptimizationResult, optimize_candidates
 from materials.results import admit_experimental_result, make_experimental_result
-from materials.selection import SelectionPolicy, select_candidates
 from materials.trajectory import make_model_state_trajectory
-from materials.utility import ExperimentUtilityInput, evaluate_utility_set
+from materials.utility import evaluate_utility_set
 from materials.value import evaluate_candidate_information_values
-from retrieval.engine import DeterministicRetrievalEngine
+from workbench.interaction import DECISION_POLICY, _utility_input_for, bootstrap_multi_candidate_scenario
 
 FORMULATION_KEY = "formulation-f1"
 PROCESS_KEY = "process-std-190c"
 PROPERTY = "tensile_strength"
 UNIT = "MPa"
 CRITERION_TARGET = 80.0
-
-# The two experimental contexts this investigation compares -- a real
-# materials-engineering question ("does tensile strength at this
-# formulation/process meet the same target at both a room-temperature
-# and an elevated-temperature service condition?"), each producing its
-# own EvidenceRequirement/ActionCandidate (materials.candidates keys a
-# candidate by, among other things, the criterion's own context --
-# empirically confirmed, not assumed, before writing this module).
-CONTEXT_ROOM_TEMPERATURE = {"temperature": 25}
-CONTEXT_ELEVATED_TEMPERATURE = {"temperature": 100}
-
-ALLOW_ALL_SELECTION_POLICY = SelectionPolicy(
-    allowed_action_classes=None, allow_already_represented_context=True,
-    allow_redundant=True, allow_not_determinable_feasibility=True, max_selected=None,
-)
-DECISION_POLICY = OptimizationPolicy(max_candidates=1, allowed_action_classes=None, allow_indeterminate_utility=False)
-
-# The fixed, caller-judged cost of running one measurement in this
-# scenario -- an engineering policy constant (materials.utility.
-# ExperimentUtilityInput.cost is, by that module's own docstring, always
-# a caller judgment, never a derived fact), identical for both
-# candidates so it never asymmetrically favors one context over the
-# other on its own.
-MEASUREMENT_COST = 0.5
-
-# The exploratory bootstrap benefit for a candidate with ZERO real
-# samples (mirrors the same explicit, documented "explore once" constant
-# Phase 65 already established for exactly this bootstrap case) and the
-# smaller, still-positive benefit for a candidate with exactly ONE real
-# sample (partially explored -- its uncertainty is not yet computable,
-# but it is no longer a wholly fresh unknown either). Both are caller
-# policy choices, not derived facts -- see this module's own docstring
-# for why `InformationValueEstimate` alone cannot express this
-# distinction and why that is a callback-shape limitation of
-# `run_experiment_step`, not a gap in the underlying algebra this
-# investigation instead composes directly.
-BOOTSTRAP_BENEFIT = 1.0
-PARTIAL_EXPLORATION_BENEFIT = 0.4
 
 
 def _fixed_clock() -> Callable[[], str]:
@@ -176,69 +141,16 @@ class InvestigationResult:
 
 def _bootstrap_investigation_scenario(clock: Callable[[], str]) -> Tuple[ExperimentSession, CandidateSet, MaterialsIteration, object]:
     """Builds the pool/session for THIS investigation's own scenario --
-    two experimental contexts for one formulation/property, zero prior
-    evidence (the explicit bootstrap case, per Phase 69 sec.2). A
-    separate function from `workbench.interaction.bootstrap_default_
-    scenario` (Phase 68's single-candidate demo scenario) so neither
-    file changes the other's behavior."""
-    pool = EvidencePool()
-    engine = DeterministicRetrievalEngine()
-
-    source = make_source(kind="lab_notebook", name="Closed-loop investigation")
-    pool.put_source(source)
-    doc = make_document(
-        source_id=source.id, raw_content="closed-loop materials investigation",
-        retrieval_method="manual_entry", retrieved_at=clock(),
-    )
-    admit_document(pool, doc)
-    pool.put_document(doc)
-    process = make_referent(natural_key=PROCESS_KEY, kind="process")
-    admit_referent(pool, process)
-    pool.put_referent(process)
-    formulation = make_referent(natural_key=FORMULATION_KEY, kind="formulation")
-    admit_referent(pool, formulation)
-    pool.put_referent(formulation)
-
-    criterion_room = make_criterion(PROPERTY, ">=", CRITERION_TARGET, context=CONTEXT_ROOM_TEMPERATURE)
-    criterion_elevated = make_criterion(PROPERTY, ">=", CRITERION_TARGET, context=CONTEXT_ELEVATED_TEMPERATURE)
-    query = make_material_program_query([FORMULATION_KEY], PROCESS_KEY, (PROPERTY,))
-    iteration = reevaluate_program(pool, engine, query, (criterion_room, criterion_elevated))
-    candidates = generate_candidates(iteration.specification)
-
-    evaluations = evaluate_candidates(candidates)
-    selection = select_candidates(evaluations, ALLOW_ALL_SELECTION_POLICY)
-    plan = assemble_experiment_plan(selection)
-    design = assemble_experimental_design(plan)
-    campaign = assemble_experimental_campaign(design)
-
-    session = make_experiment_session(pool, engine, iteration, document_id=doc.id)
-    return session, candidates, iteration, campaign
-
-
-def _sample_count(state, candidate: ActionCandidate) -> int:
-    key = resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context)
-    return len(state.samples.get(key, ()))
-
-
-def _utility_input_for(candidate: ActionCandidate, state, iteration: MaterialsIteration):
-    """The investigation's own engineering policy (a caller judgment,
-    never a derived fact -- see module docstring): prefer the model's
-    real current uncertainty once it is computable; otherwise treat a
-    wholly unmeasured candidate as worth an exploratory bootstrap benefit,
-    and a once-measured-but-not-yet-determinable candidate as worth a
-    smaller, still-positive continued benefit. Returns
-    `(ExperimentUtilityInput, estimate)` so the caller can also report
-    the raw model estimate (ESTIMATED/NOT_DETERMINABLE) alongside the
-    resulting utility input."""
-    model = ModelStateInformationValueModel(state)
-    estimate = estimate_information_value(candidate, iteration, model)
-    if estimate.estimate is not None:
-        benefit = estimate.estimate
-    elif _sample_count(state, candidate) == 0:
-        benefit = BOOTSTRAP_BENEFIT
-    else:
-        benefit = PARTIAL_EXPLORATION_BENEFIT
-    return ExperimentUtilityInput(benefit=benefit, cost=MEASUREMENT_COST), estimate
+    delegates entirely to `workbench.interaction.bootstrap_multi_
+    candidate_scenario` (Phase 70), which now defines the exact two-
+    experimental-context, zero-prior-evidence scenario this investigation
+    already validated in Phase 69. Kept as a thin wrapper (rather than
+    calling that function directly at each use site) purely so this
+    module's own tuple-shaped return type -- `(session, candidates,
+    iteration, campaign)`, matching how `run_investigation` already
+    consumes it -- does not have to change."""
+    workbench_state = bootstrap_multi_candidate_scenario(clock)
+    return workbench_state.session, workbench_state.candidates, workbench_state.session.iteration, workbench_state.campaign
 
 
 def _decide(candidates: CandidateSet, state, iteration: MaterialsIteration, label: str) -> DecisionRecord:

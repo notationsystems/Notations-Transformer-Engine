@@ -64,7 +64,7 @@ def run_demo() -> WorkbenchState:
     steps: List[Tuple[str, List[str]]] = [
         ("status", []),
         ("candidates", []),
-        ("select", [str(tensile_index)]),
+        ("select", [str(tensile_index + 1)]),  # workbench.cli displays/accepts candidates 1-indexed
         ("predict", []),
         ("explore", ["90"]),
         ("observe", ["90"]),

@@ -105,10 +105,15 @@ def test_materials_results_remains_the_sole_semantic_write_boundary():
 
 
 def test_materials_never_imports_workbench():
-    """materials/ (and experiment/) must remain completely unaware that
+    """materials/ (and experiment/, and core/ -- the entirely unrelated
+    scene-graph/rendering system Phase 62 confirmed shares this
+    repository but never communicates with SCOUT/materials/experiment/
+    workbench in either direction) must remain completely unaware that
     an interactive interface exists -- nothing beneath workbench/ ever
-    imports it, in either direction."""
-    for package in ("materials", "experiment"):
+    imports it (Phase 70 sec.13's explicit `core --X--> workbench` check,
+    alongside the pre-existing `materials --X--> workbench`/`experiment
+    --X--> workbench` checks)."""
+    for package in ("materials", "experiment", "core"):
         for path in _python_files(REPO_ROOT / package):
             for module in _imported_modules(path):
                 assert not module.startswith("workbench"), (

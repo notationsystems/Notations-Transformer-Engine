@@ -67,7 +67,63 @@ proved working, reused here rather than invented fresh. `DEFAULT_UNIT`
 is this ONE scenario's own fixed unit, not a general physical inference:
 `observe` accepts an explicit unit override for any other candidate a
 future scenario might introduce.
-"""
+
+PHASE 70 -- FROM DEMONSTRATION TO A GENUINELY USABLE INSTRUMENT: this
+phase's own investigation (re-reading this file, `workbench/cli.py`,
+`workbench/investigation.py`, `workbench/demo.py`, `experiment/step.py`,
+`materials/value.py`, `materials/information.py`, `materials/utility.py`,
+`materials/optimization.py`, `materials/candidates.py`, and every
+existing workbench/experiment test before writing anything) found that
+`predict`/`inspect_counterfactual`/`observe`/`history` (Phase 66-68)
+already cover the state/prediction/counterfactual/residual/history half
+of the interactive loop completely -- nothing there needed to change.
+What was genuinely missing was DECISION inspection: nothing anywhere let
+a human ask "which candidate does the existing optimization machinery
+currently prefer, and why." `evaluate_candidate_information_values`
+(Phase 46), `estimate_information_value`/`ModelStateInformationValueModel`
+(Phase 50/52), `evaluate_utility_set` (Phase 47), and `optimize_candidates`
+(Phase 48) already fully answer that question for any `CandidateSet` --
+this phase adds no new decision mathematics, only `evaluate_decision`
+below, a THIN, side-effect-free composition of those four unmodified
+functions (mirroring exactly how `experiment/step.py` and `workbench/
+investigation.py` already compose them), plus `WorkbenchState.decide()`,
+which calls it and remembers the result for `status` to report.
+
+`_utility_input_for`'s three-tier policy (bootstrap benefit for a wholly
+unmeasured candidate; a smaller, still-positive benefit for one that has
+exactly one real sample but not yet a computable uncertainty; the
+model's real current uncertainty once 2+ samples make it computable) is
+the SAME caller-supplied engineering policy `workbench/investigation.py`
+(Phase 69) already validated end to end -- moved here as the workbench's
+own canonical default so `decide`/`candidates` have a real, deterministic
+policy to evaluate against out of the box, and `workbench/investigation.py`
+now imports it from here rather than keeping its own copy. `materials.
+utility.ExperimentUtilityInput.benefit`/`.cost` are, by that module's own
+docstring, always caller judgments, never derived facts -- this policy
+is exactly that: an explicit, documented choice, never a fabricated
+"real" number standing in for a `None`/`NOT_DETERMINABLE` estimate.
+
+`bootstrap_multi_candidate_scenario` is the SECOND scenario this module
+now provides -- two experimental contexts (room/elevated temperature)
+for one formulation/property, so `decide`/`select`/`candidates` are
+meaningful the moment `python -m workbench` starts, with no external
+file required. `bootstrap_default_scenario` (single candidate) is left
+completely UNCHANGED and remains `workbench.demo`'s own scenario --
+Phase 70's own instruction ("do not make the interactive CLI depend on
+the demo") cuts both ways: the demo must not depend on the interactive
+scenario changing either, so neither function was merged into the
+other.
+
+`WorkbenchState.last_counterfactual`/`.last_decision` are plain
+`Optional` references to the most recent already-existing, already-
+immutable `CounterfactualOutcome`/`OptimizationResult` this session
+produced -- orchestration bookkeeping exactly like `assessments` above,
+never a second state model. Both are cleared exactly when they would
+otherwise silently go stale: `last_counterfactual` on `select_candidate`
+(a new candidate's hypothetical has nothing to do with the old one) and
+on `observe` (the real state moved on); `last_decision` on `observe`
+only (selecting a different candidate to inspect does not itself
+invalidate a decision computed across every candidate)."""
 
 from __future__ import annotations
 
@@ -87,12 +143,16 @@ from materials.design import assemble_experimental_design
 from materials.diagnostics import StateTransitionDiagnosticSet, diagnose_transitions
 from materials.ensemble import CounterfactualOutcome
 from materials.evaluation import evaluate_candidates
-from materials.iteration import reevaluate_program
-from materials.model_state import Prediction
+from materials.information import InformationValueEstimate, estimate_information_value
+from materials.iteration import MaterialsIteration, reevaluate_program
+from materials.model_state import ModelState, ModelStateInformationValueModel, Prediction, resolve_model_state_key
+from materials.optimization import OptimizationPolicy, OptimizationResult, optimize_candidates
 from materials.plan import assemble_experiment_plan
 from materials.program import make_material_program_query
 from materials.results import admit_experimental_result, make_experimental_result
 from materials.selection import SelectionPolicy, select_candidates
+from materials.utility import ExperimentUtilityInput, evaluate_utility_set
+from materials.value import evaluate_candidate_information_values
 from retrieval.engine import DeterministicRetrievalEngine, RetrievalEngine
 
 DEFAULT_FORMULATION_KEY = "formulation-f1"
@@ -101,14 +161,66 @@ DEFAULT_PROPERTY = "tensile_strength"
 DEFAULT_UNIT = "MPa"
 DEFAULT_CRITERION_TARGET = 80.0
 
+# The two experimental contexts `bootstrap_multi_candidate_scenario`
+# compares -- reused verbatim from Phase 69's own already-validated
+# closed-loop investigation scenario.
+CONTEXT_ROOM_TEMPERATURE = {"temperature": 25}
+CONTEXT_ELEVATED_TEMPERATURE = {"temperature": 100}
+
 ALLOW_ALL_SELECTION_POLICY = SelectionPolicy(
     allowed_action_classes=None, allow_already_represented_context=True,
     allow_redundant=True, allow_not_determinable_feasibility=True, max_selected=None,
 )
 
+# The workbench's own default decision policy -- see this module's
+# docstring (PHASE 70) for why these are explicit, documented caller
+# judgments (materials.utility's own vocabulary), never derived facts.
+DECISION_POLICY = OptimizationPolicy(max_candidates=1, allowed_action_classes=None, allow_indeterminate_utility=False)
+MEASUREMENT_COST = 0.5
+BOOTSTRAP_BENEFIT = 1.0
+PARTIAL_EXPLORATION_BENEFIT = 0.4
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _sample_count(state: ModelState, candidate: ActionCandidate) -> int:
+    key = resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context)
+    return len(state.samples.get(key, ()))
+
+
+def _utility_input_for(
+    candidate: ActionCandidate, state: ModelState, iteration: MaterialsIteration,
+) -> Tuple[ExperimentUtilityInput, InformationValueEstimate]:
+    """The workbench's own default engineering policy -- see this
+    module's PHASE 70 docstring section for the full rationale. Returns
+    `(ExperimentUtilityInput, estimate)` so a caller can also report the
+    raw model estimate (ESTIMATED/NOT_DETERMINABLE) alongside the
+    resulting utility input, never silently discarding it."""
+    model = ModelStateInformationValueModel(state)
+    estimate = estimate_information_value(candidate, iteration, model)
+    if estimate.estimate is not None:
+        benefit = estimate.estimate
+    elif _sample_count(state, candidate) == 0:
+        benefit = BOOTSTRAP_BENEFIT
+    else:
+        benefit = PARTIAL_EXPLORATION_BENEFIT
+    return ExperimentUtilityInput(benefit=benefit, cost=MEASUREMENT_COST), estimate
+
+
+def evaluate_decision(candidates: CandidateSet, state: ModelState, iteration: MaterialsIteration) -> OptimizationResult:
+    """`evaluate_utility_set()` + `optimize_candidates(max_candidates=1)`
+    -- the existing decision primitives, unmodified, composed exactly as
+    `experiment/step.py` and `workbench/investigation.py` already do.
+    Deterministic, side-effect-free: never mutates `candidates`, `state`,
+    or `iteration`, and computes nothing `materials.value`/`materials.
+    information`/`materials.utility`/`materials.optimization` did not
+    already compute."""
+    civs = evaluate_candidate_information_values(candidates, iteration)
+    utility_inputs = {c.id: _utility_input_for(c, state, iteration)[0] for c in candidates.candidates}
+    utility_set = evaluate_utility_set(civs, utility_inputs)
+    return optimize_candidates(utility_set, DECISION_POLICY)
 
 
 @dataclass
@@ -129,6 +241,8 @@ class WorkbenchState:
     selected_candidate: Optional[ActionCandidate] = None
     assessments: List[PredictionAssessment] = field(default_factory=list)
     locator_counter: int = 0
+    last_counterfactual: Optional[CounterfactualOutcome] = None
+    last_decision: Optional[OptimizationResult] = None
 
     def list_candidates(self) -> Tuple[ActionCandidate, ...]:
         return self.candidates.candidates
@@ -138,7 +252,42 @@ class WorkbenchState:
         if not (0 <= index < len(candidates)):
             raise IndexError(f"candidate index {index} out of range (0..{len(candidates) - 1})")
         self.selected_candidate = candidates[index]
+        self.last_counterfactual = None
         return self.selected_candidate
+
+    def total_sample_count(self) -> int:
+        """The number of real samples across every cell of the current
+        `ModelState` -- a plain structural count read directly off
+        `state.samples`, not a new statistic."""
+        return sum(len(samples) for samples in self.session.state.samples.values())
+
+    def information_value_estimate(
+        self, candidate: ActionCandidate, state: Optional[ModelState] = None,
+    ) -> InformationValueEstimate:
+        """`estimate_information_value` bound to this session's own
+        `MaterialsIteration` and, by default, its current state -- a
+        thin, side-effect-free composition so `workbench.cli` never has
+        to call a `materials.*` function directly (that module's own
+        docstring restricts it to parsing/formatting only). Accepts an
+        explicit `state` override so a caller can ask "what would the
+        information value be at THIS (e.g. hypothetical) state," exactly
+        the same override shape `predict`/`inspect_counterfactual`
+        already established a caller might need."""
+        target_state = state if state is not None else self.session.state
+        model = ModelStateInformationValueModel(target_state)
+        return estimate_information_value(candidate, self.session.iteration, model)
+
+    def decide(self) -> OptimizationResult:
+        """`evaluate_decision`, bound to this session's current state and
+        candidate set, remembered as `self.last_decision` for `status` to
+        report. A read-only inspection: never advances `self.session`,
+        never changes `self.selected_candidate` -- see this module's
+        PHASE 70 docstring section for why a decision recommendation and
+        the human's own interaction choice (`select_candidate`) remain
+        two separate things."""
+        result = evaluate_decision(self.candidates, self.session.state, self.session.iteration)
+        self.last_decision = result
+        return result
 
     def _require_selected_candidate(self) -> ActionCandidate:
         if self.selected_candidate is None:
@@ -165,7 +314,9 @@ class WorkbenchState:
         projected_state` is a separate, hypothetical object; nothing here
         rebinds `self.session`."""
         candidate = self._require_selected_candidate()
-        return self.session.inspect_counterfactual(candidate, hypothetical_value)
+        outcome = self.session.inspect_counterfactual(candidate, hypothetical_value)
+        self.last_counterfactual = outcome
+        return outcome
 
     def _next_locator(self) -> str:
         self.locator_counter += 1
@@ -205,6 +356,8 @@ class WorkbenchState:
         assessment, new_session = self.session.observe(candidate, prediction, result, observation)
         self.session = new_session
         self.assessments.append(assessment)
+        self.last_counterfactual = None
+        self.last_decision = None
         return assessment, prediction
 
     def history(self) -> StateTransitionDiagnosticSet:
@@ -252,6 +405,56 @@ def bootstrap_default_scenario(clock: Callable[[], str] = _utc_now_iso) -> Workb
     criterion = make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET)
     query = make_material_program_query([DEFAULT_FORMULATION_KEY], DEFAULT_PROCESS_KEY, (DEFAULT_PROPERTY,))
     iteration = reevaluate_program(pool, engine, query, (criterion,))
+    candidates = generate_candidates(iteration.specification)
+
+    evaluations = evaluate_candidates(candidates)
+    selection = select_candidates(evaluations, ALLOW_ALL_SELECTION_POLICY)
+    plan = assemble_experiment_plan(selection)
+    design = assemble_experimental_design(plan)
+    campaign = assemble_experimental_campaign(design)
+
+    session = make_experiment_session(pool, engine, iteration, document_id=doc.id)
+    return WorkbenchState(
+        pool=pool, engine=engine, document_id=doc.id, candidates=candidates,
+        campaign=campaign, session=session, clock=clock,
+    )
+
+
+def bootstrap_multi_candidate_scenario(clock: Callable[[], str] = _utc_now_iso) -> WorkbenchState:
+    """The interactive CLI's own default scenario -- two experimental
+    contexts (room/elevated temperature) for one formulation/property,
+    so `decide`/`select`/`candidates` are meaningful the moment `python
+    -m workbench` starts, with no external file required (Phase 70
+    sec.2). Reuses the exact scenario `workbench/investigation.py`
+    (Phase 69) already validated end to end -- that module now calls
+    this function too, rather than keeping its own copy of this
+    construction. `bootstrap_default_scenario` above is left completely
+    unchanged and remains `workbench.demo`'s own single-candidate
+    scenario; neither function was merged into the other (Phase 70's own
+    instruction that the demo and the interactive CLI stay independent
+    cuts both ways)."""
+    pool = EvidencePool()
+    engine = DeterministicRetrievalEngine()
+
+    source = make_source(kind="lab_notebook", name="Interactive workbench session")
+    pool.put_source(source)
+    doc = make_document(
+        source_id=source.id, raw_content="interactive workbench session",
+        retrieval_method="manual_entry", retrieved_at=clock(),
+    )
+    admit_document(pool, doc)
+    pool.put_document(doc)
+    process = make_referent(natural_key=DEFAULT_PROCESS_KEY, kind="process")
+    admit_referent(pool, process)
+    pool.put_referent(process)
+    formulation = make_referent(natural_key=DEFAULT_FORMULATION_KEY, kind="formulation")
+    admit_referent(pool, formulation)
+    pool.put_referent(formulation)
+
+    criterion_room = make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET, context=CONTEXT_ROOM_TEMPERATURE)
+    criterion_elevated = make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET, context=CONTEXT_ELEVATED_TEMPERATURE)
+    query = make_material_program_query([DEFAULT_FORMULATION_KEY], DEFAULT_PROCESS_KEY, (DEFAULT_PROPERTY,))
+    iteration = reevaluate_program(pool, engine, query, (criterion_room, criterion_elevated))
     candidates = generate_candidates(iteration.specification)
 
     evaluations = evaluate_candidates(candidates)

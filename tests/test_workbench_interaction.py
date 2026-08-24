@@ -134,7 +134,7 @@ def test_dispatch_end_to_end_via_cli_layer():
     index = next(i for i, c in enumerate(state.list_candidates()) if c.property == DEFAULT_PROPERTY)
 
     assert "none -- use `candidates`" in dispatch(state, "status", [])
-    dispatch(state, "select", [str(index)])
+    dispatch(state, "select", [str(index + 1)])  # workbench.cli displays/accepts candidates 1-indexed
     assert state.selected_candidate is not None
 
     predict_output = dispatch(state, "predict", [])
