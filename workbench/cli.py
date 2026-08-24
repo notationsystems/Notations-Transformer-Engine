@@ -93,6 +93,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("candidates", "registry with predictions and utility"),
         ("predict", "model prediction for the active candidate"),
         ("inspect [n|terms]", "everything computed about one candidate"),
+        ("inspect state <n>", "one real state from the timeline"),
     )),
     ("decide", (
         ("decide", "utility landscape and recommendation"),
@@ -108,6 +109,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("observe <value> [unit]", "admit an externally supplied result"),
     )),
     ("review", (
+        ("timeline [n]", "the real state trajectory, and one state within it"),
         ("history", "transition narrative for this candidate"),
         ("diagnostics", "full detail for every transition"),
     )),
@@ -926,6 +928,207 @@ def format_branch(state: WorkbenchState, outcome: CounterfactualOutcome, positio
     )
 
 
+# -- PHASE 90: the state-space timeline -------------------------------------------------------------
+#
+# Chronological order comes from `ExperimentSession.state_history`, which is
+# the authoritative record: `experiment.session.trajectory_of` ->
+# `materials.trajectory.make_model_state_trajectory` VERIFIES that order is
+# consistent with a real `update()` chain (each successor's sample set for a
+# cell is a superset of its predecessor's) and raises otherwise. So list
+# order here is not an assumption -- it is a checked property of the chain.
+# Everything else is read off objects that already exist: the admitted
+# assessment (matched by `PredictionAssessment.state_id`), the decision
+# computed at that state, and the branches whose `source_state_id` names it.
+
+
+def _state_candidate(state: WorkbenchState, assessment: Optional[PredictionAssessment]) -> Optional[ActionCandidate]:
+    """The candidate a state's own transition concerned, falling back to
+    whatever is selected. Never guessed from position."""
+    if assessment is not None:
+        found = next((c for c in state.list_candidates() if c.id == assessment.candidate_id), None)
+        if found is not None:
+            return found
+    return state.selected_candidate
+
+
+def _decision_summary(state: WorkbenchState, model_state: ModelState) -> str:
+    """What the policy recommended at this state, or an explicit absence.
+    Reads the retained `OptimizationResult`; never recomputes one."""
+    decision = state.decision_at(model_state.id)
+    if decision is None:
+        return theme.paint("NONE", theme.MUTED) + theme.paint(
+            "   no decision was computed at this state", theme.MUTED)
+    chosen = [o for o in decision.optimizations if o.status == "SELECTED"]
+    if not chosen:
+        return theme.paint("no candidate was selectable", theme.WARN)
+    candidate = next((c for c in state.list_candidates() if c.id == chosen[0].candidate_id), None)
+    if candidate is None:
+        return theme.ident(chosen[0].candidate_id)
+    return (theme.paint(theme.index(_display_index(state, candidate)), theme.ACCENT) + "  "
+            + _short_candidate_line(state, candidate))
+
+
+def format_timeline(state: WorkbenchState) -> str:
+    """The real trajectory, in order, with hypothetical branches shown as
+    explicit SIDE projections -- never as steps in the chain. A branch
+    row always says HYPOTHETICAL and never occupies a state slot."""
+    history = state.session.state_history
+    unit = _unit_for(state)
+    current_id = state.session.state.id
+
+    body: List[str] = [""]
+    for index, model_state in enumerate(history):
+        assessment = state.assessment_for_transition(
+            history[index - 1].id) if index > 0 else None
+        candidate = _state_candidate(state, assessment)
+        marker = (theme.paint("  " + theme.ARROW + " CURRENT", theme.ACCENT)
+                  if model_state.id == current_id else "")
+        body.append(
+            theme.paint(f"S{index}", theme.TITLE) + "  "
+            + theme.ident(model_state.id) + marker
+        )
+
+        rows: List[Tuple[str, str]] = []
+        if assessment is not None:
+            rows.append(("observation", theme.quantity(assessment.observed_value, unit)))
+            rows.append(("residual", theme.quantity(assessment.residual, unit, signed=True)))
+        if candidate is not None:
+            prediction = state.prediction_at(candidate, model_state)
+            rows.append(("samples", theme.paint(str(prediction.sample_count), theme.VALUE)))
+            rows.append(("prediction", theme.quantity(prediction.predicted_value, unit)))
+        rows.append(("decision", _decision_summary(state, model_state)))
+        body.extend(theme.tree(rows, label_width=12))
+
+        projections = state.branches_from(model_state.id)
+        if projections:
+            # a deliberate visual break: these are side shoots off this state,
+            # not further children of the readout tree above and not steps in
+            # the chain below, so they never reuse that tree's last-child glyph.
+            body.append("")
+            body.append("      " + theme.paint("side projections · not in this chain", theme.MUTED))
+        for offset, branch in enumerate(projections):
+            position = state.branches.index(branch) + 1
+            stem = theme.TREE_END if offset == len(projections) - 1 else theme.TREE_MID
+            body.append(
+                "      " + theme.paint(stem + " HYPOTHETICAL", theme.WARN) + "  "
+                + theme.paint(f"branch {theme.index(position)}", theme.WARN) + "  "
+                + theme.ident(branch.projected_state_id)
+            )
+            body.append(
+                "        " + theme.paint(
+                    f"y = {theme.num(branch.hypothetical_value)}", theme.WARN)
+                + (theme.paint(f" {unit}", theme.MUTED) if unit else "")
+                + theme.paint("   NOT ADMITTED", theme.WARN)
+            )
+
+        if index < len(history) - 1:
+            body.append("")
+            body.append("    " + theme.paint("│", theme.STRUCTURE))
+            body.append("    " + theme.paint("▼  REAL", theme.ACCENT))
+        body.append("")
+
+    body.append(theme.divider("legend"))
+    body.append("")
+    body.append(theme.paint("  S<n> is a display index. Identity is the state hash beside it.", theme.MUTED))
+    body.append(theme.paint("  A branch is a side projection, never a step in this chain.", theme.MUTED))
+    body.append("")
+    return theme.panel(
+        "state timeline", body,
+        right=f"{len(history)} real state(s) · {len(state.branches)} branch(es)",
+    )
+
+
+def format_timeline_state(state: WorkbenchState, index: int) -> str:
+    """One real state from the timeline, in the same vocabulary `inspect`
+    uses. PHASE 90 sec.7 -- where a transition carries an assessment, the
+    prediction -> observation -> residual -> successor chain is shown as
+    a chain, because that is what the assessment already records."""
+    history = state.session.state_history
+    model_state = history[index]
+    unit = _unit_for(state)
+    incoming = state.assessment_for_transition(history[index - 1].id) if index > 0 else None
+    outgoing = state.assessment_for_transition(model_state.id)
+    candidate = _state_candidate(state, incoming if incoming is not None else outgoing)
+    is_current = model_state.id == state.session.state.id
+
+    body: List[str] = [
+        "",
+        theme.kv("state", theme.paint(f"S{index}", theme.TITLE)
+                 + theme.paint("   display index only", theme.MUTED)),
+        theme.kv("basis", theme.badge("real", theme.ACCENT)
+                 + theme.paint("   admitted evidence, not a projection", theme.MUTED)),
+        theme.kv("position", theme.paint(
+            "CURRENT" if is_current else "HISTORICAL",
+            theme.ACCENT if is_current else theme.MUTED)),
+        "",
+        theme.divider("identity"),
+        "",
+        theme.kv("state id", theme.ident(model_state.id, size=24)),
+    ]
+    if candidate is not None:
+        body.append(theme.kv("candidate", _candidate_line(state, candidate)))
+        body.append(theme.kv("candidate_id", theme.ident(candidate.id, size=24)))
+    body.append("")
+
+    body.append(theme.divider("computed state"))
+    body.append("")
+    if candidate is None:
+        body.append(theme.paint("No candidate is associated with this state.", theme.WARN))
+        body.append(theme.paint("Select one to read a prediction from it.", theme.MUTED))
+    else:
+        prediction = state.prediction_at(candidate, model_state)
+        estimate = state.information_value_estimate(candidate, model_state)
+        body.append(theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)))
+        body.append(theme.kv("prediction", theme.quantity(prediction.predicted_value, unit)))
+        body.append(theme.kv("uncertainty", theme.quantity(prediction.uncertainty)))
+        body.append(theme.kv("information", theme.paint(
+            estimate.estimate_status, theme.WARN if estimate.estimate is None else theme.VALUE)))
+    body.append("")
+
+    body.append(theme.divider("incoming transition"))
+    body.append("")
+    if incoming is None:
+        body.append(theme.kv("observation", theme.paint("NONE", theme.MUTED)))
+        body.append(theme.kv("", theme.paint(
+            "this state was not reached by an admitted observation", theme.MUTED)))
+    else:
+        body.extend(theme.lineage([
+            ("prediction", theme.quantity(incoming.predicted_value, unit)),
+            ("observation", theme.quantity(incoming.observed_value, unit)),
+            ("residual", theme.quantity(incoming.residual, unit, signed=True)),
+            ("this state", theme.ident(model_state.id)),
+        ]))
+        body.append(theme.kv("abs residual", theme.quantity(incoming.absolute_residual, unit)))
+        body.append(theme.kv("from state", theme.ident(history[index - 1].id)))
+    body.append("")
+
+    body.append(theme.divider("decision at this state"))
+    body.append("")
+    body.append(theme.kv("recommended", _decision_summary(state, model_state)))
+    body.append(theme.kv("", theme.paint("a computed recommendation, not a conclusion", theme.MUTED)))
+    body.append("")
+
+    branches = state.branches_from(model_state.id)
+    body.append(theme.divider("branches from this state"))
+    body.append("")
+    if not branches:
+        body.append(theme.paint("None. Nothing was projected from this state.", theme.MUTED))
+    else:
+        for branch in branches:
+            position = state.branches.index(branch) + 1
+            body.append(
+                "  " + theme.paint(f"branch {theme.index(position)}".upper(), theme.WARN) + "  "
+                + theme.paint(f"y = {theme.num(branch.hypothetical_value)}", theme.WARN)
+                + (theme.paint(f" {unit}", theme.MUTED) if unit else "")
+                + theme.paint("   NOT ADMITTED", theme.WARN)
+            )
+    body.append("")
+    return theme.panel(
+        "timeline state", body,
+        right=f"S{index} · {'current' if is_current else 'historical'}",
+    )
+
+
 # -- PHASE 89: comparison operands ---------------------------------------------------------------------
 #
 # An operand is NEVER a new object. It is one of two things that already
@@ -1524,6 +1727,28 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
     return format_selection(state, resolved)
 
 
+def _cmd_timeline(state: WorkbenchState, args: List[str]) -> str:
+    """Observational only. With no argument, the whole real trajectory;
+    with a number, one state by DISPLAY index (identity remains the
+    state's own hash, which the view prints beside it)."""
+    history = state.session.state_history
+    if not args:
+        return format_timeline(state)
+    try:
+        index = int(args[0])
+    except ValueError:
+        return theme.notice(
+            "unreadable state number", f"{args[0]!r} is not a number.",
+            hint=f"timeline <0-{len(history) - 1}>   ·   timeline   lists them",
+        )
+    if not 0 <= index < len(history):
+        return theme.notice(
+            "no such state", f"S{index} is not in this session's real history.",
+            hint=f"timeline <0-{len(history) - 1}>   ·   timeline   lists them",
+        )
+    return format_timeline_state(state, index)
+
+
 def _cmd_compare(state: WorkbenchState, args: List[str]) -> str:
     """Observational only. Resolves operands from the vocabulary the
     workbench already uses (`state <n>`, `branch <n>`), or defaults to
@@ -1612,6 +1837,16 @@ def _cmd_branch(state: WorkbenchState, args: List[str]) -> str:
 
 
 def _cmd_inspect(state: WorkbenchState, args: List[str]) -> str:
+    """PHASE 90 sec.4 -- `inspect state <n>` reaches the timeline's own
+    state view rather than a second one. `state` is already an operand
+    word in `compare`, so this extends one grammar instead of adding
+    another. Anything else is a candidate inspection, unchanged."""
+    if args and args[0].lower() == "state":
+        return _cmd_timeline(state, args[1:] or ["__missing__"])
+    return _cmd_inspect_candidate(state, args)
+
+
+def _cmd_inspect_candidate(state: WorkbenchState, args: List[str]) -> str:
     if not args:
         if state.selected_candidate is None:
             return _no_selection_notice()
@@ -1742,6 +1977,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "timeline":
+        return _cmd_timeline(state, args)
     if command == "compare":
         return _cmd_compare(state, args)
     if command == "branches":

@@ -311,7 +311,14 @@ def lineage(steps: Sequence[Tuple[str, str]]) -> List[str]:
         # stay aligned however deep the branch goes and however long the
         # label is -- a longer label pushes its own value, never the frame.
         prefix = paint(stem, STRUCTURE) + paint(label.upper(), LABEL)
-        out.append(pad(prefix, 18) + value)  # 18 == kv's label column, so both blocks align
+        # 18 == kv's label column, so both blocks align. `pad` leaves an
+        # already-oversized prefix untouched, which would butt the label
+        # straight against its value -- a deep step with a long label must
+        # still be separated from what it labels.
+        if visible_len(prefix) >= 18:
+            out.append(prefix + " " + value)
+        else:
+            out.append(pad(prefix, 18) + value)
     return out
 
 

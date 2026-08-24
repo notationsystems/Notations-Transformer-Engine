@@ -41,6 +41,8 @@ VIEW_SCRIPT = (
     ("compare", []), ("compare", ["branch", "1"]),                  # real -> hypothetical
     ("compare", ["state", "1", "state", "3"]),                      # non-adjacent real pair
     ("decide", []), ("compare", ["decisions"]),
+    ("timeline", []), ("timeline", ["0"]), ("timeline", ["1"]), ("timeline", ["2"]),
+    ("inspect", ["state", "0"]), ("inspect", ["state", "1"]),
     ("branches", []), ("branch", ["1"]),  # branches survive a real observation
     ("history", []), ("diagnostics", []), ("status", []), ("inspect", []),
     ("candidates", []), ("decide", []), ("explain", []),
@@ -50,6 +52,7 @@ VIEW_SCRIPT = (
     ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
     ("compare", ["state", "99"]), ("compare", ["branch", "x"]),
     ("compare", ["state"]), ("compare", ["nonsense"]),
+    ("timeline", ["99"]), ("timeline", ["x"]), ("inspect", ["state"]),
     ("bogus", []),
 )
 
@@ -174,22 +177,51 @@ def test_no_view_renders_an_undetermined_quantity_as_zero(state: WorkbenchState)
 
 
 def test_the_double_frame_means_hypothetical_and_nothing_else(state: WorkbenchState):
-    """A double rule means hypothetical -- BOTH ways. No view that shows a
-    projection may be single-ruled (it could be read as admitted
-    evidence), and no view that shows real evidence may be double-ruled
-    (it could be dismissed as a projection).
+    """A double rule means hypothetical -- BOTH ways. No view whose SUBJECT
+    is a projection may be single-ruled (it could be read as admitted
+    evidence), and no view whose subject is real may be double-ruled (it
+    could be dismissed as a projection).
 
     PHASE 88 generalised this from an allowlist of one view name to the
-    property the allowlist was standing in for. `branches`/`branch` are
-    double-ruled for exactly the same reason `explore` is: every row in
-    them is hypothetical."""
+    property the allowlist stood for. PHASE 90 sharpened WHERE the
+    property is read from: scanning the whole body for the word
+    "HYPOTHETICAL" conflated "this view IS a projection" with "this view
+    MENTIONS one" -- and the timeline is a real view that legitimately
+    names its side projections. The subject is what the panel's own top
+    rule declares, so that is what the frame must agree with."""
     for name, text in _rendered_views(state):
-        plain = theme._ANSI.sub("", text)
-        uses_double = any(line.startswith(("╔", "╚", "║")) for line in plain.splitlines())
-        is_hypothetical = "HYPOTHETICAL" in plain or "NOT ADMITTED" in plain
-        assert uses_double == is_hypothetical, (
-            f"{name}: double frame {'used on a real view' if uses_double else 'missing from a projection'}"
+        plain = [theme._ANSI.sub("", line) for line in text.splitlines()]
+        uses_double = any(line.startswith(("╔", "╚", "║")) for line in plain)
+        top_rule = plain[0] if plain else ""
+        declares_hypothetical = "HYPOTHETICAL" in top_rule or "NOT EVIDENCE" in top_rule
+        assert uses_double == declares_hypothetical, (
+            f"{name}: frame style disagrees with the top rule -- "
+            f"double={uses_double}, declared hypothetical={declares_hypothetical}"
         )
+
+
+def test_a_real_view_never_names_a_projection_without_marking_it(state: WorkbenchState):
+    """The coverage the body-wide scan used to give, made exact: inside a
+    single-ruled (real) view, any row carrying a branch's projected-state
+    identity must say on that row that it is not admitted evidence."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "explore", ["70"])
+    dispatch(state, "explore", ["110"])
+    dispatch(state, "observe", ["90"])
+    branch_ids = [theme.ident(b.projected_state_id) for b in state.branches]
+    assert branch_ids
+
+    for command, args in (("timeline", []), ("timeline", ["0"]), ("inspect", ["state", "0"]),
+                          ("status", []), ("history", [])):
+        text = dispatch(state, command, args)
+        plain = [theme._ANSI.sub("", line) for line in text.splitlines()]
+        if any(line.startswith(("╔", "╚", "║")) for line in plain):
+            continue  # a declared projection view; the frame already says so
+        for line in plain:
+            if any(identity in line for identity in branch_ids):
+                assert "HYPOTHETICAL" in line or "NOT ADMITTED" in line, (
+                    f"{command}: a real view names a projection unmarked: {line!r}"
+                )
 
 
 def test_counterfactual_view_states_its_isolation_explicitly(state: WorkbenchState):
@@ -245,6 +277,7 @@ def test_every_error_state_names_what_was_expected(state: WorkbenchState):
         ("branch", ["99"]), ("branch", ["x"]), ("branch", []),
         ("compare", ["state", "99"]), ("compare", ["branch", "x"]),
         ("compare", ["state"]), ("compare", ["nonsense"]),
+        ("timeline", ["99"]), ("timeline", ["x"]), ("inspect", ["state"]),
         ("bogus", []),
     ):
         text = dispatch(state, command, args)
@@ -257,7 +290,7 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     dispatchable = {
         "help", "scenario", "status", "candidates", "decide", "select",
         "predict", "explore", "observe", "inspect", "explain",
-        "branches", "branch", "compare", "history", "diagnostics", "quit",
+        "branches", "branch", "compare", "timeline", "history", "diagnostics", "quit",
     }
     assert documented == dispatchable
     text = dispatch(state, "help", [])

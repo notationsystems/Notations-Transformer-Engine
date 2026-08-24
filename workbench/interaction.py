@@ -366,6 +366,14 @@ class WorkbenchState:
     # is what makes the D -> observation -> S' -> D' loop legible.
     last_decision_state_id: Optional[str] = None
     previous_decision_state_id: Optional[str] = None
+    # PHASE 90: every decision this session computed, kept against the real
+    # state it was computed at. `previous_decision`/`last_decision` above are
+    # the two most recent entries of this same log, held as separate fields
+    # because Phase 87/89 read them directly; nothing here is recomputed and
+    # no OptimizationResult is copied -- the log holds the SAME objects.
+    # Needed because a timeline shows more than two states, and a decision
+    # carries no state id of its own.
+    decision_log: List[Tuple[str, OptimizationResult]] = field(default_factory=list)
     scenario: Optional[ResearchScenario] = None
 
     def list_candidates(self) -> Tuple[ActionCandidate, ...]:
@@ -407,6 +415,34 @@ class WorkbenchState:
         target_state = state if state is not None else self.session.state
         model = ModelStateInformationValueModel(target_state)
         return estimate_information_value(candidate, self.session.iteration, model)
+
+    def decision_at(self, state_id: str) -> Optional[OptimizationResult]:
+        """The decision this session computed AT a given real state, or
+        None if none was. Looked up by the state's own content hash --
+        never by timeline position."""
+        for recorded_state_id, result in self.decision_log:
+            if recorded_state_id == state_id:
+                return result
+        return None
+
+    def assessment_for_transition(self, predecessor_state_id: str) -> Optional[PredictionAssessment]:
+        """The admitted assessment that advanced the session OUT of a given
+        real state. `PredictionAssessment.state_id` is the predecessor it
+        was assessed against, so this matches on content-addressed
+        identity rather than trusting list position -- even though
+        `observe()` appends to `assessments` and advances `session` in
+        lockstep, position is not identity."""
+        for assessment in self.assessments:
+            if assessment.state_id == predecessor_state_id:
+                return assessment
+        return None
+
+    def branches_from(self, state_id: str) -> List[CounterfactualOutcome]:
+        """Retained branches projected from a given real state, in
+        registry order. Matched on the branch's own frozen
+        `source_state_id`, which is why a later real observation can
+        never silently re-parent one."""
+        return [b for b in self.branches if b.source_state_id == state_id]
 
     def prediction_at(self, candidate: ActionCandidate, state: Optional[ModelState] = None) -> Prediction:
         """`materials.model_state.predict` at an EXPLICIT state -- exactly
@@ -463,6 +499,13 @@ class WorkbenchState:
             self.previous_decision_state_id = self.last_decision_state_id
         self.last_decision = result
         self.last_decision_state_id = self.session.state.id
+        # deciding twice at one state recomputes the same landscape from the
+        # same inputs, so the state keeps ONE entry rather than accumulating
+        # duplicates of an identical computation.
+        self.decision_log = [
+            entry for entry in self.decision_log if entry[0] != self.session.state.id
+        ]
+        self.decision_log.append((self.session.state.id, result))
         return result
 
     def _require_selected_candidate(self) -> ActionCandidate:
