@@ -196,3 +196,30 @@ infrastructure **above** `materials/` — the same non-invasive posture
 `docs/COMPUTATIONAL_COMMONS.md` §O both required of their own proposed
 extensions, and the one this repository has followed at every layer
 since.
+
+## 7. Addendum — refinement discovered during implementation
+
+§5's original rule ("every write is reached exclusively through
+`materials.results.admit_experimental_result`") was one call too
+strong, and implementation surfaced the precise correction rather than
+silently deviating from this document. `admit_experimental_result` has
+always required an ALREADY-ADMITTED `record_id` as input (Phase 44's
+own docstring: "the caller is responsible for having already admitted
+the Source/Document/Record chain") — Record admission was therefore
+never part of the write boundary `materials.results`, or its own
+boundary test, protects; it is raw structural bookkeeping (a locator +
+raw content), not a scientific claim, the same distinction
+`docs/SCOUT_ARCHITECTURE.md`'s own data-contract table already draws
+between `Record` and `Observation`.
+
+`ExperimentSession` therefore carries an already-admitted `document_id`
+(the caller is responsible for it, exactly the same discipline Phase 44
+already established for `record_id`), and `experiment.step.
+run_experiment_step` calls `evidence.admission.admit_record`/
+`pool.put_record` directly — the ONE admission surface `experiment/` is
+permitted to touch outside `materials.results.admit_experimental_result`
+itself. The SEMANTIC facts (`Observation`, `ClaimedRelationship`) still
+only ever enter `EvidencePool` through `materials.results.
+admit_experimental_result` — unchanged from §5's intent, just stated at
+the correct granularity. `tests/test_experiment_boundaries.py` enforces
+this exact, narrower rule.
