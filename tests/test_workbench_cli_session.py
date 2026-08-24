@@ -38,7 +38,7 @@ def test_a_bootstrap_no_fabricated_prediction():
     assert "none -- use `candidates`" in status_output
 
     candidates_output = dispatch(state, "candidates", [])
-    assert candidates_output.count("prediction=undetermined") == 2
+    assert candidates_output.count("prediction: undetermined") == 2
     assert "0.0" not in candidates_output  # no undetermined quantity silently rendered as zero
 
     dispatch(state, "select", ["1"])
@@ -54,7 +54,7 @@ def test_a_bootstrap_no_fabricated_prediction():
 def test_b_decision_selection_comes_from_optimization():
     state = _start()
     decide_output = dispatch(state, "decide", [])
-    assert "Selected candidate: [" in decide_output
+    assert "Recommended candidate: [" in decide_output
     assert state.last_decision is not None
     selected = [o for o in state.last_decision.optimizations if o.status == "SELECTED"]
     assert len(selected) == 1
@@ -73,9 +73,9 @@ def test_c_counterfactual_state_unchanged_and_no_admission():
     pre_observation_count = len(state.pool.all_observations())
 
     explore_output = dispatch(state, "explore", ["90"])
-    assert "evidence admitted: NO" in explore_output
-    assert "real session changed: NO" in explore_output
-    assert "This is hypothetical" in explore_output
+    assert "NOT been admitted as evidence" in explore_output
+    assert "unchanged: confirmed" in explore_output
+    assert "This branch is hypothetical" in explore_output
 
     assert state.session.state.id == pre_state_id
     assert state.pool.fingerprint() == pre_fingerprint  # nothing at all was admitted to the pool
@@ -136,7 +136,7 @@ def test_f_decision_evolution_selects_different_candidate():
     first_index = next(
         i for i, c in enumerate(state.list_candidates(), start=1) if c.id == first_selected
     )
-    assert f"Selected candidate: [{first_index}]" in decide_1
+    assert f"Recommended candidate: [{first_index}]" in decide_1
 
     dispatch(state, "select", [str(first_index)])
     dispatch(state, "observe", ["90"])  # first candidate's benefit drops once measured once
@@ -144,7 +144,7 @@ def test_f_decision_evolution_selects_different_candidate():
     decide_2 = dispatch(state, "decide", [])
     second_selected = [o.candidate_id for o in state.last_decision.optimizations if o.status == "SELECTED"][0]
     assert second_selected != first_selected
-    assert f"Selected candidate: [{first_index}]" not in decide_2
+    assert f"Recommended candidate: [{first_index}]" not in decide_2
 
 
 # -- Test G: historical immutability -------------------------------------------------------------------

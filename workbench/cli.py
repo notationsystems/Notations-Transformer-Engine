@@ -28,6 +28,71 @@ prefers, but only `select <n>` (a separate, explicit human choice)
 establishes which candidate `predict`/`explore`/`observe` act on next,
 per this phase's own instruction that a policy recommendation and the
 human's interaction choice remain two different things.
+
+PHASE 71 -- INVESTIGATION FINDINGS (re-read fresh, not assumed from any
+prior phase report, per this phase's own instruction):
+
+  1. SESSION USABILITY: `WorkbenchState` (Phase 68/70) already holds
+     everything a repeated interaction needs -- `selected_candidate`,
+     `assessments`, `last_counterfactual`, `last_decision` -- with no
+     mutable SCIENTIFIC state anywhere (every field either names an
+     immutable domain object or is plain interaction bookkeeping, per
+     that module's own docstring). No new presentation-level state was
+     missing; nothing was added to `workbench/interaction.py` this
+     phase.
+
+  2. DECISION VISIBILITY: candidate identity/context/prediction/
+     uncertainty/sample count/information-value status/utility/
+     optimization status were already all exposed by `candidates`/
+     `decide` (Phase 70). This phase adds the candidate's own `id` and
+     the shared `process` (read from `state.session.iteration.query.
+     process_natural_key` -- a real field, not fabricated) to the
+     candidate listing, since Phase 70's version omitted them.
+
+  3. OBSERVATION SEMANTICS: `WorkbenchState.observe` was already, and
+     remains, a thin wrapper around the real admission path (`admit_
+     record`/`admit_experimental_result`/`ExperimentSession.observe`) --
+     it never fabricates an `Observation`. No `experiment.interface.
+     ActionDispatcher` seam is needed here: that Protocol exists for
+     AUTOMATED dispatch (`experiment.step.run_experiment_step`); this
+     CLI's `observe <value>` is the human supplying an externally
+     obtained result directly, so there is no "dispatch" step to seam --
+     inventing one would add lab-automation machinery this phase
+     explicitly forbids, to stand in for a human who is already right
+     here typing the number.
+
+  4. COUNTERFACTUAL SEMANTICS: `explore <value>` already communicated
+     every required fact (Phase 70) -- hypothetical, not evidence,
+     source state unchanged, projected state identity, prediction after.
+     This phase only adjusts wording/section headers to match this
+     phase's own illustrative transcript more closely; the underlying
+     `WorkbenchState.explore`/`session.inspect_counterfactual` call is
+     unchanged.
+
+  5. HISTORY: `history` (Phase 70) already exposes state_before/
+     candidate/predicted_value_before/observed_value/signed_residual/
+     state_after per transition, via `materials.diagnostics.
+     StateTransitionDiagnostic` fields -- no second history model exists
+     or was added.
+
+  6. DIAGNOSTICS: `materials.diagnostics.diagnose_transitions` already
+     computes everything a "diagnostics" view would show (Phase 57) --
+     `WorkbenchState.history()` already calls it. The one genuine gap
+     this phase's investigation found: nothing exposed it as its OWN
+     command with its own framing (`history` mixes narrative and detail
+     together). `diagnostics` below is a SECOND presentation over the
+     exact same `StateTransitionDiagnosticSet` `history` already
+     produces -- `WorkbenchState.history()` is called again, unmodified;
+     no new `WorkbenchState` method, no new diagnostic mathematics.
+
+IMPLEMENTATION RULE (this phase's own instruction): every command
+handler below is now a thin dispatcher into a named `format_*`
+function -- `format_candidate`/`format_prediction`/`format_decision`/
+`format_selection`/`format_assessment`/`format_counterfactual`/
+`format_transition`/`format_diagnostic` -- each a deterministic,
+side-effect-free renderer of an already-existing domain object. None
+computes a mean, variance, residual, utility, or information value;
+each only reads fields off the object it was given.
 """
 
 from __future__ import annotations
@@ -35,7 +100,11 @@ from __future__ import annotations
 import sys
 from typing import List, Optional, Tuple
 
+from materials.assessment import PredictionAssessment
 from materials.candidates import ActionCandidate
+from materials.diagnostics import StateTransitionDiagnostic
+from materials.model_state import Prediction
+from materials.optimization import CandidateOptimization, OptimizationResult
 from workbench.interaction import WorkbenchState, bootstrap_multi_candidate_scenario, evaluate_decision
 
 HELP_TEXT = """\
@@ -48,7 +117,8 @@ Available commands:
   predict                   current model prediction for the selected candidate
   explore <value>           inspect a HYPOTHETICAL outcome -- never advances the session
   observe <value> [unit]    record an externally supplied experimental observation; advances the session
-  history                   the full transition history for the selected candidate
+  history                   the transition history for the selected candidate
+  diagnostics               the same transitions, in materials.diagnostics' own full detail
   quit / exit               leave the workbench"""
 
 
@@ -84,6 +154,184 @@ def parse_command(line: str) -> Tuple[str, List[str]]:
     if not tokens:
         return "", []
     return tokens[0].lower(), tokens[1:]
+
+
+# -- format_* : deterministic renderers of already-existing domain objects ---------------------------
+
+
+def format_candidate(state: WorkbenchState, candidate: ActionCandidate) -> str:
+    """One candidate's full inspection block -- `[n]` display number,
+    identity, context, and (Phase 70) prediction/uncertainty/samples/
+    information-value/utility/optimization status, all read directly off
+    `state.session.predict`/`state.information_value_estimate`/
+    `evaluate_decision`."""
+    index = _display_index(state, candidate)
+    prediction = state.session.predict(candidate)
+    estimate = state.information_value_estimate(candidate)
+    decision = evaluate_decision(state.candidates, state.session.state, state.session.iteration)
+    optimization = next(o for o in decision.optimizations if o.candidate_id == candidate.id)
+    lines = [
+        f"[{index}] formulation={candidate.formulation.natural_key}",
+        f"    process={state.session.iteration.query.process_natural_key}",
+        f"    property={candidate.property}",
+        f"    context={dict(candidate.target_context)}",
+        f"    id={_short(candidate.id)}",
+        "",
+        f"    prediction: {_fmt_optional(prediction.predicted_value)}",
+        f"    uncertainty: {_fmt_optional(prediction.uncertainty)}",
+        f"    samples: {prediction.sample_count}",
+        f"    information value: {estimate.estimate_status} ({_fmt_optional(estimate.estimate)})",
+        f"    utility: {_fmt_optional(optimization.utility.utility)} ({optimization.status})",
+    ]
+    return "\n".join(lines)
+
+
+def format_prediction(state: WorkbenchState, candidate: ActionCandidate, prediction: Prediction) -> str:
+    return (
+        f"Prediction for candidate [{_display_index(state, candidate)}]\n"
+        f"  state: {_short(prediction.state_id)}\n"
+        f"  predicted_value: {_fmt_optional(prediction.predicted_value)}\n"
+        f"  uncertainty: {_fmt_optional(prediction.uncertainty)}\n"
+        f"  sample_count: {prediction.sample_count}"
+    )
+
+
+def format_decision(state: WorkbenchState, optimization: OptimizationResult) -> str:
+    selected = [o for o in optimization.optimizations if o.status == "SELECTED"]
+    lines = ["Decision", "--------", ""]
+
+    def _candidate_line(o: CandidateOptimization) -> str:
+        candidate = next(c for c in state.list_candidates() if c.id == o.candidate_id)
+        return f"Candidate {_display_index(state, candidate)}\n    utility: {_fmt_optional(o.utility.utility)} ({o.utility.utility_status})"
+
+    for o in optimization.optimizations:
+        lines.append(_candidate_line(o))
+        lines.append("")
+
+    if selected:
+        chosen_candidate = next(c for c in state.list_candidates() if c.id == selected[0].candidate_id)
+        lines.append(f"Recommended candidate: [{_display_index(state, chosen_candidate)}]")
+        lines.append("Reason:")
+        lines.append(f"    highest current utility (policy: max_candidates={optimization.policy.max_candidates})")
+        lines.append("")
+        lines.append("No action has been selected.")
+        lines.append(f"Use: select {_display_index(state, chosen_candidate)}")
+    else:
+        lines.append("No candidate could be selected under the current policy (see `candidates` for why).")
+        lines.append("No action has been selected.")
+    return "\n".join(lines)
+
+
+def format_selection(state: WorkbenchState, candidate: ActionCandidate) -> str:
+    index = _display_index(state, candidate)
+    return (
+        f"Selected candidate [{index}] (property={candidate.property}, context={dict(candidate.target_context)})\n"
+        "\n"
+        "No experiment has been executed.\n"
+        "The next real observation must be supplied externally.\n"
+        "\n"
+        "Use:\n"
+        f"    observe <value>"
+    )
+
+
+def format_counterfactual(state: WorkbenchState, candidate: ActionCandidate, real_session_changed: bool) -> str:
+    outcome = state.last_counterfactual
+    assert outcome is not None
+    estimate_after = state.information_value_estimate(candidate, outcome.projected_state)
+    return (
+        "Counterfactual exploration\n"
+        "--------------------------\n"
+        "\n"
+        f"candidate: [{_display_index(state, candidate)}]\n"
+        f"hypothetical value: {outcome.hypothetical_value}\n"
+        f"source state: {_short(outcome.source_state_id)}\n"
+        f"projected state: {_short(outcome.projected_state_id)}\n"
+        "\n"
+        f"prediction after hypothetical update: {_fmt_optional(outcome.delta.to_predicted_value)}\n"
+        f"delta: predicted_value={_fmt_optional(outcome.delta.delta_predicted_value)}  "
+        f"uncertainty={_fmt_optional(outcome.delta.delta_uncertainty)}\n"
+        f"information value after (hypothetical): {estimate_after.estimate_status} "
+        f"({_fmt_optional(estimate_after.estimate)})\n"
+        "\n"
+        "This branch is hypothetical.\n"
+        "It has NOT been admitted as evidence.\n"
+        f"The live session is unchanged: {'NO -- this would be a bug' if real_session_changed else 'confirmed'}"
+    )
+
+
+def format_assessment(
+    state: WorkbenchState, candidate: ActionCandidate, predecessor_state_id: str,
+    prediction: Prediction, assessment: PredictionAssessment,
+) -> str:
+    samples_for_candidate = state.session.predict(candidate).sample_count
+    observed_unit = assessment.result.content.get("unit", "")
+    return (
+        "Observation -- this value is an externally supplied experimental observation\n"
+        "------------------------------------------------------------------------------\n"
+        f"candidate: [{_display_index(state, candidate)}]\n"
+        f"observed: {assessment.observed_value} {observed_unit}\n"
+        "\n"
+        f"prediction: {_fmt_optional(prediction.predicted_value)}\n"
+        f"residual: {_fmt_signed(assessment.residual)}\n"
+        f"absolute residual: {_fmt_optional(assessment.absolute_residual)}\n"
+        "\n"
+        "State transition:\n"
+        f"    S_t     = {_short(predecessor_state_id)}\n"
+        f"    S_t+1   = {_short(state.session.state.id)}\n"
+        "\n"
+        f"samples for candidate: {samples_for_candidate}\n"
+        "\n"
+        "The previous session remains immutable."
+    )
+
+
+def format_transition(index: int, d: StateTransitionDiagnostic) -> str:
+    """The narrative view `history` uses -- exactly the fields Phase 71
+    sec.5 requires: state_before, candidate (implicit -- the whole
+    listing is scoped to one), predicted_value_before, observed_value,
+    signed_residual, state_after."""
+    lines = [f"  [{index}] state_before={_short(d.predecessor_state_id)}  state_after={_short(d.successor_state_id)}"]
+    lines.append(f"      predicted_value_before: {_fmt_optional(d.previous_prediction.predicted_value)}")
+    if d.assessment is None:
+        lines.append("      observed_value: (no observation recorded for this transition)")
+        lines.append("      signed_residual: n/a")
+    else:
+        lines.append(f"      observed_value: {d.observation_value}")
+        lines.append(f"      signed_residual: {_fmt_signed(d.residual_against_previous_prediction)}")
+    return "\n".join(lines)
+
+
+def format_diagnostic(index: int, d: StateTransitionDiagnostic) -> str:
+    """The full-detail view `diagnostics` uses -- every field
+    `materials.diagnostics.StateTransitionDiagnostic` carries, exposed
+    directly rather than reimplemented (Phase 71 sec.6)."""
+    lines = [f"  [{index}] {_short(d.predecessor_state_id)} -> {_short(d.successor_state_id)}"]
+    lines.append(f"      model_state_key: {_short(d.model_state_key)}")
+    lines.append(
+        f"      previous prediction: predicted_value={_fmt_optional(d.previous_prediction.predicted_value)} "
+        f"uncertainty={_fmt_optional(d.previous_prediction.uncertainty)}"
+    )
+    lines.append(
+        f"      new prediction:      predicted_value={_fmt_optional(d.new_prediction.predicted_value)} "
+        f"uncertainty={_fmt_optional(d.new_prediction.uncertainty)}"
+    )
+    lines.append(
+        f"      delta_predicted_value={_fmt_optional(d.delta_predicted_value)}  "
+        f"delta_uncertainty={_fmt_optional(d.delta_uncertainty)}"
+    )
+    if d.assessment is None:
+        lines.append("      no observation recorded for this transition")
+    else:
+        lines.append(f"      observation_value={d.observation_value}")
+        lines.append(
+            f"      residual_against_previous_prediction={_fmt_signed(d.residual_against_previous_prediction)}  "
+            f"absolute_residual={_fmt_optional(d.absolute_residual)}"
+        )
+    return "\n".join(lines)
+
+
+# -- command handlers : thin parsing/dispatch around the format_* renderers above ---------------------
 
 
 def _cmd_status(state: WorkbenchState) -> str:
@@ -130,57 +378,16 @@ def _cmd_candidates(state: WorkbenchState) -> str:
     candidates = state.list_candidates()
     if not candidates:
         return "No candidates were generated for this scenario."
-    decision = evaluate_decision(state.candidates, state.session.state, state.session.iteration)
-    optimization_by_id = {o.candidate_id: o for o in decision.optimizations}
-    lines = [f"{len(candidates)} candidate(s):", ""]
-    for i, candidate in enumerate(candidates, start=1):
-        prediction = state.session.predict(candidate)
-        estimate = state.information_value_estimate(candidate)
-        optimization = optimization_by_id[candidate.id]
-        lines.append(f"[{i}] formulation={candidate.formulation.natural_key}")
-        lines.append(f"    property={candidate.property}")
-        lines.append(f"    context={dict(candidate.target_context)}")
-        lines.append(
-            f"    prediction={_fmt_optional(prediction.predicted_value)}  "
-            f"uncertainty={_fmt_optional(prediction.uncertainty)}"
-        )
-        lines.append(f"    samples={prediction.sample_count}")
-        lines.append(f"    information_value={_fmt_optional(estimate.estimate)} ({estimate.estimate_status})")
-        lines.append(
-            f"    utility={_fmt_optional(optimization.utility.utility)} ({optimization.utility.utility_status})  "
-            f"optimization={optimization.status}"
-        )
+    lines = ["Candidates", "----------", ""]
+    for candidate in candidates:
+        lines.append(format_candidate(state, candidate))
         lines.append("")
     return "\n".join(lines).rstrip()
 
 
 def _cmd_decide(state: WorkbenchState) -> str:
     optimization = state.decide()
-    selected = [o for o in optimization.optimizations if o.status == "SELECTED"]
-    lines = ["Decision", "--------"]
-    if not selected:
-        lines.append("No candidate could be selected under the current policy (see `candidates` for why).")
-    else:
-        chosen = selected[0]
-        candidate = next(c for c in state.list_candidates() if c.id == chosen.candidate_id)
-        lines.append(f"Selected candidate: [{_display_index(state, candidate)}]")
-        lines.append("Reason:")
-        lines.append(f"  utility = {_fmt_optional(chosen.utility.utility)} ({chosen.utility.utility_status})")
-        lines.append(f"  policy  = max_candidates={optimization.policy.max_candidates}")
-    lines.append("")
-    lines.append(
-        "This is a policy-selected recommendation, not an autonomous action -- "
-        "use `select <n>` to actually establish a candidate to act on."
-    )
-    lines.append("")
-    lines.append("Full candidate landscape:")
-    for o in optimization.optimizations:
-        candidate = next(c for c in state.list_candidates() if c.id == o.candidate_id)
-        lines.append(
-            f"  [{_display_index(state, candidate)}] utility={_fmt_optional(o.utility.utility)} "
-            f"({o.utility.utility_status})  status={o.status}"
-        )
-    return "\n".join(lines)
+    return format_decision(state, optimization)
 
 
 def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
@@ -197,7 +404,7 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
             f"candidate number {n} is out of range -- see `candidates` for valid numbers "
             f"(1..{len(state.list_candidates())})"
         )
-    return f"Selected candidate [{n}] (property={candidate.property}, context={dict(candidate.target_context)})"
+    return format_selection(state, candidate)
 
 
 def _cmd_predict(state: WorkbenchState) -> str:
@@ -205,13 +412,8 @@ def _cmd_predict(state: WorkbenchState) -> str:
         prediction = state.predict()
     except ValueError as e:
         return str(e)
-    return (
-        f"Prediction for candidate [{_display_index(state, state.selected_candidate)}]\n"  # type: ignore[arg-type]
-        f"  state: {_short(prediction.state_id)}\n"
-        f"  predicted_value: {_fmt_optional(prediction.predicted_value)}\n"
-        f"  uncertainty: {_fmt_optional(prediction.uncertainty)}\n"
-        f"  sample_count: {prediction.sample_count}"
-    )
+    assert state.selected_candidate is not None  # guaranteed: state.predict() above only succeeds once one is selected
+    return format_prediction(state, state.selected_candidate, prediction)
 
 
 def _cmd_explore(state: WorkbenchState, args: List[str]) -> str:
@@ -223,29 +425,13 @@ def _cmd_explore(state: WorkbenchState, args: List[str]) -> str:
         return f"'{args[0]}' is not a numeric value"
     pre_state_id = state.session.state.id
     try:
-        outcome = state.explore(hypothetical_value)
+        state.explore(hypothetical_value)
     except ValueError as e:
         return str(e)
     candidate = state.selected_candidate
     assert candidate is not None  # guaranteed: state.explore() above only succeeds once one is selected
-    estimate_after = state.information_value_estimate(candidate, outcome.projected_state)
-    return (
-        "Counterfactual\n"
-        "--------------\n"
-        f"candidate: [{_display_index(state, candidate)}]\n"
-        f"hypothetical value: {outcome.hypothetical_value}\n"
-        "\n"
-        f"projected state: {_short(outcome.projected_state_id)}\n"
-        f"prediction after: {_fmt_optional(outcome.delta.to_predicted_value)}\n"
-        f"delta: predicted_value={_fmt_optional(outcome.delta.delta_predicted_value)}  "
-        f"uncertainty={_fmt_optional(outcome.delta.delta_uncertainty)}\n"
-        f"information value after (hypothetical): {_fmt_optional(estimate_after.estimate)} "
-        f"({estimate_after.estimate_status})\n"
-        "evidence admitted: NO\n"
-        f"real session changed: {'YES' if state.session.state.id != pre_state_id else 'NO'}\n"
-        "\n"
-        "This is hypothetical. It has NOT been admitted as evidence."
-    )
+    real_session_changed = state.session.state.id != pre_state_id
+    return format_counterfactual(state, candidate, real_session_changed)
 
 
 def _cmd_observe(state: WorkbenchState, args: List[str]) -> str:
@@ -263,24 +449,7 @@ def _cmd_observe(state: WorkbenchState, args: List[str]) -> str:
         return str(e)
     candidate = state.selected_candidate
     assert candidate is not None  # guaranteed: state.observe() above only succeeds once one is selected
-    samples_for_candidate = state.session.predict(candidate).sample_count
-    observed_unit = assessment.result.content.get("unit", "")
-    return (
-        "Observation accepted -- this value is an externally supplied experimental observation\n"
-        "------------------------------------------------------------------------------------\n"
-        f"candidate: [{_display_index(state, candidate)}]\n"
-        f"observed: {assessment.observed_value} {observed_unit}\n"
-        "\n"
-        f"prediction before observation: {_fmt_optional(prediction.predicted_value)}\n"
-        f"residual: {_fmt_signed(assessment.residual)}\n"
-        f"absolute residual: {_fmt_optional(assessment.absolute_residual)}\n"
-        "\n"
-        "state:\n"
-        f"  previous = {_short(predecessor_state_id)}\n"
-        f"  current  = {_short(state.session.state.id)}\n"
-        "\n"
-        f"samples for candidate: {samples_for_candidate}"
-    )
+    return format_assessment(state, candidate, predecessor_state_id, prediction, assessment)
 
 
 def _cmd_history(state: WorkbenchState) -> str:
@@ -296,28 +465,29 @@ def _cmd_history(state: WorkbenchState) -> str:
         f"Transition history for candidate [{_display_index(state, candidate)}] "
         f"({len(diagnostic_set.diagnostics)} transition(s)):"
     ]
-    for i, d in enumerate(diagnostic_set.diagnostics, start=1):
-        lines.append(f"  [{i}] {_short(d.predecessor_state_id)} -> {_short(d.successor_state_id)}")
-        lines.append(
-            f"      previous prediction: predicted_value={_fmt_optional(d.previous_prediction.predicted_value)} "
-            f"uncertainty={_fmt_optional(d.previous_prediction.uncertainty)}"
-        )
-        lines.append(
-            f"      new prediction:      predicted_value={_fmt_optional(d.new_prediction.predicted_value)} "
-            f"uncertainty={_fmt_optional(d.new_prediction.uncertainty)}"
-        )
-        lines.append(
-            f"      delta_predicted_value={_fmt_optional(d.delta_predicted_value)}  "
-            f"delta_uncertainty={_fmt_optional(d.delta_uncertainty)}"
-        )
-        if d.assessment is None:
-            lines.append("      no observation recorded for this transition")
-        else:
-            lines.append(f"      observation_value={d.observation_value}")
-            lines.append(
-                f"      residual_against_previous_prediction={_fmt_signed(d.residual_against_previous_prediction)}  "
-                f"absolute_residual={_fmt_optional(d.absolute_residual)}"
-            )
+    lines.extend(format_transition(i, d) for i, d in enumerate(diagnostic_set.diagnostics, start=1))
+    return "\n".join(lines)
+
+
+def _cmd_diagnostics(state: WorkbenchState) -> str:
+    """The same `StateTransitionDiagnosticSet` `history` renders,
+    formatted with `format_diagnostic` (full `materials.diagnostics`
+    detail) instead of `format_transition` (narrative summary) -- see
+    module docstring, Phase 71 sec.6. Not a second computation: `state.
+    history()` is called exactly the way `_cmd_history` above calls it."""
+    try:
+        diagnostic_set = state.history()
+    except ValueError as e:
+        return str(e)
+    if not diagnostic_set.diagnostics:
+        return "No transitions yet for the selected candidate -- observe at least one value first."
+    candidate = state.selected_candidate
+    assert candidate is not None  # guaranteed: state.history() above only succeeds once one is selected
+    lines = [
+        f"Diagnostics for candidate [{_display_index(state, candidate)}] "
+        f"({len(diagnostic_set.diagnostics)} transition(s)):"
+    ]
+    lines.extend(format_diagnostic(i, d) for i, d in enumerate(diagnostic_set.diagnostics, start=1))
     return "\n".join(lines)
 
 
@@ -343,6 +513,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_observe(state, args)
     if command == "history":
         return _cmd_history(state)
+    if command == "diagnostics":
+        return _cmd_diagnostics(state)
     if command in ("quit", "exit"):
         return "__QUIT__"
     return f"Unknown command: {command!r} -- type `help` for the command list"
