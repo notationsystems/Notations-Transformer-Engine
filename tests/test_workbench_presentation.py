@@ -82,7 +82,7 @@ def test_every_framed_line_is_exactly_frame_width(state: WorkbenchState, colored
     for name, text in _rendered_views(state):
         for line in text.splitlines():
             plain = theme._ANSI.sub("", line)
-            if plain[:1] in FRAME_STARTS:
+            if plain.startswith(tuple(FRAME_STARTS)):
                 assert theme.visible_len(line) == theme.width(), f"{name}: ragged frame line {plain!r}"
 
 
@@ -91,8 +91,8 @@ def test_every_view_is_a_closed_frame(state: WorkbenchState):
     match style: a double rule opens only where a double rule closes."""
     for name, text in _rendered_views(state):
         plain = [theme._ANSI.sub("", line) for line in text.splitlines()]
-        opens = [line for line in plain if line[:1] in "┌╔"]
-        closes = [line for line in plain if line[:1] in "└╚"]
+        opens = [line for line in plain if line.startswith(("┌", "╔"))]
+        closes = [line for line in plain if line.startswith(("└", "╚"))]
         assert len(opens) == 1, f"{name}: expected one opening rule"
         assert len(closes) == 1, f"{name}: expected one closing rule"
         assert (opens[0][0] == "╔") == (closes[0][0] == "╚"), f"{name}: mismatched frame style"
@@ -156,7 +156,7 @@ def test_only_the_counterfactual_view_uses_the_double_frame(state: WorkbenchStat
     """A double rule means hypothetical. If any other view adopted it,
     a projection could be mistaken for admitted evidence."""
     for name, text in _rendered_views(state):
-        uses_double = any(theme._ANSI.sub("", line)[:1] in "╔╚║" for line in text.splitlines())
+        uses_double = any(theme._ANSI.sub("", line).startswith(("╔", "╚", "║")) for line in text.splitlines())
         assert uses_double == (name == "explore" and "COUNTERFACTUAL" in text), (
             f"{name}: double frame used outside the counterfactual view"
         )
@@ -250,7 +250,7 @@ def test_masthead_is_rules_not_a_frame():
     lines = format_masthead().splitlines()
     assert lines[0].startswith(theme.HEAVY)
     assert lines[-1].startswith(theme.HEAVY)
-    assert not any(theme._ANSI.sub("", line)[:1] in FRAME_STARTS for line in lines)
+    assert not any(theme._ANSI.sub("", line).startswith(tuple(FRAME_STARTS)) for line in lines)
 
 
 # -- colour degradation --------------------------------------------------------------------------------
