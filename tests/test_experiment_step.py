@@ -82,9 +82,18 @@ def _setup():
 
 def _benefit_from_estimate(estimate: InformationValueEstimate) -> ExperimentUtilityInput:
     # Phase 60's own proven composition: route the model-driven
-    # information estimate straight into benefit, at face value.
-    benefit = estimate.estimate if estimate.estimate is not None else 0.0
-    return ExperimentUtilityInput(benefit=benefit, cost=1.0)
+    # information estimate straight into benefit, at face value. When
+    # the model has no samples yet to compute a variance from
+    # (estimate.estimate is None -- e.g. the very first measurement for
+    # a cell), this is an EXPLICIT caller policy choice -- explore once,
+    # benefit=1.0 -- documented as exactly that. This is NOT the same
+    # thing as silently substituting 0.0 for "unknown": 0.0 would claim
+    # "we know the benefit is zero," which is false; an explicit
+    # bootstrap constant says "we don't know yet, and we choose to
+    # explore anyway," which is what it actually is.
+    if estimate.estimate is not None:
+        return ExperimentUtilityInput(benefit=estimate.estimate, cost=1.0)
+    return ExperimentUtilityInput(benefit=1.0, cost=1.0)  # explicit bootstrap: explore once
 
 
 # -- 1. a real two-step closed loop, end to end --------------------------------------------------------
