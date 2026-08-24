@@ -367,6 +367,8 @@ def format_candidate(state: WorkbenchState, candidate: ActionCandidate, optimiza
         marks.append(theme.badge("active", theme.ACCENT, filled=True))
     if optimization is not None and optimization.status == "SELECTED":
         marks.append(theme.paint(theme.ARROW + " ", theme.ACCENT) + theme.badge("recommended", theme.ACCENT))
+    if prediction.sample_count == 0:
+        marks.append(theme.badge("unmeasured", theme.WARN))
 
     header = _candidate_line(state, candidate)
     if marks:
@@ -399,7 +401,15 @@ def format_candidates(state: WorkbenchState) -> str:
     decision = evaluate_decision(state.candidates, state.session.state, state.session.iteration)
     by_id = {o.candidate_id: o for o in decision.optimizations}
 
+    observed, total = _coverage(state)
     body: List[str] = [""]
+    body.append(
+        theme.kv("measured", theme.paint(f"{observed} of {total}", theme.VALUE)
+                 + theme.paint(f"   {total - observed} carry no observation yet", theme.MUTED))
+    )
+    body.append("")
+    body.append(theme.divider())
+    body.append("")
     for candidate in candidates:
         body.extend(format_candidate(state, candidate, by_id.get(candidate.id)))
         body.append("")
@@ -434,9 +444,10 @@ def format_decision(state: WorkbenchState, optimization: OptimizationResult) -> 
 
     body: List[str] = [""]
     body.append(
-        theme.paint("  " + theme.pad("#", 5), theme.LABEL)
-        + theme.paint(theme.pad("CANDIDATE", 38), theme.LABEL)
-        + theme.paint(theme.pad("UTILITY", 14), theme.LABEL)
+        theme.paint("  " + theme.pad("#", 4), theme.LABEL)
+        + theme.paint(theme.pad("CANDIDATE", 30), theme.LABEL)
+        + theme.paint(theme.pad("SAMPLES", 9), theme.LABEL)
+        + theme.paint(theme.pad("UTILITY", 11), theme.LABEL)
         + theme.paint("STATUS", theme.LABEL)
     )
     body.append(theme.divider())
@@ -448,13 +459,14 @@ def format_decision(state: WorkbenchState, optimization: OptimizationResult) -> 
             if is_selected else theme.paint(_SHORT_STATUS.get(option.status, option.status.lower()), theme.MUTED)
         )
         body.append(
-            "  " + theme.paint(theme.pad(theme.index(_display_index(state, candidate)), 5), theme.ACCENT)
+            "  " + theme.paint(theme.pad(theme.index(_display_index(state, candidate)), 4), theme.ACCENT)
             + theme.pad(
-                theme.paint(theme.truncate(_short_candidate_line(state, candidate), 36),
+                theme.paint(theme.truncate(_short_candidate_line(state, candidate), 28),
                             theme.VALUE if is_selected else theme.LABEL),
-                38,
+                30,
             )
-            + theme.pad(theme.quantity(option.utility.utility), 14)
+            + theme.pad(theme.paint(str(state.session.predict(candidate).sample_count), theme.VALUE), 9)
+            + theme.pad(theme.quantity(option.utility.utility), 11)
             + status
         )
     body.append("")
@@ -464,9 +476,29 @@ def format_decision(state: WorkbenchState, optimization: OptimizationResult) -> 
     if selected:
         chosen = next(c for c in state.list_candidates() if c.id == selected[0].candidate_id)
         n = theme.index(_display_index(state, chosen))
+        prediction = state.session.predict(chosen)
+        estimate = state.information_value_estimate(chosen)
         body.append(theme.kv("candidate", _candidate_line(state, chosen)))
-        body.append(theme.kv("basis", theme.paint("highest current utility", theme.VALUE)))
+        body.append(theme.kv("prediction", theme.quantity(prediction.predicted_value, _unit_for(state))))
+        body.append(theme.kv("uncertainty", theme.quantity(prediction.uncertainty)))
+        body.append(theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)))
+        body.append(theme.kv("information", theme.paint(
+            estimate.estimate_status, theme.WARN if estimate.estimate is None else theme.VALUE,
+        )))
         body.append(theme.kv("utility", theme.quantity(selected[0].utility.utility)))
+        body.append(theme.kv("basis", theme.paint("highest current utility under this policy", theme.VALUE)))
+        # the next-highest determinate utility, shown for contrast -- both values are already
+        # computed by materials.optimization; nothing is derived from them here.
+        others = [
+            o for o in optimization.optimizations
+            if o.candidate_id != chosen.id and o.utility.utility is not None
+        ]
+        if others:
+            runner_up = max(others, key=lambda o: o.utility.utility)  # type: ignore[arg-type,return-value]
+            runner_candidate = next(c for c in state.list_candidates() if c.id == runner_up.candidate_id)
+            body.append(theme.kv("next highest", theme.quantity(runner_up.utility.utility)
+                                 + theme.paint(f"   candidate {theme.index(_display_index(state, runner_candidate))}",
+                                               theme.MUTED)))
         body.append("")
         body.append(theme.paint("ADVISORY ONLY — no action has been taken.", theme.WARN))
         body.append(
@@ -609,7 +641,10 @@ def format_diagnostic(index: int, d: StateTransitionDiagnostic, unit: str = "") 
         + theme.ident(d.successor_state_id)
     )
     rows: List[Tuple[str, str]] = [
+        ("candidate_id", theme.ident(d.candidate_id)),
         ("model_state_key", theme.ident(d.model_state_key)),
+        ("samples t", theme.paint(str(d.previous_prediction.sample_count), theme.VALUE)),
+        ("samples t+1", theme.paint(str(d.new_prediction.sample_count), theme.VALUE)),
         ("prediction t", theme.quantity(d.previous_prediction.predicted_value, unit)),
         ("uncertainty t", theme.quantity(d.previous_prediction.uncertainty)),
         ("prediction t+1", theme.quantity(d.new_prediction.predicted_value, unit)),

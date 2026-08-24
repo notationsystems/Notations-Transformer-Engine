@@ -387,3 +387,71 @@ def test_aliases_resolve_to_their_canonical_command(state: WorkbenchState, alias
 def test_exit_and_quit_both_end_the_session(state: WorkbenchState):
     assert dispatch(state, "exit", []) == "__QUIT__"
     assert dispatch(state, "quit", []) == "__QUIT__"
+
+
+# -- Phases 75/76/79: console density -------------------------------------------------------------------
+
+
+def test_registry_marks_what_is_unknown(state: WorkbenchState):
+    """WHAT IS UNKNOWN must be scannable, not inferred from a zero."""
+    text = dispatch(state, "candidates", [])
+    assert text.count("UNMEASURED") == 9
+    assert "MEASURED" in text and "0 of 9" in text
+
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["82"])
+    text = dispatch(state, "candidates", [])
+    assert text.count("UNMEASURED") == 8  # the measured candidate lost its marker
+    assert "1 of 9" in text
+    assert "8 carry no observation yet" in text
+
+
+def test_decision_table_reports_samples_per_candidate(state: WorkbenchState):
+    text = dispatch(state, "decide", [])
+    assert "SAMPLES" in text and "UTILITY" in text and "STATUS" in text
+    header = next(line for line in text.splitlines() if "CANDIDATE" in line and "UTILITY" in line)
+    assert header.index("SAMPLES") < header.index("UTILITY") < header.index("STATUS")
+
+
+def test_decision_recommendation_shows_the_inputs_behind_it(state: WorkbenchState):
+    """The basis block reports the computational facts that produced the
+    ranking -- never an invented scientific explanation."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["82"])
+    dispatch(state, "observe", ["91"])
+    text = dispatch(state, "decide", [])
+    for field in ("PREDICTION", "UNCERTAINTY", "SAMPLES", "INFORMATION", "UTILITY", "BASIS"):
+        assert field in text
+    assert "highest current utility" in text
+    assert "NEXT HIGHEST" in text  # contrast value, both already computed by materials.optimization
+
+
+def test_diagnostics_report_sample_counts_and_candidate_identity(state: WorkbenchState):
+    """Diagnostics is telemetry: it names the candidate by id and shows
+    the sample count either side of every transition."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["82"])
+    dispatch(state, "observe", ["91"])
+    text = dispatch(state, "diagnostics", [])
+    assert "candidate_id" in text
+    assert "model_state_key" in text
+    assert "samples t" in text and "samples t+1" in text
+
+
+def test_history_stays_narrative_while_diagnostics_stays_technical(state: WorkbenchState):
+    """Two views over one trajectory: history reads as chronology,
+    diagnostics as telemetry. Neither duplicates the other's role."""
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["82"])
+    dispatch(state, "observe", ["91"])
+    history = dispatch(state, "history", [])
+    diagnostics = dispatch(state, "diagnostics", [])
+
+    for technical in ("model_state_key", "candidate_id", "samples t"):
+        assert technical not in history
+        assert technical in diagnostics
+    for narrative in ("predicted", "observed", "residual"):
+        assert narrative in history
+    # both describe the same two transitions and agree on the residual
+    assert history.count("→") == diagnostics.count("→") == 2
+    assert "+9.0" in history and "+9.0" in diagnostics  # 91 - 82
