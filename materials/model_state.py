@@ -113,12 +113,53 @@ two different times, compared by the CALLER (see
 `ModelStateInformationValueModel` below and this module's own tests) --
 never a single call fabricating a forecast.
 
+PHASE 55 -- WHAT THIS MODEL IS, EXPLICITLY, AND WHAT IT IS NOT: it is a
+deterministic empirical estimator over admitted observations -- for
+each `(formulation, property, target_context)` cell, the sample mean
+and (for 2+ samples) the sample variance of every value `update` has
+ever added to that cell, recomputed on demand, nothing more. It is NOT
+a physical model (it encodes no materials science -- see "WHY THIS IS A
+REFERENCE MODEL" above), NOT a causal model (a residual computed against
+its predictions, `materials.assessment.PredictionAssessment.residual`,
+is documented there as carrying no causal claim), NOT a Gaussian
+process, NOT a Bayesian posterior (no prior, no likelihood, no update
+rule beyond appending a sample to a list), NOT a calibrated uncertainty
+model (`uncertainty` is a raw sample variance, never validated against
+held-out data or checked for coverage), and NOT a general surrogate
+(there is exactly one implementation, and Phase 52's own investigation
+deliberately deferred extracting an interface other implementations
+could satisfy). Nothing in this module claims otherwise, and no field
+anywhere in `ModelState`/`Prediction` implies a stronger model than this
+one actually is.
+
+STATE SUFFICIENCY (Phase 55): `predict(state, candidate)` is a pure
+function of exactly its two arguments -- verified by direct inspection
+of its body (reads only `state.samples`, `candidate.formulation.id`,
+`candidate.property`, `candidate.target_context`, `candidate.id`) and by
+this module's own tests, which prove `predict` produces bit-identical
+`Prediction`s from two INDEPENDENTLY-CONSTRUCTED `ModelState`s that
+merely share the same content (hence the same `.id`), and across
+`PYTHONHASHSEED` values. No global variable, external mutable state,
+`EvidencePool`, `RetrievalEngine`, wall-clock read, random state, or
+hidden cache exists anywhere in this module for `predict` to depend on.
+`ModelState.id` + `ActionCandidate.id` are therefore SUFFICIENT to
+reproduce a `Prediction` exactly, with no additional context needed.
+
+UPDATE SUFFICIENCY (Phase 55): symmetrically, `update(state, candidate,
+result, observation)` is a pure function of exactly its four arguments
+-- reads only `state.samples`, `candidate.id`/`.target_context`,
+`result.candidate_id`/`.formulation.id`/`.property`,
+`observation.content['value']`/`.id`. The same absence of hidden
+dependencies holds, and this module's own tests confirm the SAME four
+inputs always produce a `ModelState` with the SAME `.id`, regardless of
+how the state's own internal sample-list insertion order happens to
+fall out.
+
 PREDICTION is a first-class immutable dataclass (not an ephemeral tuple)
 because it is handed across a real interface boundary
 (`ModelStateInformationValueModel.estimate`) and is worth naming for
-provenance -- but it carries NO id of its own: it is a pure, always-
-reproducible function of `(state.id, candidate.id)`, so a second
-identity system would be redundant machinery, not a missing one.
+provenance -- see `Prediction`'s own docstring for its exact fields and
+why it carries no id of its own.
 
 A generic `SurrogateModel` Protocol (with `predict`/`update` as
 interface methods) was considered and deliberately deferred: with
@@ -241,12 +282,28 @@ EMPTY_MODEL_STATE = make_model_state({})
 
 @dataclass(frozen=True)
 class Prediction:
-    """y_hat = G(S_t, x). `predicted_value`/`uncertainty` are `None`
-    when the state holds zero/one sample(s) for this cell respectively
-    (a single sample has a mean but no defined sample variance) --
-    never defaulted to zero. `state_id` names exactly which `ModelState`
-    produced this prediction, so it stays attributable forever, even
-    after later states exist."""
+    """y_hat = G(S_t, x) -- Phase 55's clarified predictive snapshot.
+    Exposes exactly the quantities the reference model's own mathematics
+    supports (`predicted_value`/`uncertainty`, each `None` when the state
+    holds too few samples to define them -- a single sample has a mean
+    but no defined sample variance -- never defaulted to zero) plus the
+    identities needed to reproduce or trace the prediction: `state_id`
+    (which `ModelState` produced it, so it stays attributable forever,
+    even after later states exist), `candidate_id`, and
+    `model_state_key` (the exact cell -- `resolve_model_state_key(
+    formulation.id, property, context)` -- this prediction was read
+    from, surfaced directly rather than left for a caller to
+    recompute). Deliberately carries no `confidence`/probability
+    interval/calibration/likelihood/model-quality/accuracy/epistemic-
+    status field: this reference model's statistics (a sample mean and,
+    for 2+ samples, a population variance) do not support any of those
+    claims, and none is fabricated here.
+
+    Carries NO id of its own: `Prediction` is a pure, always-reproducible
+    function of `(state.id, candidate.id)` (verified by this module's own
+    tests across independently-constructed, content-equal states and
+    across PYTHONHASHSEED) -- a third identity system would be
+    redundant, not missing."""
 
     candidate_id: str
     formulation: Referent
@@ -256,6 +313,7 @@ class Prediction:
     uncertainty: Optional[float]
     sample_count: int
     state_id: str
+    model_state_key: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "context", MappingProxyType(dict(self.context)))
@@ -282,7 +340,7 @@ def predict(state: ModelState, candidate: ActionCandidate) -> Prediction:
     return Prediction(
         candidate_id=candidate.id, formulation=candidate.formulation, property=candidate.property,
         context=candidate.target_context, predicted_value=mean, uncertainty=variance,
-        sample_count=n, state_id=state.id,
+        sample_count=n, state_id=state.id, model_state_key=key,
     )
 
 

@@ -206,6 +206,14 @@ def test_4_5_6_closed_loop_update_prediction_and_historical_state_id():
     assert assessment1.state_id == state1.id != state2.id
     assert predict(state1, candidate).predicted_value == 80.0  # state1 itself never changed
 
+    # Phase 55 sec.8's full chain identity correspondence, named exactly:
+    # S0 -> predict -> P0 -> observe -> O1 -> assess(P0,O1) -> A0 ->
+    # update(S0,O1) -> S1 -> predict -> P1.
+    assert prediction1.state_id == state1.id  # P0.state_id == S0.id
+    assert prediction2.state_id == state2.id  # P1.state_id == S1.id
+    assert state1.id != state2.id  # S0.id != S1.id (the state genuinely changed)
+    assert assessment1.state_id == state1.id  # A0.state_id == S0.id
+
 
 # -- 7. information-value changes after a real update (Phase 54 sec.6/7) ----------------------------------
 

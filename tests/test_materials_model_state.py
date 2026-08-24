@@ -234,7 +234,8 @@ def test_9_pythonhashseed_determinism():
         "key = resolve_model_state_key(f1.id, 'tensile_strength', {})\n"
         "state = make_model_state({key: (Sample(80.0, 'o1'), Sample(90.0, 'o2'))})\n"
         "prediction = predict(state, candidate)\n"
-        "print(state.id, prediction.predicted_value, prediction.uncertainty, prediction.sample_count)\n"
+        "print(state.id, prediction.predicted_value, prediction.uncertainty, prediction.sample_count, "
+        "prediction.model_state_key)\n"
     )
     outputs = set()
     for seed in ("0", "1", "12345"):
@@ -369,3 +370,65 @@ def test_12_update_rejects_mismatched_candidate():
         assert False, "expected an AssertionError for a mismatched candidate/result pair"
     except AssertionError as e:
         assert "does not match" in str(e)
+
+
+# -- Phase 55, items 1/3: predictive snapshot reproducibility + deterministic prediction ------------------
+
+
+def test_13_prediction_reproducible_across_independently_built_states():
+    """Same ModelState.id + same Candidate.id => identical Prediction --
+    proven here with two SEPARATELY constructed ModelStates that merely
+    share content (hence the same `.id`), not the same object, and a
+    freshly re-fetched candidate rather than the same Python reference."""
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
+
+    state_a = make_model_state({
+        resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context): (
+            Sample(80.0, "o1"), Sample(90.0, "o2"),
+        )
+    })
+    # Independently rebuilt from scratch, different insertion order, same content.
+    state_b = make_model_state({
+        resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context): (
+            Sample(90.0, "o2"), Sample(80.0, "o1"),
+        )
+    })
+    assert state_a.id == state_b.id
+    assert state_a is not state_b
+
+    prediction_a = predict(state_a, candidate)
+    prediction_b = predict(state_b, candidate)
+    assert prediction_a == prediction_b  # every field equal, including model_state_key
+    assert prediction_a.predicted_value == 85.0
+    assert prediction_a.uncertainty == 25.0
+
+    # Calling predict() again against the SAME state is likewise
+    # side-effect-free and reproduces the identical Prediction.
+    assert predict(state_a, candidate) == prediction_a
+
+
+# -- Phase 55, item 4: deterministic update -----------------------------------------------------------
+
+
+def test_14_deterministic_update():
+    """Same (previous state, candidate, result, observation) => same
+    resulting ModelState.id, regardless of how many times update() is
+    called or what the internal sample-list insertion order happens to
+    be -- no external state influences the transition."""
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
+    result, observation = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
+
+    state_1 = update(EMPTY_MODEL_STATE, candidate, result, observation)
+    state_2 = update(EMPTY_MODEL_STATE, candidate, result, observation)  # same inputs, called again
+    assert state_1.id == state_2.id
+    assert state_1 == state_2
+
+
+# -- Phase 55, item 7: context-key correctness -- Prediction exposes the exact cell used --------------------
+
+
+def test_15_prediction_exposes_correct_model_state_key():
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
+    prediction = predict(EMPTY_MODEL_STATE, candidate)
+    expected_key = resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context)
+    assert prediction.model_state_key == expected_key
