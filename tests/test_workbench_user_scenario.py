@@ -11,6 +11,7 @@ examples/polymer_tensile_strength.json` loads, parsed with nothing
 beyond the standard library `json` module.
 """
 
+import dataclasses
 import io
 import json
 from pathlib import Path
@@ -18,8 +19,11 @@ from pathlib import Path
 import pytest
 
 from materials.model_state import HYPOTHETICAL_SAMPLE_PREFIX, resolve_model_state_key, update
-from workbench.cli import _load_scenario_state, dispatch, main
-from workbench.interaction import WorkbenchState, bootstrap_research_scenario
+from workbench.cli import _load_scenario_state, dispatch, format_scenario_banner, main
+from workbench.interaction import (
+    DEFAULT_CRITERION_TARGET, DEFAULT_PROCESS_KEY, ResearchScenario, WorkbenchState,
+    bootstrap_research_scenario,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_SCENARIO_PATH = REPO_ROOT / "examples" / "polymer_tensile_strength.json"
@@ -75,7 +79,7 @@ def test_scenario_json_produces_nine_distinct_candidates_with_unique_identity(st
     assert len(keys) == 9  # (3) distinct model-state keys, one per (formulation, property, context) cell
 
     formulations = {c.formulation.natural_key for c in candidates}
-    assert formulations == {"F1-baseline", "F2-modified", "F3-high-filler"}
+    assert formulations == {"baseline", "modified", "high_filler"}
     contexts = {tuple(sorted(c.target_context.items())) for c in candidates}
     assert contexts == {
         (("temperature_c", 25),), (("temperature_c", 80),), (("temperature_c", 120),),
@@ -98,9 +102,9 @@ def test_initial_state_has_no_observations_and_honest_predictions(state: Workben
 
 
 def test_real_observation_updates_only_the_selected_candidate(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
-    baseline_80 = _find(state, "F1-baseline", {"temperature_c": 80})
-    modified_25 = _find(state, "F2-modified", {"temperature_c": 25})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
+    baseline_80 = _find(state, "baseline", {"temperature_c": 80})
+    modified_25 = _find(state, "modified", {"temperature_c": 25})
 
     dispatch(state, "select", [str(_display_index(state, baseline_25))])
     dispatch(state, "observe", ["82"])
@@ -118,7 +122,7 @@ def test_real_observation_updates_only_the_selected_candidate(state: WorkbenchSt
 
 
 def test_signed_residuals_both_directions(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
     dispatch(state, "select", [str(_display_index(state, baseline_25))])
     dispatch(state, "observe", ["80"])
 
@@ -135,8 +139,8 @@ def test_signed_residuals_both_directions(state: WorkbenchState):
 
 
 def test_decide_recomputes_and_explore_never_mutates(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
-    modified_80 = _find(state, "F2-modified", {"temperature_c": 80})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
+    modified_80 = _find(state, "modified", {"temperature_c": 80})
 
     decision_before = state.decide()
     utility_before = next(
@@ -171,7 +175,7 @@ def test_decide_recomputes_and_explore_never_mutates(state: WorkbenchState):
 
 
 def test_counterfactual_isolation_under_user_scenario(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
     dispatch(state, "select", [str(_display_index(state, baseline_25))])
     dispatch(state, "observe", ["80"])
 
@@ -192,8 +196,8 @@ def test_counterfactual_isolation_under_user_scenario(state: WorkbenchState):
 
 
 def test_history_and_diagnostics_correct_under_user_scenario(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
-    modified_120 = _find(state, "F2-modified", {"temperature_c": 120})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
+    modified_120 = _find(state, "modified", {"temperature_c": 120})
 
     dispatch(state, "select", [str(_display_index(state, baseline_25))])
     dispatch(state, "observe", ["80"])
@@ -220,7 +224,7 @@ def test_history_and_diagnostics_correct_under_user_scenario(state: WorkbenchSta
 
 
 def test_evidence_pool_changes_only_on_real_admission(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
     fp0 = state.pool.fingerprint()
 
     dispatch(state, "candidates", [])
@@ -238,8 +242,8 @@ def test_evidence_pool_changes_only_on_real_admission(state: WorkbenchState):
 
 
 def test_historical_sessions_remain_immutable(state: WorkbenchState):
-    baseline_25 = _find(state, "F1-baseline", {"temperature_c": 25})
-    modified_120 = _find(state, "F2-modified", {"temperature_c": 120})
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
+    modified_120 = _find(state, "modified", {"temperature_c": 120})
 
     dispatch(state, "select", [str(_display_index(state, baseline_25))])
     dispatch(state, "observe", ["80"])
@@ -263,7 +267,110 @@ def test_scenario_json_contains_no_scientific_state():
     config = _load_example_config()
     forbidden_keys = {"observations", "predictions", "residuals", "samples", "model_state", "session"}
     assert forbidden_keys.isdisjoint(config.keys())
-    assert set(config.keys()) == {"process", "formulations", "property", "criterion", "contexts"}
+    assert set(config.keys()) == {"name", "process", "formulations", "property", "criterion", "contexts"}
+
+
+# -- (9 of the re-spec) scenario METADATA never becomes scientific state --------------------------------
+
+
+def test_scenario_metadata_does_not_become_scientific_state(state: WorkbenchState):
+    """The `ResearchScenario` carried on `WorkbenchState` is configuration
+    only: it holds no observation/prediction/residual/state field, and
+    observing real evidence never mutates it (it is frozen) nor lets it
+    leak into `ModelState`."""
+    scenario = state.scenario
+    assert scenario is not None
+    assert scenario.name == "polymer tensile strength study"
+
+    scenario_fields = set(vars(scenario).keys())
+    assert scenario_fields == {
+        "name", "formulations", "property", "contexts", "process",
+        "criterion_operator", "criterion_target",
+    }
+    for forbidden in ("samples", "observations", "predictions", "residuals", "session", "state"):
+        assert not hasattr(scenario, forbidden)
+
+    baseline_25 = _find(state, "baseline", {"temperature_c": 25})
+    dispatch(state, "select", [str(_display_index(state, baseline_25))])
+    dispatch(state, "observe", ["80"])
+
+    # the scenario is unchanged by real evidence, and is frozen against mutation
+    assert state.scenario is scenario
+    assert scenario.name == "polymer tensile strength study"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        scenario.name = "tampered"  # type: ignore[misc]
+
+    # and the scenario's own configuration never appears inside ModelState
+    for samples in state.session.state.samples.values():
+        for sample in samples:
+            assert "polymer" not in sample.observation_id
+
+
+# -- (2 of the re-spec) malformed scenarios are rejected clearly ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mutate, expected_fragment",
+    [
+        (lambda c: c.pop("name"), "name"),
+        (lambda c: c.pop("formulations"), "formulations"),
+        (lambda c: c.pop("property"), "property"),
+        (lambda c: c.pop("contexts"), "contexts"),
+        (lambda c: c.update(name=""), "name"),
+        (lambda c: c.update(formulations=[]), "formulations"),
+        (lambda c: c.update(formulations="baseline"), "formulations"),
+        (lambda c: c.update(formulations=["baseline", 7]), "formulations"),
+        (lambda c: c.update(property=123), "property"),
+        (lambda c: c.update(contexts=[]), "contexts"),
+        (lambda c: c.update(contexts=["25C"]), "contexts"),
+        (lambda c: c.update(process=""), "process"),
+        (lambda c: c.update(criterion="at least 80"), "criterion"),
+        (lambda c: c.update(criterion={"operator": ">=", "target": "eighty"}), "target"),
+        (lambda c: c.update(criterion={"operator": "", "target": 80}), "operator"),
+    ],
+)
+def test_malformed_scenario_is_rejected_clearly(mutate, expected_fragment):
+    config = _load_example_config()
+    mutate(config)
+    with pytest.raises(ValueError) as excinfo:
+        ResearchScenario.from_config(config)
+    assert expected_fragment in str(excinfo.value)
+
+
+def test_optional_fields_default_so_the_minimal_scenario_shape_loads():
+    """The re-spec's own illustrative JSON omits `process` and
+    `criterion`; both default rather than failing."""
+    minimal = {
+        "name": "minimal study",
+        "formulations": ["baseline", "modified"],
+        "property": "tensile_strength",
+        "contexts": [{"temperature_c": 25}, {"temperature_c": 80}],
+    }
+    scenario = ResearchScenario.from_config(minimal)
+    assert scenario.process == DEFAULT_PROCESS_KEY
+    assert scenario.criterion_operator == ">="
+    assert scenario.criterion_target == DEFAULT_CRITERION_TARGET
+    assert scenario.describe_candidate_space() == "2 formulation(s) x 2 context(s)"
+
+    built = bootstrap_research_scenario(scenario, clock=_fixed_clock())
+    assert len(built.list_candidates()) == 4
+
+
+# -- the startup banner: the roster a researcher sees before typing anything ----------------------------
+
+
+def test_startup_banner_lists_the_scenario_and_every_candidate(state: WorkbenchState):
+    banner = format_scenario_banner(state)
+    assert "Research scenario:" in banner
+    assert "polymer tensile strength study" in banner
+    assert "observations = 0" in banner
+    for formulation in ("baseline", "modified", "high_filler"):
+        assert f"{formulation} / tensile_strength /" in banner
+    for temperature in ("25 C", "80 C", "120 C"):
+        assert temperature in banner
+    # every candidate is listed, numbered to match `select <n>`
+    for i in range(1, 10):
+        assert f"  {i}. " in banner
 
 
 # -- the --scenario CLI flag itself: the smallest natural extension over run_repl's state parameter -----
@@ -280,7 +387,7 @@ def test_main_with_scenario_flag_starts_the_real_repl_against_it(monkeypatch, ca
     exit_code = main(["--scenario", str(EXAMPLE_SCENARIO_PATH)])
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "9 candidate(s)" in output
+    assert "polymer tensile strength study" in output  # the banner announced the loaded study
     assert "Available candidates: 9" in output
 
 

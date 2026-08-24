@@ -107,7 +107,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Mapping, Optional, Tuple
 
 from materials.assessment import PredictionAssessment
 from materials.candidates import ActionCandidate
@@ -157,6 +157,45 @@ def _display_index(state: WorkbenchState, candidate: ActionCandidate) -> int:
     """1-indexed display number for `candidate` -- see module docstring
     for why this translation lives here, not in `WorkbenchState`."""
     return state.list_candidates().index(candidate) + 1
+
+
+def _format_context_compact(context: object) -> str:
+    """Display-only one-line rendering of an experimental context, for
+    the startup banner's candidate roster. A key ending `_c` is shown as
+    `<value> C` -- the unit is read from the key the SCENARIO AUTHOR
+    wrote, never inferred from the value or invented here; every other
+    key renders as a plain `key=value` pair."""
+    items = sorted(dict(context).items()) if isinstance(context, Mapping) else []
+    if not items:
+        return "(no context)"
+    parts = [f"{value} C" if key.endswith("_c") else f"{key}={value}" for key, value in items]
+    return ", ".join(parts)
+
+
+def format_scenario_banner(state: WorkbenchState) -> str:
+    """The startup roster `run_repl` prints: which study is loaded (when
+    a `ResearchScenario` was supplied), every candidate it generated, and
+    how many real observations exist so far -- so a researcher can see
+    the whole search space before typing anything. Every value is read
+    off already-constructed objects; nothing here is computed."""
+    lines: List[str] = []
+    if state.scenario is not None:
+        lines.append("Research scenario:")
+        lines.append(f"  {state.scenario.name}")
+        lines.append("")
+    candidates = state.list_candidates()
+    lines.append("Candidates:")
+    if not candidates:
+        lines.append("  (none generated for this scenario)")
+    for i, candidate in enumerate(candidates, start=1):
+        lines.append(
+            f"  {i}. {candidate.formulation.natural_key} / {candidate.property} / "
+            f"{_format_context_compact(candidate.target_context)}"
+        )
+    lines.append("")
+    lines.append("State:")
+    lines.append(f"  observations = {state.total_sample_count()}")
+    return "\n".join(lines)
 
 
 def parse_command(line: str) -> Tuple[str, List[str]]:
@@ -542,6 +581,8 @@ def run_repl(state: Optional[WorkbenchState] = None) -> None:
         state = bootstrap_multi_candidate_scenario()
     print("Scout Retrieval Agent -- Interactive Experimental Workbench")
     print("Type `help` for commands, `quit` to exit.\n")
+    print(format_scenario_banner(state))
+    print()
     while True:
         try:
             line = input("workbench> ")
@@ -578,7 +619,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"Could not load scenario {argv[1]!r}: {e}", file=sys.stderr)
             return 1
-        print(f"Loaded scenario from {argv[1]} ({len(state.list_candidates())} candidate(s)).")
         run_repl(state=state)
         return 0
     run_repl()
