@@ -111,7 +111,40 @@ def width() -> int:
 
 
 def pad(text: str, to: int) -> str:
+    """Pad to a visible width. An already-oversized string is returned
+    UNCHANGED -- which is correct for frame geometry (a clipped body line
+    must not gain a character) and wrong for a label column. Use
+    `column` for anything a value is concatenated onto."""
     return text + " " * max(0, to - visible_len(text))
+
+
+def column(text: str, width: int, *, gap: int = 1) -> str:
+    """A fixed-width cell that ALWAYS ends in separation.
+
+    Phases 90, 91 and 93 each fixed the same defect in a different
+    primitive -- `lineage`, then `tree`, then `kv` -- and Phase 94 found
+    it still live in `transition`, where it merged a scientific value
+    into the transition glyph:
+
+        80.0 kilonewtons_per_square_metre->  90.0 ...
+
+    The shared cause is `pad(...) + value`: `pad` is a geometry helper
+    and correctly leaves an oversized string alone, so a cell whose
+    contents reach its own width concatenates straight onto whatever
+    follows. That is a real responsibility no view should re-implement,
+    and it is this function's only one.
+
+    The guarantee: the result is at least `width` visible columns AND
+    ends in at least `gap` spaces. For any text shorter than `width` the
+    output is byte-identical to `pad(text, width)` -- so this changes
+    nothing that was already rendering correctly, and only ever adds
+    separation where there was none.
+
+    Descriptive text may still be clipped by the frame; a value never
+    loses its separator. The project's clipping policy is unchanged --
+    clip descriptive text, preserve the value, preserve the separator.
+    """
+    return text + " " * max(gap, width - visible_len(text))
 
 
 def truncate(text: str, to: int) -> str:
@@ -280,14 +313,7 @@ def kv(
     carries meaning."""
     rendered = paint(value, tone) if tone else value
     text = label.upper() if upper else label
-    # `pad` leaves an already-oversized label untouched, which would butt it
-    # straight against its value. A label that fills its own column must
-    # still be separated from what it labels. This is the same guarantee
-    # `tree` and `lineage` make; all three label primitives now agree.
-    column = pad(text, label_width)
-    if visible_len(text) >= label_width:
-        column = column + " "
-    return paint(column, LABEL) + rendered
+    return paint(column(text, label_width), LABEL) + rendered
 
 
 def tree(rows: Sequence[Tuple[str, str]], *, label_width: int = 14) -> List[str]:
@@ -297,13 +323,10 @@ def tree(rows: Sequence[Tuple[str, str]], *, label_width: int = 14) -> List[str]
     out: List[str] = []
     for i, (label, value) in enumerate(rows):
         stem = TREE_END if i == len(rows) - 1 else TREE_MID
-        # `pad` leaves an already-oversized label untouched, which would butt
-        # it straight against its value. A label that fills its own column
-        # must still be separated from what it labels.
-        column = pad(label, label_width)
-        if visible_len(column) >= label_width and visible_len(label) >= label_width:
-            column = column + " "
-        out.append(paint("    " + stem + " ", STRUCTURE) + paint(column, LABEL) + value)
+        out.append(
+            paint("    " + stem + " ", STRUCTURE)
+            + paint(column(label, label_width), LABEL) + value
+        )
     return out
 
 
@@ -320,14 +343,9 @@ def lineage(steps: Sequence[Tuple[str, str]]) -> List[str]:
         # stay aligned however deep the branch goes and however long the
         # label is -- a longer label pushes its own value, never the frame.
         prefix = paint(stem, STRUCTURE) + paint(label.upper(), LABEL)
-        # 18 == kv's label column, so both blocks align. `pad` leaves an
-        # already-oversized prefix untouched, which would butt the label
-        # straight against its value -- a deep step with a long label must
-        # still be separated from what it labels.
-        if visible_len(prefix) >= 18:
-            out.append(prefix + " " + value)
-        else:
-            out.append(pad(prefix, 18) + value)
+        # 18 == kv's label column, so both blocks align however deep the
+        # branch goes: a longer label pushes its own value, never the frame.
+        out.append(column(prefix, 18) + value)
     return out
 
 
@@ -335,7 +353,7 @@ def transition(before: str, after: str, *, width_before: int = 20) -> str:
     """`before  →  after` -- the shape every before/after pair in the
     interface uses, so a state transition reads the same way whether it
     is a sample count, a prediction, or a state identity."""
-    return pad(before, width_before) + paint(f"{TRANSITION}  ", STRUCTURE) + after
+    return column(before, width_before) + paint(f"{TRANSITION}  ", STRUCTURE) + after
 
 
 def badge(text: str, tone: str = ACCENT, *, filled: bool = False) -> str:

@@ -1546,8 +1546,10 @@ def format_comparison(state: WorkbenchState, left: _Operand, right: _Operand) ->
 
     body.append(theme.divider("readout"))
     body.append("")
+    # `transition` owns the column width; pre-padding to it as well double-counts
+    # it and buys the header a stray space the data rows below do not have.
     body.append(theme.kv("", theme.paint(theme.transition(
-        theme.pad("FROM", 22), "TO", width_before=22), theme.LABEL)))
+        "FROM", "TO", width_before=22), theme.LABEL)))
     body.extend(_comparison_rows(state, left, right, candidate, delta, unit))
     body.append("")
 
