@@ -146,11 +146,10 @@ def test_the_model_state_keeps_all_four_cells_apart(state: WorkbenchState):
 # -- what survives admission --------------------------------------------------------------------------
 
 
-def test_observations_remain_distinct_objects_but_lose_their_condition(state: WorkbenchState):
-    """The precise answer to "are they distinguishable": YES by identity,
-    NO by condition. Each observation has its own Record, so the ids
-    differ -- but the contents are byte-identical, so nothing says which
-    condition each belongs to."""
+def test_observations_are_distinguishable_by_identity_and_by_condition(state: WorkbenchState):
+    """PHASE 98 -- was a defect lock; now a positive invariant. Before the
+    fix these were distinguishable by identity (different Records) but not
+    by condition (byte-identical contents). Both now hold."""
     for temperature in ("25", "100"):
         dispatch(state, "select", ["baseline", temperature])
         dispatch(state, "observe", ["80", "MPa"])
@@ -160,21 +159,23 @@ def test_observations_remain_distinct_objects_but_lose_their_condition(state: Wo
     assert len({o.id for o in observations}) == 2          # distinct as objects
     assert len({o.record_ids for o in observations}) == 2  # because the records differ
     contents = [dict(o.content) for o in observations]
-    assert contents[0] == contents[1]                      # identical as facts
-    assert all(set(c) == {"property", "value", "unit"} for c in contents)
-    assert all("temperature_c" not in c for c in contents)
+    assert contents[0] != contents[1]                      # distinct as facts too
+    assert all(set(c) == {"property", "value", "unit", "temperature_c"} for c in contents)
+    assert {c["temperature_c"] for c in contents} == {25, 100}
 
 
-def test_the_ambiguity_enters_at_grouping_not_at_identity(state: WorkbenchState):
-    """Where context is lost, stated exactly."""
+def test_conditions_separate_into_their_own_comparison_groups(state: WorkbenchState):
+    """PHASE 98 -- was a defect lock. The comparison context now carries
+    the condition, so Phase 29's mechanism has something to separate on."""
     for temperature in ("25", "100"):
         dispatch(state, "select", ["baseline", temperature])
         dispatch(state, "observe", ["80", "MPa"])
 
     contexts = [_comparison_context(o.content, "value")
                 for o in state.pool.all_observations()]
-    assert len({tuple(sorted(c.items())) for c in contexts}) == 1
-    assert dict(contexts[0]) == {"unit": "MPa"}  # the unit, not the condition
+    assert len({tuple(sorted(c.items())) for c in contexts}) == 2
+    assert {c["temperature_c"] for c in contexts} == {25, 100}
+    assert all(c["unit"] == "MPa" for c in contexts)  # the unit is still part of it
 
 
 def test_an_observation_carrying_context_would_be_a_different_fact():
@@ -197,22 +198,15 @@ def test_an_observation_carrying_context_would_be_a_different_fact():
 # -- the defect, documented rather than endorsed ------------------------------------------------------
 
 
-def test_known_defect_two_conditions_are_reported_as_conflicting_evidence(state: WorkbenchState):
-    """KNOWN DEFECT, locked so the fix must update it knowingly.
+def test_two_conditions_are_never_reported_as_one_disagreement(state: WorkbenchState):
+    """PHASE 98 -- was the central defect lock; now the phase's central
+    invariant. 90 MPa at 25 C and 60 MPa at 100 C describe a dependence
+    on temperature, not a disagreement, and the system must no longer
+    claim otherwise.
 
-    90 MPa at 25 C and 60 MPa at 100 C are two valid measurements of two
-    different conditions. Because the workbench admits neither condition,
-    they pool into one ComparisonGroup and the system reports that the
-    evidence disagrees with itself.
-
-    That is a FALSE CLAIM, not a limitation. Phase 29 created
-    `_comparison_context` specifically to prevent it, and its own test
-    `test_viscosity_different_conditions_not_reported_as_single_disagreement`
-    demonstrates the correct behaviour when content carries the condition.
-
-    WHEN FIXED: the workbench admits `temperature_c` in the observation
-    content, these become two groups, and this assertion must be changed
-    to expect two independent verdicts.
+    This is the same guarantee `materials.analysis`'s own
+    test_viscosity_different_conditions_not_reported_as_single_disagreement
+    makes -- the workbench now supplies the content that mechanism needs.
     """
     from materials.decision import make_criterion
     from materials.iteration import reevaluate_program
@@ -222,7 +216,7 @@ def test_known_defect_two_conditions_are_reported_as_conflicting_evidence(state:
     dispatch(state, "select", ["baseline", "100"])
     dispatch(state, "observe", ["60", "MPa"])
 
-    # the model state has it right: two cells, two different predictions
+    # the model state had it right all along
     for temperature, expected in ((25, 90.0), (100, 60.0)):
         candidate = next(c for c in state.list_candidates()
                          if c.formulation.natural_key == "baseline"
@@ -234,26 +228,79 @@ def test_known_defect_two_conditions_are_reported_as_conflicting_evidence(state:
         state.pool, state.engine, iteration.query,
         (make_criterion("tensile_strength", ">=", 75.0),),
     ).decision
-    verdicts = [p for f in decision.formulations
-                for p in f.properties if f.formulation.natural_key == "baseline"]
-    assert len(verdicts) == 1
-    assert verdicts[0].observed_status == "CONFLICTING_EVIDENCE"   # <- the defect
-    group = verdicts[0].observed_group
-    assert sorted(group.values) == [60.0, 90.0]                    # pooled across conditions
-    assert group.disagreement.spread == 30.0                       # a fabricated disagreement
+    verdict = next(p for f in decision.formulations
+                   for p in f.properties if f.formulation.natural_key == "baseline")
+
+    groups = verdict.evidence.observed_comparison_groups
+    assert len(groups) == 2
+    by_temperature = {g.context["temperature_c"]: g for g in groups}
+    assert by_temperature[25].values == (90.0,)
+    assert by_temperature[100].values == (60.0,)
+    # and neither group claims a disagreement, because neither has one
+    assert by_temperature[25].disagreement is None
+    assert by_temperature[100].disagreement is None
+    assert verdict.observed_status != "CONFLICTING_EVIDENCE"
 
 
-def test_known_defect_a_context_bearing_criterion_is_always_incomparable(state: WorkbenchState):
-    """The Phase 96 symptom, from the same cause. INCOMPARABLE is the
-    CORRECT verdict given context-free evidence -- the criterion's
-    condition genuinely was never recorded. It stops being the answer
-    once the admission path records it."""
+def test_a_context_bearing_criterion_now_reaches_a_real_verdict(state: WorkbenchState):
+    """PHASE 98 -- was a defect lock. The criterion's context now matches
+    the evidence's, so the declared target actually decides the outcome."""
+    dispatch(state, "select", ["baseline", "25"])
+    dispatch(state, "observe", ["90", "MPa"])     # >= 75 -> PASS
+    dispatch(state, "select", ["baseline", "100"])
+    dispatch(state, "observe", ["60", "MPa"])     # <  75 -> FAIL
+
+    decision, _ = state.evaluate_criteria()
+    verdicts = {
+        p.criterion.context["temperature_c"]: p.observed_status
+        for f in decision.formulations if f.formulation.natural_key == "baseline"
+        for p in f.properties
+    }
+    assert verdicts == {25: "PASS", 100: "FAIL"}
+
+
+def test_incomparable_still_occurs_when_a_context_genuinely_does_not_match(state: WorkbenchState):
+    """INCOMPARABLE must remain reachable -- it is a legitimate result,
+    not a bug that was fixed away. A criterion naming a condition nothing
+    was measured under still has no comparison group to evaluate."""
+    from materials.decision import make_criterion
+    from materials.iteration import reevaluate_program
+
     dispatch(state, "select", ["baseline", "25"])
     dispatch(state, "observe", ["90", "MPa"])
-    decision, _ = state.evaluate_criteria()
-    statuses = {p.observed_status for f in decision.formulations
-                for p in f.properties if f.formulation.natural_key == "baseline"}
-    assert statuses == {"INCOMPARABLE"}
+
+    iteration = state.session.iteration
+    unmeasured = make_criterion("tensile_strength", ">=", 75.0, context={"temperature_c": 500})
+    decision = reevaluate_program(
+        state.pool, state.engine, iteration.query, (unmeasured,)).decision
+    verdict = next(p for f in decision.formulations
+                   for p in f.properties if f.formulation.natural_key == "baseline")
+    assert verdict.observed_status == "INCOMPARABLE"
+
+
+def test_a_context_free_criterion_over_several_contexts_is_incomparable(state: WorkbenchState):
+    """The other INCOMPARABLE case, and a genuinely NEW consequence of the
+    fix: a criterion naming no context now matches every group, so it no
+    longer selects one comparison state uniquely. The materials layer
+    reports that rather than guessing, which is correct -- and it means a
+    context-free criterion is only meaningful over single-context
+    evidence."""
+    from materials.decision import make_criterion
+    from materials.iteration import reevaluate_program
+
+    dispatch(state, "select", ["baseline", "25"])
+    dispatch(state, "observe", ["90", "MPa"])
+    dispatch(state, "select", ["baseline", "100"])
+    dispatch(state, "observe", ["60", "MPa"])
+
+    iteration = state.session.iteration
+    decision = reevaluate_program(
+        state.pool, state.engine, iteration.query,
+        (make_criterion("tensile_strength", ">=", 75.0),)).decision
+    verdict = next(p for f in decision.formulations
+                   for p in f.properties if f.formulation.natural_key == "baseline")
+    assert verdict.observed_status == "INCOMPARABLE"
+    assert verdict.observed_group is None
 
 
 # -- the predicted side (sec.9) -----------------------------------------------------------------------
@@ -307,14 +354,19 @@ def test_identity_is_content_derived_and_never_minted(state: WorkbenchState):
         assert hexadecimal.match(candidate.id)
 
 
-def test_no_context_is_ever_silently_inferred(state: WorkbenchState):
-    """The workbench must not guess a condition onto evidence that lacks
-    one -- the failure mode this phase exists to NOT fix by improvisation."""
+def test_context_is_carried_verbatim_and_never_inferred(state: WorkbenchState):
+    """PHASE 98 -- the workbench carries the candidate's DECLARED context
+    across unchanged. It never invents a key the candidate did not
+    declare, and never transforms a value it did."""
     dispatch(state, "select", ["baseline", "25"])
+    candidate = state.selected_candidate
     dispatch(state, "observe", ["90", "MPa"])
-    for observation in state.pool.all_observations():
-        assert "temperature_c" not in observation.content
-        assert set(observation.content) == {"property", "value", "unit"}
+    observation = list(state.pool.all_observations())[0]
+    declared = dict(candidate.target_context)
+    assert set(observation.content) == {"property", "value", "unit"} | set(declared)
+    for key, value in declared.items():
+        assert observation.content[key] == value
+        assert type(observation.content[key]) is type(value)  # not stringified
 
 
 def test_hypothetical_samples_never_enter_the_pool(state: WorkbenchState):

@@ -129,7 +129,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, List, Mapping, Optional, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
 
 from evidence.admission import admit_document, admit_record, admit_referent
 from evidence.pool import EvidencePool
@@ -322,6 +322,47 @@ class ResearchScenario:
         which `materials.candidates.generate_candidates` alone
         determines."""
         return f"{len(self.formulations)} formulation(s) x {len(self.contexts)} context(s)"
+
+
+MEASUREMENT_KEYS = ("property", "value", "unit")
+
+
+def _observation_content(
+    candidate: ActionCandidate, value: float, unit: str,
+) -> Mapping[str, object]:
+    """The content of an admitted Observation: the measurement, plus the
+    experimental context the candidate already declares.
+
+    PHASE 98 -- this is the correction Phase 97 identified. `evidence.
+    types.Observation.content` is an open, extraction-defined mapping and
+    is part of the observation's identity; `materials.analysis.
+    _comparison_context` (Phase 29) treats every content key except
+    `property` and the value key as part of the physical state measured,
+    and its own tests admit `temperature` directly in content for exactly
+    this reason. Omitting the candidate's `target_context` therefore did
+    not make the evidence context-free -- it made two measurements of two
+    different conditions indistinguishable, and reported them as
+    CONFLICTING_EVIDENCE.
+
+    The mapping is carried through GENERICALLY: no key is named here, no
+    value is normalised, stringified, rounded or reordered, and an empty
+    `target_context` adds nothing rather than an empty context field. The
+    workbench supplies the content; the materials layer keeps sole
+    authority over what it means.
+
+    A context key colliding with a measurement key is refused rather than
+    silently overwriting the measurement -- the same "never silently"
+    discipline the rest of this architecture applies."""
+    collisions = sorted(set(candidate.target_context) & set(MEASUREMENT_KEYS))
+    if collisions:
+        raise ValueError(
+            f"candidate target_context may not use the measurement key(s) {collisions} -- "
+            f"they would overwrite the measurement itself; rename the context key(s) in the "
+            f"scenario configuration"
+        )
+    content: Dict[str, object] = {"property": candidate.property, "value": value, "unit": unit}
+    content.update(candidate.target_context)
+    return content
 
 
 @dataclass
@@ -641,7 +682,7 @@ class WorkbenchState:
         self.pool.put_record(record)
 
         result = make_experimental_result(
-            self.campaign, entry, content={"property": candidate.property, "value": value, "unit": resolved_unit},
+            self.campaign, entry, content=_observation_content(candidate, value, resolved_unit),
             record_id=record.id, extracted_at=self.clock(),
         )
         admitted_result = admit_experimental_result(self.pool, result, confidence=1.0)

@@ -147,18 +147,34 @@ def test_a_zero_sample_candidate_is_insufficient_not_failing(plain_state: Workbe
     assert "FAIL" not in text
 
 
-def test_a_criterion_context_the_evidence_does_not_record_is_incomparable(state: WorkbenchState):
-    """The honest outcome, and the view states its cause rather than
-    leaving it a puzzle: an admitted result records property, value and
-    unit -- not the experimental condition the criterion names."""
+def test_a_context_bearing_criterion_reaches_a_real_verdict(state: WorkbenchState):
+    """PHASE 98 -- admitted evidence now carries the candidate's declared
+    context, so a context-bearing criterion matches its own comparison
+    group and the declared target decides the outcome."""
     dispatch(state, "select", ["baseline", "25"])
-    dispatch(state, "observe", ["95", "MPa"])
-    assert _verdicts(state, "baseline")[0][0] == "INCOMPARABLE"
+    dispatch(state, "observe", ["95", "MPa"])          # >= 80 -> PASS
+    assert _verdicts(state, "baseline")[0][0] == "PASS"
 
     text = dispatch(state, "criterion", ["baseline", "25"])
+    assert "PASS" in text
+    assert "the matched evidence satisfies the target" in text
+    # and the matched group names the condition it was measured under
+    assert "25" in text
+
+
+def test_incomparable_remains_reachable_and_is_explained_correctly(state: WorkbenchState):
+    """INCOMPARABLE is still a legitimate verdict -- now for a genuine
+    matching failure rather than an omission -- and the view no longer
+    claims the old cause."""
+    dispatch(state, "select", ["baseline", "25"])
+    dispatch(state, "observe", ["95", "MPa"])
+    dispatch(state, "select", ["baseline", "120"])
+    dispatch(state, "observe", ["70", "MPa"])
+    # a criterion for 80 C: nothing was measured there
+    text = dispatch(state, "criterion", ["baseline", "80"])
     assert "INCOMPARABLE" in text
-    assert "no single comparison group matched this context" in text
-    assert "admitted results record property, value and unit" in text
+    assert "no comparison group selected uniquely" in text
+    assert "admitted results record property, value and unit" not in text
 
 
 def test_conflicting_evidence_is_reported_not_resolved(plain_state: WorkbenchState):

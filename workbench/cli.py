@@ -1332,14 +1332,16 @@ def format_criterion_detail(state: WorkbenchState, candidate: ActionCandidate) -
             body.append(theme.kv("", theme.paint(
                 "no admitted evidence matched this criterion's context", theme.MUTED)))
             if verdict.observed_status == "INCOMPARABLE" and criterion.context:
-                # the cause, stated as fact rather than left as a puzzle: an
-                # admitted result records property/value/unit, so a criterion
-                # naming an experimental condition can never match one.
+                # PHASE 98 -- admitted evidence now carries the candidate's
+                # declared context, so INCOMPARABLE no longer means the
+                # context was simply never recorded. The materials layer
+                # returns it for two distinct reasons and does not say which,
+                # so neither does this.
                 body.append("")
                 body.append(theme.kv("cause", theme.paint(
-                    "admitted results record property, value and unit", theme.WARN)))
+                    "no comparison group selected uniquely", theme.WARN)))
                 body.append(theme.kv("", theme.paint(
-                    "-- not the experimental context this criterion names", theme.MUTED)))
+                    "either none matched this context, or more than one did", theme.MUTED)))
         else:
             body.append(theme.kv("context", theme.context(group.context)))
             body.append(theme.kv("values", theme.paint(
