@@ -27,7 +27,7 @@ FRAME_STARTS = "┌│└╔║╚"
 # every view, in the order a session actually exercises them, including
 # each error state -- so a regression in any one of them fails here.
 VIEW_SCRIPT = (
-    ("help", []), ("status", []), ("candidates", []), ("decide", []),
+    ("help", []), ("scenario", []), ("status", []), ("candidates", []), ("decide", []),
     ("select", ["1"]), ("predict", []), ("explore", ["90"]),
     ("observe", ["80"]), ("observe", ["100"]),
     ("history", []), ("diagnostics", []), ("status", []),
@@ -220,7 +220,7 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     """The command reference and the dispatch table cannot drift apart."""
     documented = {name.split()[0] for _, commands in COMMAND_GROUPS for name, _ in commands}
     dispatchable = {
-        "help", "status", "candidates", "decide", "select",
+        "help", "scenario", "status", "candidates", "decide", "select",
         "predict", "explore", "observe", "history", "diagnostics", "quit",
     }
     assert documented == dispatchable
@@ -305,3 +305,85 @@ def test_badge_fallback_preserves_width_without_colour():
     plain = theme.visible_len(theme.badge("active", filled=True))
     assert colored == plain
     assert theme.badge("active", filled=True) == "[ACTIVE]"
+
+
+# -- Phase 74: the scenario workspace -------------------------------------------------------------------
+
+
+def test_scenario_view_describes_the_research_programme(state: WorkbenchState):
+    """`scenario` answers "what am I operating?" without reading JSON or
+    source: study, property, process, criterion, every formulation and
+    every context, and how much of the space has been measured."""
+    text = dispatch(state, "scenario", [])
+    assert "RESEARCH PROGRAMME" in text
+    assert "polymer tensile strength study" in text
+    assert "tensile_strength >= 80.0" in text
+    for formulation in ("baseline", "modified", "high_filler"):
+        assert formulation in text
+    for temperature in ("25 C", "80 C", "120 C"):
+        assert temperature in text
+    assert "MEASURED CELLS" in text and "0 of 9" in text
+
+
+def test_scenario_view_tracks_measured_coverage(state: WorkbenchState):
+    """Coverage is plain counting over real sample counts, and is never
+    presented as progress toward a goal."""
+    assert "0 of 9" in dispatch(state, "scenario", [])
+    dispatch(state, "select", ["1"])
+    dispatch(state, "observe", ["82"])
+    assert "1 of 9" in dispatch(state, "scenario", [])
+    dispatch(state, "observe", ["85"])
+    assert "1 of 9" in dispatch(state, "scenario", [])  # same cell, still one measured
+    dispatch(state, "select", ["2"])
+    dispatch(state, "observe", ["70"])
+    assert "2 of 9" in dispatch(state, "scenario", [])
+
+
+def test_scenario_view_reports_absence_rather_than_failing():
+    """A session built directly, with no scenario, says so."""
+    from workbench.interaction import bootstrap_multi_candidate_scenario
+    built = bootstrap_multi_candidate_scenario(clock=_fixed_clock())
+    object.__setattr__(built, "scenario", None)
+    text = dispatch(built, "scenario", [])
+    assert "NO SCENARIO LOADED" in text
+    assert "EXPECTED" in text
+
+
+def test_status_reports_the_current_recommendation_without_selecting(state: WorkbenchState):
+    """`status` surfaces what the optimizer currently recommends, and is
+    explicit that seeing it is not acting on it."""
+    text = dispatch(state, "status", [])
+    assert "CURRENT RECOMMENDATION" in text
+    assert "advisory only" in text
+    assert "select " in text
+    assert state.selected_candidate is None  # inspecting status selects nothing
+
+
+def test_status_recommendation_does_not_overwrite_the_users_last_decide(state: WorkbenchState):
+    """`status` uses a read-only evaluation, so it never clobbers what
+    the user's own `decide` recorded."""
+    dispatch(state, "decide", [])
+    recorded = state.last_decision
+    assert recorded is not None
+    dispatch(state, "status", [])
+    assert state.last_decision is recorded
+
+
+def test_status_notes_when_the_recommendation_is_already_active(state: WorkbenchState):
+    recommended_line = dispatch(state, "status", []).split("RECOMMENDED")[1].split("\n")[0]
+    number = recommended_line.strip().split()[0]
+    dispatch(state, "select", [number])
+    assert "this is the active candidate" in dispatch(state, "status", [])
+
+
+# -- Phase 80: aliases ----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("alias, canonical", [("?", "help"), ("about", "scenario"), ("q", "quit")])
+def test_aliases_resolve_to_their_canonical_command(state: WorkbenchState, alias, canonical):
+    assert dispatch(state, alias, []) == dispatch(state, canonical, [])
+
+
+def test_exit_and_quit_both_end_the_session(state: WorkbenchState):
+    assert dispatch(state, "exit", []) == "__QUIT__"
+    assert dispatch(state, "quit", []) == "__QUIT__"

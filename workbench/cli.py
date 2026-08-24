@@ -75,9 +75,16 @@ _SHORT_STATUS = {
     "NOT_ELIGIBLE": "ineligible",
 }
 
+# Aliases, added only where they improve usability: `?` is the
+# near-universal terminal request for help, `about` is the common
+# word for a programme summary, and `q`/`exit` are what people type
+# to leave. No abbreviation is invented for any other command.
+ALIASES = {"?": "help", "about": "scenario", "q": "quit", "exit": "quit"}
+
 COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     ("inspect", (
-        ("status", "session state, selection, latest residual"),
+        ("scenario", "the research programme being investigated"),
+        ("status", "session state, selection, recommendation, residual"),
         ("candidates", "registry with predictions and utility"),
         ("predict", "model prediction for the active candidate"),
     )),
@@ -210,12 +217,88 @@ def format_help() -> str:
     return theme.panel("command reference", body, right="workbench")
 
 
-def format_status(state: WorkbenchState) -> str:
+def _coverage(state: WorkbenchState) -> Tuple[int, int]:
+    """How many candidate cells carry at least one real sample, out of
+    how many exist. Plain counting over `predict(...).sample_count` --
+    no new statistic, and never presented as progress toward a goal."""
+    candidates = state.list_candidates()
+    observed = sum(1 for c in candidates if state.session.predict(c).sample_count > 0)
+    return observed, len(candidates)
+
+
+def _recommended_candidate(state: WorkbenchState) -> Optional[ActionCandidate]:
+    """The candidate the existing optimization currently recommends, or
+    `None` if the policy selects nothing. Read-only: uses
+    `evaluate_decision` rather than `state.decide()`, so inspecting
+    status never overwrites what the user's own last `decide` reported."""
+    decision = evaluate_decision(state.candidates, state.session.state, state.session.iteration)
+    for option in decision.optimizations:
+        if option.status == "SELECTED":
+            return next(c for c in state.list_candidates() if c.id == option.candidate_id)
+    return None
+
+
+def format_scenario(state: WorkbenchState) -> str:
+    """The research programme itself: what is being studied, under which
+    conditions, against which criterion, and how much of the space has
+    been measured. Answers "what am I operating?" without reading JSON
+    or source."""
+    scenario = state.scenario
+    if scenario is None:
+        return theme.notice(
+            "no scenario loaded",
+            "this session was constructed directly rather than from a research scenario.",
+            hint="python -m workbench --scenario <file.json>", tone=theme.WARN,
+        )
+
+    observed, total = _coverage(state)
     body: List[str] = [""]
+    body.append(theme.paint(scenario.name, theme.BOLD, theme.VALUE))
+    body.append("")
+    body.append(theme.kv("property", theme.paint(scenario.property, theme.VALUE)))
+    body.append(theme.kv("process", theme.paint(scenario.process, theme.VALUE)))
+    body.append(theme.kv("criterion", theme.paint(
+        f"{scenario.property} {scenario.criterion_operator} {theme.num(scenario.criterion_target)}", theme.VALUE,
+    )))
+    body.append("")
+
+    body.append(theme.divider("formulations"))
+    body.append("")
+    for formulation in scenario.formulations:
+        body.append("  " + theme.paint(formulation, theme.VALUE))
+    body.append("")
+
+    body.append(theme.divider("experimental contexts"))
+    body.append("")
+    for ctx in scenario.contexts:
+        body.append("  " + theme.paint(theme.context(ctx), theme.VALUE))
+    body.append("")
+
+    body.append(theme.divider("search space"))
+    body.append("")
+    body.append(theme.kv("candidates", theme.paint(str(total), theme.VALUE)
+                         + theme.paint(f"   {scenario.describe_candidate_space()}", theme.MUTED)))
+    body.append(theme.kv("measured cells", theme.paint(f"{observed} of {total}", theme.VALUE)))
+    body.append(theme.kv("observations", theme.paint(str(state.total_sample_count()), theme.VALUE)))
+    body.append("")
+
+    return theme.panel(
+        "research programme", body,
+        right=f"{total} candidate{'s' if total != 1 else ''}",
+    )
+
+
+def format_status(state: WorkbenchState) -> str:
+    observed, total = _coverage(state)
+    body: List[str] = [""]
+    if state.scenario is not None:
+        body.append(theme.kv("study", theme.paint(state.scenario.name, theme.VALUE)))
+        body.append(theme.kv("property", theme.paint(state.scenario.property, theme.VALUE)))
     body.append(theme.kv("model state", theme.ident(state.session.state.id)))
     body.append(theme.kv("transitions", theme.paint(str(len(state.session.state_history) - 1), theme.VALUE)))
     body.append(theme.kv("observations", theme.paint(str(state.total_sample_count()), theme.VALUE)))
-    body.append(theme.kv("candidates", theme.paint(str(len(state.list_candidates())), theme.VALUE)))
+    body.append(theme.kv("candidates", theme.paint(str(total), theme.VALUE)
+                         + theme.paint(f"   {observed} measured", theme.MUTED)))
     body.append("")
 
     body.append(theme.divider("active candidate"))
@@ -230,6 +313,22 @@ def format_status(state: WorkbenchState) -> str:
         body.append(theme.kv("prediction", theme.quantity(prediction.predicted_value, _unit_for(state))))
         body.append(theme.kv("uncertainty", theme.quantity(prediction.uncertainty)))
         body.append(theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)))
+    body.append("")
+
+    body.append(theme.divider("current recommendation"))
+    body.append("")
+    recommended = _recommended_candidate(state)
+    if recommended is None:
+        body.append(theme.kv("recommended", theme.paint("none selectable under policy", theme.WARN)))
+    else:
+        body.append(theme.kv("recommended", _candidate_line(state, recommended)))
+        if state.selected_candidate is not None and state.selected_candidate.id == recommended.id:
+            body.append(theme.kv("", theme.paint("this is the active candidate", theme.MUTED)))
+        else:
+            body.append(theme.kv("", theme.paint(
+                f"advisory only — issue  select {theme.index(_display_index(state, recommended))}  to act on it",
+                theme.MUTED,
+            )))
     body.append("")
 
     body.append(theme.divider("latest observation"))
@@ -664,8 +763,11 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
     """The full command table. Returns text to display; never prints
     directly, so this function -- and therefore the entire interaction
     surface -- is callable from a test with no stdin/stdout involved."""
+    command = ALIASES.get(command, command)
     if command in ("", "help"):
         return format_help()
+    if command == "scenario":
+        return format_scenario(state)
     if command == "status":
         return format_status(state)
     if command == "candidates":
@@ -684,7 +786,7 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_history(state)
     if command == "diagnostics":
         return _cmd_diagnostics(state)
-    if command in ("quit", "exit"):
+    if command == "quit":
         return "__QUIT__"
     return theme.notice(
         "unknown command", f"{command!r} is not a command.", hint="help   for the command reference",
