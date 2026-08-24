@@ -45,6 +45,7 @@ VIEW_SCRIPT = (
     ("inspect", ["state", "0"]), ("inspect", ["state", "1"]),
     ("thread", []), ("thread", ["baseline", "25"]), ("thread", ["modified"]),
     ("state", []), ("state", ["0"]), ("state", ["1"]),
+    ("criterion", []), ("criterion", ["baseline", "25"]), ("criterion", ["1"]),
     ("inspect", ["thread", "baseline", "25"]),
     ("branches", []), ("branch", ["1"]),  # branches survive a real observation
     ("history", []), ("diagnostics", []), ("status", []), ("inspect", []),
@@ -58,6 +59,7 @@ VIEW_SCRIPT = (
     ("timeline", ["99"]), ("timeline", ["x"]), ("inspect", ["state"]),
     ("thread", ["nonexistent"]), ("thread", ["99"]),
     ("state", ["99"]), ("state", ["baseline"]),
+    ("criterion", ["nonexistent"]),
     ("bogus", []),
 )
 
@@ -285,6 +287,7 @@ def test_every_error_state_names_what_was_expected(state: WorkbenchState):
         ("timeline", ["99"]), ("timeline", ["x"]), ("inspect", ["state"]),
         ("thread", ["nonexistent"]), ("thread", ["99"]),
         ("state", ["99"]), ("state", ["baseline"]),
+        ("criterion", ["nonexistent"]),
         ("bogus", []),
     ):
         text = dispatch(state, command, args)
@@ -297,7 +300,7 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     dispatchable = {
         "help", "scenario", "status", "candidates", "decide", "select",
         "predict", "explore", "observe", "inspect", "explain",
-        "branches", "branch", "compare", "timeline", "thread", "state",
+        "branches", "branch", "compare", "timeline", "thread", "state", "criterion",
         "history", "diagnostics", "quit",
     }
     assert documented == dispatchable

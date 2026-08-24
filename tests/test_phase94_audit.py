@@ -282,6 +282,14 @@ def test_the_cli_reaches_materials_only_for_types_and_named_primitives():
         "PredictionAssessment", "ActionCandidate", "StateTransitionDiagnostic",
         "CounterfactualOutcome", "ModelState", "Prediction", "OptimizationResult",
         "PredictionDelta", "diagnose_transitions",
+        # PHASE 96: two more rendered TYPES. The criterion is CONSTRUCTED in
+        # the interaction layer and EVALUATED there; the CLI only renders the
+        # resulting objects, which is why make_criterion/evaluate_program/
+        # reevaluate_program are asserted absent below.
+        "Criterion", "ProgramDecision",
     }, imported
     assert "rank_candidates" not in imported
     assert "compare_predictions" not in imported
+    for computation in ("make_criterion", "evaluate_program", "reevaluate_program",
+                        "analyze_program", "predict", "update"):
+        assert computation not in imported, f"cli performs {computation!r} itself"

@@ -138,7 +138,7 @@ from experiment.session import ExperimentSession, make_experiment_session, traje
 from materials.assessment import PredictionAssessment
 from materials.campaign import ExperimentalCampaign, assemble_experimental_campaign
 from materials.candidates import ActionCandidate, CandidateSet, generate_candidates
-from materials.decision import make_criterion
+from materials.decision import Criterion, ProgramDecision, make_criterion
 from materials.design import assemble_experimental_design
 from materials.diagnostics import (
     StateTransitionDiagnostic, StateTransitionDiagnosticSet, diagnose_transitions,
@@ -415,6 +415,36 @@ class WorkbenchState:
         target_state = state if state is not None else self.session.state
         model = ModelStateInformationValueModel(target_state)
         return estimate_information_value(candidate, self.session.iteration, model)
+
+    def evaluate_criteria(self) -> Tuple[ProgramDecision, str]:
+        """`materials.iteration.reevaluate_program` against the CURRENT
+        pool, returning its `ProgramDecision` and the evidence version it
+        was computed from. Read-only: that function calls no `put_*`/
+        `admit_*` and never mutates the pool, query or criteria.
+
+        PHASE 96 -- this recomputation is NOT optional. `ExperimentSession`
+        deliberately carries `iteration` forward unchanged across
+        `observe()`, so `session.iteration.decision` stays pinned to the
+        `evidence_version_id` it was built from at bootstrap. Rendering
+        that after an observation would report a verdict about evidence
+        the session no longer has. Re-running the same composition
+        against the live pool is the existing operation applied to
+        current inputs, not a new one.
+
+        NOTE ON SUBSTRATE: this evaluates ADMITTED EVIDENCE in the
+        `EvidencePool`, which is a different substrate from the
+        `ModelState` that `predict`/`state`/`timeline` read. There is no
+        state override, and none is invented here: `evaluate_program`
+        takes no `ModelState` anywhere in its signature.
+        """
+        iteration = reevaluate_program(
+            self.pool, self.engine, self.session.iteration.query, self.session.iteration.criteria)
+        return iteration.decision, iteration.evidence_version_id
+
+    def declared_criteria(self) -> Tuple[Criterion, ...]:
+        """The criteria this session's scenario declared. Caller-supplied
+        engineering data, carried unchanged since bootstrap."""
+        return self.session.iteration.criteria
 
     def decision_at(self, state_id: str) -> Optional[OptimizationResult]:
         """The decision this session computed AT a given real state, or

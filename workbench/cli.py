@@ -57,6 +57,7 @@ from materials.assessment import PredictionAssessment
 from materials.candidates import ActionCandidate
 from materials.diagnostics import StateTransitionDiagnostic
 from materials.ensemble import CounterfactualOutcome
+from materials.decision import Criterion, ProgramDecision
 from materials.trajectory import PredictionDelta
 from materials.model_state import ModelState, Prediction
 from materials.optimization import OptimizationResult
@@ -112,6 +113,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("timeline [n]", "the real state trajectory, and one state within it"),
         ("thread [n|terms]", "one candidate's projection through that trajectory"),
         ("state [n]", "every candidate cell of one real state"),
+        ("criterion [n|terms]", "candidate cells against the declared criterion"),
         ("history", "transition narrative for this candidate"),
         ("diagnostics", "full detail for every transition"),
     )),
@@ -1131,6 +1133,238 @@ def format_timeline_state(state: WorkbenchState, index: int) -> str:
     )
 
 
+# -- PHASE 96: criterion evaluation -----------------------------------------------------------------
+#
+# The one comparison the materials layer defines: a candidate cell against
+# a DECLARED Criterion -- (property, operator, target, context) supplied by
+# the caller, never inferred from another cell. Phase 95 established this
+# is the only legitimate reference relation the system has.
+#
+# Two substrate facts this view must state rather than blur:
+#
+#   * `evaluate_program` reads ADMITTED EVIDENCE in the EvidencePool. It
+#     takes no ModelState anywhere in its signature. So these verdicts are
+#     about admitted evidence, NOT about the ModelState predictions that
+#     `predict`, `state` and `timeline` show.
+#   * OBSERVED and PREDICTED are answered separately by the materials
+#     layer and, in its own words, never combined. They are rendered as
+#     two independent columns and never reduced to one verdict.
+#
+# The `predicted` column concerns DerivedValues in the pool -- a different
+# thing again from `ExperimentSession.predict`. The view says so.
+
+_CRITERION_TONE = {
+    "PASS": theme.OK,
+    "FAIL": theme.ERR,
+    "CONFLICTING_EVIDENCE": theme.WARN,
+    "INSUFFICIENT_EVIDENCE": theme.MUTED,
+    "INCOMPARABLE": theme.WARN,
+}
+
+
+def _criterion_for(state: WorkbenchState, candidate: ActionCandidate) -> Optional[Criterion]:
+    """The declared criterion whose property and context are this
+    candidate's own. Matched on the candidate's declared fields -- the
+    workbench never performs context resolution itself; that is
+    `evaluate_program`'s job and this only finds which declared
+    criterion the candidate corresponds to."""
+    for criterion in state.declared_criteria():
+        if (criterion.property == candidate.property
+                and dict(criterion.context) == dict(candidate.target_context)):
+            return criterion
+    return None
+
+
+def _verdict_for(
+    decision: ProgramDecision, candidate: ActionCandidate, criterion: Criterion,
+):
+    """The PropertyDecision the materials layer produced for this
+    (formulation, criterion) pair, or None. Matched by the formulation's
+    own identity and the criterion's own declared fields."""
+    for formulation_decision in decision.formulations:
+        if formulation_decision.formulation.id != candidate.formulation.id:
+            continue
+        for property_decision in formulation_decision.properties:
+            if (property_decision.criterion.property == criterion.property
+                    and dict(property_decision.criterion.context) == dict(criterion.context)
+                    and property_decision.criterion.operator == criterion.operator
+                    and property_decision.criterion.target == criterion.target):
+                return property_decision
+    return None
+
+
+def _criterion_header(state: WorkbenchState, criterion: Criterion, unit: str) -> List[str]:
+    return [
+        theme.kv("property", theme.paint(criterion.property, theme.VALUE)),
+        theme.kv("operator", theme.paint(criterion.operator, theme.VALUE)),
+        theme.kv("target", theme.quantity(criterion.target, unit)),
+        theme.kv("context", theme.context(criterion.context)),
+        theme.kv("reference", theme.badge("declared", theme.ACCENT)
+                 + theme.paint("   engineering data, not another candidate", theme.MUTED)),
+    ]
+
+
+def format_criterion(state: WorkbenchState, candidates: Sequence[ActionCandidate]) -> str:
+    """Candidate cells evaluated against their declared criteria. An
+    evaluation table, never a leaderboard: registry order is preserved,
+    nothing is ranked, no verdict is compared with another, and observed
+    and predicted stay in separate columns."""
+    declared = state.declared_criteria()
+    if not declared:
+        return theme.notice(
+            "no criterion declared",
+            "this scenario declares no criterion to evaluate against.",
+            hint="a criterion is scenario configuration -- see examples/*.json",
+        )
+    decision, evidence_version = state.evaluate_criteria()
+    unit = _unit_for(state)
+
+    body: List[str] = ["", theme.divider("declared reference"), ""]
+    first = declared[0]
+    body.append(theme.kv("property", theme.paint(first.property, theme.VALUE)))
+    body.append(theme.kv("operator", theme.paint(first.operator, theme.VALUE)))
+    body.append(theme.kv("target", theme.quantity(first.target, unit)))
+    body.append(theme.kv("contexts", theme.paint(str(len(declared)), theme.VALUE)
+                         + theme.paint("   one criterion per declared context", theme.MUTED)))
+    body.append(theme.kv("reference", theme.badge("declared", theme.ACCENT)
+                         + theme.paint("   engineering data, not another candidate", theme.MUTED)))
+    body.append("")
+    body.append(theme.kv("evidence", theme.ident(evidence_version, size=24)))
+    body.append(theme.kv("", theme.paint(
+        "the admitted evidence these verdicts were computed from", theme.MUTED)))
+    body.append("")
+    body.append(theme.paint("  Verdicts concern ADMITTED EVIDENCE, not the model state that", theme.MUTED))
+    body.append(theme.paint("  `predict` and `state` report. Observed and predicted are", theme.MUTED))
+    body.append(theme.paint("  answered separately by the materials layer and never combined.", theme.MUTED))
+    body.append("")
+
+    body.append(theme.divider("evaluation"))
+    body.append("")
+    # a verdict is the ANSWER, not a descriptive label, so it is never
+    # placed in a column narrow enough to clip it. Two rows per cell --
+    # the same shape `state` uses -- keeps every status readable at 64.
+    for candidate in candidates:
+        position = _display_index(state, candidate)
+        criterion = _criterion_for(state, candidate)
+        body.append(
+            theme.paint(theme.index(position), theme.ACCENT) + "  "
+            + _short_candidate_line(state, candidate)
+        )
+        if criterion is None:
+            body.extend(theme.tree(
+                [("criterion", theme.paint("NONE DECLARED", theme.WARN))], label_width=12))
+            body.append("")
+            continue
+        verdict = _verdict_for(decision, candidate, criterion)
+        if verdict is None:
+            body.extend(theme.tree(
+                [("evaluated", theme.paint("NO", theme.WARN))], label_width=12))
+            body.append("")
+            continue
+        body.extend(theme.tree([
+            ("observed", theme.paint(
+                verdict.observed_status,
+                _CRITERION_TONE.get(verdict.observed_status, theme.VALUE))),
+            ("predicted", theme.paint(
+                verdict.predicted_status,
+                _CRITERION_TONE.get(verdict.predicted_status, theme.VALUE))),
+        ], label_width=12))
+        body.append("")
+
+    body.append(theme.paint("  Each row is one cell against the declared target.", theme.MUTED))
+    body.append(theme.paint("  No row is compared with any other.", theme.MUTED))
+    body.append("")
+    return theme.panel(
+        "criterion", body,
+        right=f"{len(candidates)} cell(s) · declared reference",
+    )
+
+
+def format_criterion_detail(state: WorkbenchState, candidate: ActionCandidate) -> str:
+    """One candidate against its declared criterion, with the two
+    verdicts kept apart and the comparison group the materials layer
+    actually matched, so an INCOMPARABLE result can be understood."""
+    criterion = _criterion_for(state, candidate)
+    if criterion is None:
+        return theme.notice(
+            "no declared criterion",
+            "this scenario declares no criterion for this candidate's property and context.",
+            hint="criterion   lists every declared criterion",
+        )
+    decision, evidence_version = state.evaluate_criteria()
+    verdict = _verdict_for(decision, candidate, criterion)
+    unit = _unit_for(state)
+
+    body: List[str] = [
+        "",
+        theme.kv("candidate", _candidate_line(state, candidate)),
+        theme.kv("candidate_id", theme.ident(candidate.id, size=24)),
+        "",
+        theme.divider("declared reference"),
+        "",
+        *_criterion_header(state, criterion, unit),
+        "",
+        theme.divider("verdict"),
+        "",
+    ]
+    if verdict is None:
+        body.append(theme.paint("This candidate was not evaluated.", theme.WARN))
+        body.append(theme.paint(
+            "Its formulation is not in the declared programme query.", theme.MUTED))
+    else:
+        body.append(theme.kv("observed", theme.paint(
+            verdict.observed_status, _CRITERION_TONE.get(verdict.observed_status, theme.VALUE))))
+        body.append(theme.kv("", theme.paint(_criterion_reason(verdict.observed_status), theme.MUTED)))
+        body.append(theme.kv("predicted", theme.paint(
+            verdict.predicted_status, _CRITERION_TONE.get(verdict.predicted_status, theme.VALUE))))
+        body.append(theme.kv("", theme.paint(_criterion_reason(verdict.predicted_status), theme.MUTED)))
+        body.append("")
+        body.append(theme.paint(
+            "  These two are answered independently and are never combined", theme.MUTED))
+        body.append(theme.paint(
+            "  into a single verdict.", theme.MUTED))
+        body.append("")
+        body.append(theme.divider("matched evidence"))
+        body.append("")
+        group = verdict.observed_group
+        if group is None:
+            body.append(theme.kv("observed group", theme.paint("NONE", theme.WARN)))
+            body.append(theme.kv("", theme.paint(
+                "no admitted evidence matched this criterion's context", theme.MUTED)))
+            if verdict.observed_status == "INCOMPARABLE" and criterion.context:
+                # the cause, stated as fact rather than left as a puzzle: an
+                # admitted result records property/value/unit, so a criterion
+                # naming an experimental condition can never match one.
+                body.append("")
+                body.append(theme.kv("cause", theme.paint(
+                    "admitted results record property, value and unit", theme.WARN)))
+                body.append(theme.kv("", theme.paint(
+                    "-- not the experimental context this criterion names", theme.MUTED)))
+        else:
+            body.append(theme.kv("context", theme.context(group.context)))
+            body.append(theme.kv("values", theme.paint(
+                ", ".join(theme.num(v) for v in group.values), theme.VALUE)))
+    body.append("")
+    body.append(theme.kv("evidence", theme.ident(evidence_version, size=24)))
+    body.append("")
+    return theme.panel(
+        "criterion · candidate", body,
+        right="declared reference",
+    )
+
+
+def _criterion_reason(status: str) -> str:
+    """The materials layer's own meaning for each status. No status is
+    reworded into a judgement about the material."""
+    return {
+        "PASS": "the matched evidence satisfies the target",
+        "FAIL": "the matched evidence does not satisfy the target",
+        "CONFLICTING_EVIDENCE": "the matched evidence disagrees with itself",
+        "INSUFFICIENT_EVIDENCE": "no evidence on this side exists for this property",
+        "INCOMPARABLE": "no single comparison group matched this context",
+    }.get(status, "")
+
+
 # -- PHASE 93: whole-state enumeration ------------------------------------------------------------
 #
 # The CELL projection, as opposed to `timeline`'s temporal one and
@@ -2014,6 +2248,20 @@ def _cmd_timeline(state: WorkbenchState, args: List[str]) -> str:
     return format_timeline_state(state, resolved)
 
 
+def _cmd_criterion(state: WorkbenchState, args: List[str]) -> str:
+    """Observational only. With no argument, every candidate cell against
+    its declared criterion; with a candidate selector, that one cell in
+    detail. Reuses Phase 84's resolver -- no second selector grammar, and
+    no criterion-authoring grammar either: a declared reference is
+    scenario configuration, which is where it stays."""
+    if not args:
+        return format_criterion(state, state.list_candidates())
+    resolved = resolve_candidate(state, args)
+    if isinstance(resolved, str):
+        return resolved
+    return format_criterion_detail(state, resolved)
+
+
 def _cmd_state(state: WorkbenchState, args: List[str]) -> str:
     """Observational only. The whole candidate registry read at one real
     state. PHASE 93 sec.11 -- `state` is never silently filtered: a
@@ -2265,6 +2513,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "criterion":
+        return _cmd_criterion(state, args)
     if command == "state":
         return _cmd_state(state, args)
     if command == "thread":
