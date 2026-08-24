@@ -189,6 +189,17 @@ measurement -- the same discipline every other `materials/` layer
 already applies to caller-supplied objects -- but does assert the one
 cheap, free identity check available (`candidate.id == result.candidate_id`)
 since both ids are already in hand.
+
+PHASE 58 -- COUNTERFACTUAL PROJECTION: `update`'s actual sample-append
+transformation is factored into a private, shared `_transition` function
+(below) so `materials.counterfactual.project_update` can reuse the
+IDENTICAL transition rule for a HYPOTHETICAL outcome, never an admitted
+`Observation` -- see that module for the full epistemic-boundary
+argument (no `EvidencePool` access, no `Observation` construction, no
+fingerprint impact, and why a hypothetical sample's placeholder id is
+deliberately never confusable with a real `Observation.id`). This
+module itself gained no new public surface for that capability; it only
+stopped duplicating its own transition math.
 """
 
 from __future__ import annotations
@@ -344,13 +355,37 @@ def predict(state: ModelState, candidate: ActionCandidate) -> Prediction:
     )
 
 
+def _transition(state: ModelState, key: str, value: float, sample_id: str) -> ModelState:
+    """S_(t+1) = F(S_t, y) -- the ONE underlying transition rule, Phase
+    58's shared core: append exactly one `Sample(value, sample_id)` to
+    `state`'s `key` cell, leaving every other cell byte-identical.
+    `update` (below) is its ACTUAL form -- `sample_id` is a real,
+    already-admitted `Observation.id`, `y` is a real observed outcome.
+    `materials.counterfactual.project_update` is its COUNTERFACTUAL
+    form -- `sample_id` is a deterministic placeholder that can never be
+    mistaken for a real one, `y` is a caller-supplied hypothetical
+    outcome that was never observed or admitted anywhere. Both call
+    THIS function, and only this function, to perform the actual
+    transformation -- there is exactly one transition rule in this
+    codebase, never two parallel implementations of the same math.
+
+    Never mutates `state`; always returns a new `ModelState`."""
+    new_sample = Sample(value=value, observation_id=sample_id)
+    existing = state.samples.get(key, ())
+    updated_samples = dict(state.samples)
+    updated_samples[key] = existing + (new_sample,)
+    return make_model_state(updated_samples)
+
+
 def update(state: ModelState, candidate: ActionCandidate, result: ExperimentalResult, observation: Observation) -> ModelState:
-    """S_(t+1) = F(S_t, y_t). `candidate` is the `ActionCandidate` whose
-    proposed action `result`/`observation` fulfill -- it supplies
-    `target_context`, so the cell `update` writes into is resolved from
-    exactly the same source `predict` reads from (see
-    `resolve_model_state_key` and this module's own docstring for why
-    that consistency is the actual Phase 53 fix, not a re-derivation
+    """S_(t+1) = F(S_t, y_t), the ACTUAL (non-counterfactual) case --
+    see `_transition` above for the one shared transition rule this
+    function is a thin, identity-resolving wrapper around. `candidate`
+    is the `ActionCandidate` whose proposed action `result`/`observation`
+    fulfill -- it supplies `target_context`, so the cell `update` writes
+    into is resolved from exactly the same source `predict` reads from
+    (see `resolve_model_state_key` and this module's own docstring for
+    why that consistency is the actual Phase 53 fix, not a re-derivation
     from `observation.content`). `result` supplies the formulation
     identity an `Observation` alone cannot (the formulation<->observation
     link lives in a `ClaimedRelationship`, external to `Observation`
@@ -371,12 +406,7 @@ def update(state: ModelState, candidate: ActionCandidate, result: ExperimentalRe
     value = observation.content.get("value")
     assert isinstance(value, (int, float)), f"expected a numeric Observation.content['value'], got {value!r}"
     key = resolve_model_state_key(result.formulation.id, result.property, candidate.target_context)
-
-    new_sample = Sample(value=float(value), observation_id=observation.id)
-    existing = state.samples.get(key, ())
-    updated_samples = dict(state.samples)
-    updated_samples[key] = existing + (new_sample,)
-    return make_model_state(updated_samples)
+    return _transition(state, key, float(value), observation.id)
 
 
 class ModelStateInformationValueModel:
