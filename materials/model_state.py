@@ -200,6 +200,22 @@ fingerprint impact, and why a hypothetical sample's placeholder id is
 deliberately never confusable with a real `Observation.id`). This
 module itself gained no new public surface for that capability; it only
 stopped duplicating its own transition math.
+
+PHASE 61 -- GUARDING THE ONE DIRECTION THAT MATTERS: a `ModelState`'s
+`.id` is just a content hash, real or counterfactual alike -- the
+`"hypothetical:"` mark lives on individual `Sample.observation_id`
+values, not on the state as a whole (Phase 58's own design: `predict`
+deliberately treats real and hypothetical samples identically, since
+mean/variance depend only on `Sample.value`). Nothing previously stopped
+a caller from taking a `ModelState` returned by `materials.counterfactual.
+project_update` and passing it as `update`'s `state` argument -- silently
+folding a hypothetical sample into what would then look like ordinary,
+fully-real history forever after. `update` now rejects any `state`
+containing so much as one hypothetical sample (see `_contains_hypothetical_sample`
+below) -- the one direction that must never happen; the reverse
+(`project_update` accepting a state that already contains real
+history, or even another hypothetical, to build a deeper lookahead
+tree) remains fully legitimate and is unaffected.
 """
 
 from __future__ import annotations
@@ -213,6 +229,16 @@ from evidence.types import Observation, Referent
 from materials.candidates import ActionCandidate
 from materials.results import ExperimentalResult
 from materials.value import CandidateInformationValue
+
+HYPOTHETICAL_SAMPLE_PREFIX = "hypothetical:"
+"""Canonical, single-source-of-truth prefix for a counterfactual
+`Sample.observation_id` -- defined here (not in `materials.counterfactual`,
+which imports it) because this module, not that one, is the one place
+that must be able to detect and reject it (see `update`'s Phase 61 guard
+below). Public (not underscore-prefixed): both this module's own guard
+and `materials.counterfactual`'s placeholder-id construction need it,
+and hiding a constant two modules must agree on byte-for-byte would only
+invite the two copies this phase exists to prevent."""
 
 
 @dataclass(frozen=True)
@@ -377,6 +403,20 @@ def _transition(state: ModelState, key: str, value: float, sample_id: str) -> Mo
     return make_model_state(updated_samples)
 
 
+def _contains_hypothetical_sample(state: ModelState) -> bool:
+    """True if any cell in `state` carries a sample placed there by
+    `materials.counterfactual.project_update` rather than a real
+    `update`. Phase 61's guard: a `ModelState.id` alone cannot answer
+    this (it is just a content hash, real or counterfactual alike) --
+    the mark lives on individual `Sample.observation_id` values, so
+    this function is the one place that actually looks."""
+    return any(
+        sample.observation_id.startswith(HYPOTHETICAL_SAMPLE_PREFIX)
+        for samples in state.samples.values()
+        for sample in samples
+    )
+
+
 def update(state: ModelState, candidate: ActionCandidate, result: ExperimentalResult, observation: Observation) -> ModelState:
     """S_(t+1) = F(S_t, y_t), the ACTUAL (non-counterfactual) case --
     see `_transition` above for the one shared transition rule this
@@ -395,10 +435,16 @@ def update(state: ModelState, candidate: ActionCandidate, result: ExperimentalRe
     should describe the same measurement -- this function trusts that,
     the same way every other `materials/` layer trusts an
     already-constructed object handed to it rather than re-validating
-    substrate invariants a caller is responsible for, except for the one
-    cheap identity check below.
+    substrate invariants a caller is responsible for, except for the two
+    cheap checks below.
 
     Never mutates `state`; always returns a new `ModelState`."""
+    assert not _contains_hypothetical_sample(state), (
+        f"state {state.id!r} contains at least one hypothetical sample (an observation_id prefixed "
+        f"{HYPOTHETICAL_SAMPLE_PREFIX!r}) -- update() requires a state built only from real, admitted "
+        "Observations; a counterfactual ModelState (from materials.counterfactual.project_update) must "
+        "never be folded into real history"
+    )
     assert candidate.id == result.candidate_id, (
         f"candidate {candidate.id!r} does not match result.candidate_id {result.candidate_id!r} -- "
         "update() requires the ActionCandidate that this ExperimentalResult actually fulfills"

@@ -137,15 +137,24 @@ nothing in this module ever calls `pool.fingerprint()`, appends to a
 fingerprint history, or makes a projected state reachable through
 `retrieval.engine`. `materials.results` remains the sole write boundary;
 this module could not touch it even by mistake.
+
+PHASE 61 -- THE ONE DIRECTION THAT MUST NEVER HAPPEN, GUARDED ELSEWHERE:
+nothing here stops a caller from taking a `ModelState` this module
+returns and passing it back into `project_update` again (a deeper
+counterfactual lookahead tree, fully legitimate -- Phase 58 sec.13's own
+"local neighborhood" framing already anticipates it) -- but taking it
+into `materials.model_state.update` instead, as if it were real history,
+must never silently succeed. `update` itself now refuses any `state`
+containing a hypothetical sample (Phase 61's guard, in that module, not
+this one); this module's placeholder id (`_hypothetical_sample_id` below)
+is what makes that guard possible to enforce at all.
 """
 
 from __future__ import annotations
 
 from evidence.identity import content_hash
 from materials.candidates import ActionCandidate
-from materials.model_state import ModelState, _transition, resolve_model_state_key
-
-_HYPOTHETICAL_PREFIX = "hypothetical:"
+from materials.model_state import HYPOTHETICAL_SAMPLE_PREFIX, ModelState, _transition, resolve_model_state_key
 
 
 def _hypothetical_sample_id(model_state_key: str, value: float) -> str:
@@ -159,7 +168,7 @@ def _hypothetical_sample_id(model_state_key: str, value: float) -> str:
     `content_hash` observation id -- any consumer inspecting a
     `ModelState`'s samples can tell a hypothetical one apart at a
     glance."""
-    return _HYPOTHETICAL_PREFIX + content_hash({"model_state_key": model_state_key, "hypothetical_value": value})
+    return HYPOTHETICAL_SAMPLE_PREFIX + content_hash({"model_state_key": model_state_key, "hypothetical_value": value})
 
 
 def project_update(state: ModelState, candidate: ActionCandidate, hypothetical_value: float) -> ModelState:

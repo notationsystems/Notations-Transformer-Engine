@@ -18,6 +18,7 @@ from evidence.types import (
 )
 from materials.campaign import assemble_experimental_campaign
 from materials.candidates import generate_candidates
+from materials.counterfactual import project_update
 from materials.decision import make_criterion
 from materials.design import assemble_experimental_design
 from materials.evaluation import evaluate_candidates
@@ -432,3 +433,28 @@ def test_15_prediction_exposes_correct_model_state_key():
     prediction = predict(EMPTY_MODEL_STATE, candidate)
     expected_key = resolve_model_state_key(candidate.formulation.id, candidate.property, candidate.target_context)
     assert prediction.model_state_key == expected_key
+
+
+# -- Phase 61: update() must never fold a counterfactual sample into real history --------------------------
+
+
+def test_16_update_rejects_a_state_containing_a_hypothetical_sample():
+    pool, doc, iteration, candidate, campaign, entry, hardness_entry, hardness_candidate = _setup()
+    result, observation = _admit_result(pool, doc, campaign, entry, "ts-80", 80)
+
+    counterfactual_state = project_update(EMPTY_MODEL_STATE, candidate, 90.0)
+    try:
+        update(counterfactual_state, candidate, result, observation)
+        assert False, "expected an AssertionError -- a counterfactual state must never become real history"
+    except AssertionError as e:
+        assert "hypothetical" in str(e)
+
+    # Sanity: an ordinary, fully-real state is unaffected by the guard.
+    real_state = update(EMPTY_MODEL_STATE, candidate, result, observation)
+    assert predict(real_state, candidate).predicted_value == 80.0
+
+    # The reverse direction remains fully legitimate: project_update MAY
+    # take a state that already contains a hypothetical sample, to build
+    # a deeper counterfactual lookahead tree.
+    deeper = project_update(counterfactual_state, candidate, 95.0)
+    assert predict(deeper, candidate).sample_count == 2
