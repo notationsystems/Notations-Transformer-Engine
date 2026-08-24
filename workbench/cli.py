@@ -79,7 +79,7 @@ _SHORT_STATUS = {
 # near-universal terminal request for help, `about` is the common
 # word for a programme summary, and `q`/`exit` are what people type
 # to leave. No abbreviation is invented for any other command.
-ALIASES = {"?": "help", "about": "scenario", "q": "quit", "exit": "quit"}
+ALIASES = {"?": "help", "about": "scenario", "q": "quit", "exit": "quit", "focus": "select"}
 
 COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     ("inspect", (
@@ -90,7 +90,8 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     )),
     ("decide", (
         ("decide", "utility landscape and recommendation"),
-        ("select <n>", "make candidate n the active candidate"),
+        ("select <n|terms>", "activate a candidate by number or by name"),
+        ("select clear", "deactivate the current candidate"),
         ("explore <value>", "project a hypothetical outcome"),
     )),
     ("admit", (
@@ -762,25 +763,144 @@ def parse_command(line: str) -> Tuple[str, List[str]]:
     return tokens[0].lower(), tokens[1:]
 
 
-def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
-    if len(args) != 1:
-        return theme.notice("invalid command", "select takes exactly one candidate number.", hint="select <n>")
-    try:
+def _context_tokens(candidate: ActionCandidate) -> set:
+    """Every string a user could reasonably type to name this
+    candidate's context, taken from the scenario's OWN representation --
+    the raw values, the `key=value` form, and the rendered display form.
+    Nothing is invented and nothing is fuzzy: each token is an exact
+    string derived from the context mapping itself."""
+    tokens = {theme.context(candidate.target_context).lower()}
+    for key, value in dict(candidate.target_context).items():
+        tokens.add(str(value).lower())
+        tokens.add(f"{key}={value}".lower())
+        if key.endswith("_c"):
+            tokens.add(f"{value}c")
+    return tokens
+
+
+def _matches(candidate: ActionCandidate, constraints: List[Tuple[str, str]]) -> bool:
+    for field, wanted in constraints:
+        if field == "formulation":
+            if candidate.formulation.natural_key.lower() != wanted:
+                return False
+        elif field == "property":
+            if candidate.property.lower() != wanted:
+                return False
+        elif field == "context":
+            if wanted not in _context_tokens(candidate):
+                return False
+        else:  # a bare token: it may name the formulation, the property, or the context
+            if not (
+                candidate.formulation.natural_key.lower() == wanted
+                or candidate.property.lower() == wanted
+                or wanted in _context_tokens(candidate)
+            ):
+                return False
+    return True
+
+
+def resolve_candidate(state: WorkbenchState, args: List[str]):
+    """Resolve a human's words to EXACTLY ONE existing `ActionCandidate`,
+    or return a `theme.notice` explaining why it could not.
+
+    Accepts a display index (`select 1`, kept for compatibility) or
+    semantic terms drawn from the scenario's own vocabulary:
+
+        select baseline 80
+        select formulation=baseline context=80
+        select baseline @ 80
+
+    Never fuzzy-matches, never creates a candidate, and never uses
+    display position as identity: the returned object is the same
+    `ActionCandidate` -- same `candidate.id` -- that prediction,
+    decision, observation, history and diagnostics all use."""
+    candidates = state.list_candidates()
+    if not args:
+        return theme.notice(
+            "invalid command", "select needs a candidate.",
+            hint="select <n>   or   select <formulation> <context>",
+        )
+
+    if len(args) == 1 and args[0].isdigit():
         n = int(args[0])
-    except ValueError:
-        return theme.notice(
-            "invalid candidate", f"{args[0]!r} is not a candidate number.",
-            hint=f"select <n>   where n is 1..{len(state.list_candidates())}",
+        if 1 <= n <= len(candidates):
+            return candidates[n - 1]
+        # out of registry range -- it may still be a context value, so keep resolving
+        # semantically rather than dead-ending on a number the user did not mean as an index.
+        if not any(args[0].lower() in _context_tokens(c) for c in candidates):
+            return theme.notice(
+                "candidate out of range", f"there is no candidate {theme.index(n)} in this scenario.",
+                hint=f"candidates   then   select <n>   where n is 1..{len(candidates)}",
+            )
+
+    constraints: List[Tuple[str, str]] = []
+    for token in args:
+        if token == "@":  # a separator, not a term
+            continue
+        if "=" in token:
+            field, _, value = token.partition("=")
+            field = field.lower()
+            if field in ("formulation", "property", "context"):
+                constraints.append((field, value.lower()))
+            elif any(field in {k.lower() for k in dict(c.target_context)} for c in candidates):
+                # a real context key from the scenario, e.g. `temperature_c=80`
+                constraints.append(("context", token.lower()))
+            else:
+                known = sorted({k for c in candidates for k in dict(c.target_context)})
+                return theme.notice(
+                    "unknown selector", f"{field!r} is not a selectable field.",
+                    hint=f"formulation=  property=  context=  or a context key: {', '.join(known)}",
+                )
+        else:
+            constraints.append(("", token.lower()))
+
+    matches = [c for c in candidates if _matches(c, constraints)]
+    if not matches:
+        formulations = sorted({c.formulation.natural_key for c in candidates})
+        contexts = sorted({theme.context(c.target_context) for c in candidates})
+        return theme.panel("no such candidate", [
+            theme.paint(f"nothing in this scenario matches {' '.join(args)!r}.", theme.VALUE),
+            "",
+            theme.kv("expected", theme.paint("select <formulation> <context>", theme.MUTED)),
+            theme.kv("formulations", theme.paint(", ".join(formulations), theme.MUTED)),
+            theme.kv("contexts", theme.paint(", ".join(contexts), theme.MUTED)),
+        ], tone=theme.ERR)
+    if len(matches) > 1:
+        listing = "   ".join(
+            f"{theme.index(_display_index(state, c))} {c.formulation.natural_key} "
+            f"{theme.DOT} {theme.context(c.target_context)}"
+            for c in matches[:6]
         )
-    try:
-        candidate = state.select_candidate(n - 1)
-    except IndexError:
         return theme.notice(
-            "candidate out of range",
-            f"there is no candidate {theme.index(n)} in this scenario.",
-            hint=f"candidates   then   select <n>   where n is 1..{len(state.list_candidates())}",
+            "ambiguous candidate",
+            f"{' '.join(args)!r} matches {len(matches)} candidates — say which.",
+            hint=listing, tone=theme.WARN,
         )
-    return format_selection(state, candidate)
+    return matches[0]
+
+
+def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
+    if len(args) == 1 and args[0].lower() == "clear":
+        if state.selected_candidate is None:
+            return theme.notice(
+                "nothing selected", "no candidate is active, so there is nothing to clear.",
+                hint="select <n>   or   select <formulation> <context>", tone=theme.WARN,
+            )
+        state.clear_selection()
+        return theme.panel("selection cleared", [
+            "", theme.paint("No candidate is active.", theme.VALUE),
+            theme.paint("predict, explore and observe need one before they can run.", theme.MUTED), "",
+            theme.paint("  select <n>", theme.ACCENT)
+            + theme.paint("                  by registry number", theme.MUTED),
+            theme.paint("  select <formulation> <context>", theme.ACCENT)
+            + theme.paint("  by name", theme.MUTED), "",
+        ])
+
+    resolved = resolve_candidate(state, args)
+    if isinstance(resolved, str):
+        return resolved
+    state.select_candidate(state.list_candidates().index(resolved))
+    return format_selection(state, resolved)
 
 
 def _cmd_predict(state: WorkbenchState) -> str:

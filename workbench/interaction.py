@@ -358,6 +358,13 @@ class WorkbenchState:
         self.last_counterfactual = None
         return self.selected_candidate
 
+    def clear_selection(self) -> None:
+        """Deactivate the current candidate. Interaction state only --
+        `ModelState`, `ExperimentSession` and `EvidencePool` are all
+        untouched, exactly as `select_candidate` leaves them."""
+        self.selected_candidate = None
+        self.last_counterfactual = None
+
     def total_sample_count(self) -> int:
         """The number of real samples across every cell of the current
         `ModelState` -- a plain structural count read directly off
