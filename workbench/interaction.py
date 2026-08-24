@@ -129,7 +129,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, Union
 
 from evidence.admission import admit_document, admit_record, admit_referent
 from evidence.pool import EvidencePool
@@ -228,6 +228,9 @@ def evaluate_decision(candidates: CandidateSet, state: ModelState, iteration: Ma
     return optimize_candidates(utility_set, DECISION_POLICY)
 
 
+_T = TypeVar("_T")
+
+
 @dataclass(frozen=True)
 class ResearchScenario:
     """CONFIGURATION ONLY -- what a researcher intends to investigate,
@@ -255,24 +258,100 @@ class ResearchScenario:
 
     name: str
     formulations: Tuple[str, ...]
-    property: str
-    contexts: Tuple[Mapping[str, object], ...]
+    criteria: Tuple[Criterion, ...]
     process: str = DEFAULT_PROCESS_KEY
-    criterion_operator: str = ">="
-    criterion_target: float = DEFAULT_CRITERION_TARGET
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "formulations", tuple(self.formulations))
+        object.__setattr__(self, "criteria", tuple(self.criteria))
+        if not self.criteria:
+            raise ValueError(
+                "scenario must declare at least one criterion -- a research scenario with no "
+                "criterion declares nothing to investigate"
+            )
+
+    # -- derived views. PHASE 103: `criteria` is the SOLE stored declaration;
+    # everything below is computed from it, so the single-property fields this
+    # scenario used to store can never drift from the criteria that are
+    # actually evaluated. They raise rather than guess when the scenario is
+    # richer than the convenience form can express.
+
+    @property
+    def properties(self) -> Tuple[str, ...]:
+        """Every property this scenario declares, in author order, each
+        appearing once. This is what the evidence query is derived from,
+        so a criterion can never name a property the query does not
+        retrieve."""
+        seen: Dict[str, None] = {}
+        for criterion in self.criteria:
+            seen.setdefault(criterion.property, None)
+        return tuple(seen)
+
+    @property
+    def contexts(self) -> Tuple[Mapping[str, object], ...]:
+        """Every distinct experimental context, in author order."""
+        seen: Dict[Tuple[Tuple[str, object], ...], Mapping[str, object]] = {}
+        for criterion in self.criteria:
+            seen.setdefault(tuple(sorted(criterion.context.items())), dict(criterion.context))
+        return tuple(seen.values())
+
+    def _single(self, attribute: str, values: Tuple[_T, ...]) -> _T:
+        if len(set(values)) != 1:
+            raise ValueError(
+                f"scenario declares {len(set(values))} distinct {attribute} values; "
+                f"read `.criteria` instead of `.{attribute}`"
+            )
+        return values[0]
+
+    @property
+    def criterion_operator(self) -> str:
+        """Single-criterion convenience view; see `property`."""
+        return str(self._single("criterion_operator", tuple(c.operator for c in self.criteria)))
+
+    @property
+    def criterion_target(self) -> float:
+        """Single-criterion convenience view; see `property`."""
+        return float(self._single("criterion_target", tuple(c.target for c in self.criteria)))
+
+    # NOTE: defined LAST, because naming an attribute `property` shadows the
+    # builtin decorator for the remainder of the class body.
+    @property
+    def property(self) -> str:
+        """The single-property convenience view. Raises for a scenario
+        that declares several, rather than silently reporting one."""
+        return str(self._single("property", tuple(c.property for c in self.criteria)))
 
     @staticmethod
     def from_config(config: Mapping[str, object]) -> "ResearchScenario":
         """Builds a `ResearchScenario` from a plain mapping -- exactly
-        what stdlib `json.load` produces for a file like
-        `examples/polymer_tensile_strength.json`. Validates only what is
-        structurally required to construct valid existing candidate
-        objects, and rejects a malformed scenario with a clear
-        `ValueError` naming the offending field. No schema framework, no
-        general configuration engine."""
-        for required in ("name", "formulations", "property", "contexts"):
+        what stdlib `json.load` produces. Validates only what is
+        structurally required to construct valid existing objects, and
+        rejects a malformed scenario with a `ValueError` naming the
+        offending field. No schema framework.
+
+        PHASE 103 -- two accepted forms, converted to canonical criteria
+        exactly ONCE, here at the boundary; everything downstream reads
+        `scenario.criteria` only.
+
+            canonical   criteria: [{property, operator, target, context}]
+            legacy      property + contexts + optional criterion
+
+        The legacy form IS the single-property Cartesian case of the
+        canonical one, so it is expanded into one criterion per context
+        rather than retained as a second declaration."""
+        for required in ("name", "formulations"):
             if required not in config:
                 raise ValueError(f"scenario is missing required field {required!r}")
+        if "criteria" not in config and "property" not in config:
+            raise ValueError(
+                "scenario must declare either 'criteria' or the single-property form "
+                "('property' with 'contexts')"
+            )
+        if "criteria" in config and "property" in config:
+            raise ValueError(
+                "scenario declares both 'criteria' and 'property' -- state one or the other, so "
+                "there is a single authority for what this programme evaluates"
+            )
 
         name = config["name"]
         if not isinstance(name, str) or not name.strip():
@@ -284,44 +363,95 @@ class ResearchScenario:
         if not all(isinstance(f, str) and f.strip() for f in formulations):
             raise ValueError("every entry in scenario 'formulations' must be a non-empty string")
 
+        process = config.get("process", DEFAULT_PROCESS_KEY)
+        if not isinstance(process, str) or not process.strip():
+            raise ValueError("scenario 'process' must be a non-empty string when supplied")
+
+        criteria = (
+            ResearchScenario._criteria_from_config(config["criteria"])
+            if "criteria" in config else ResearchScenario._criteria_from_legacy(config)
+        )
+        return ResearchScenario(
+            name=name, formulations=tuple(formulations), criteria=criteria, process=process)
+
+    @staticmethod
+    def _criteria_from_config(declared: object) -> Tuple[Criterion, ...]:
+        """The canonical form. Author order is preserved and duplicates
+        are NOT collapsed: `evaluate_program` keeps criterion order and
+        returns one independent verdict per criterion, so two criteria
+        for one property (a band, say) is a legitimate declaration this
+        must not normalise away."""
+        if not isinstance(declared, (list, tuple)) or not declared:
+            raise ValueError("scenario 'criteria' must be a non-empty list of criterion mappings")
+        built: List[Criterion] = []
+        for index, entry in enumerate(declared):
+            if not isinstance(entry, Mapping):
+                raise ValueError(f"scenario criteria[{index}] must be a mapping")
+            for required in ("property", "operator", "target"):
+                if required not in entry:
+                    raise ValueError(
+                        f"scenario criteria[{index}] is missing required field {required!r}")
+            property_name = entry["property"]
+            if not isinstance(property_name, str) or not property_name.strip():
+                raise ValueError(f"scenario criteria[{index}] 'property' must be a non-empty string")
+            operator = entry["operator"]
+            if not isinstance(operator, str) or not operator.strip():
+                raise ValueError(f"scenario criteria[{index}] 'operator' must be a non-empty string")
+            target = entry["target"]
+            if not isinstance(target, (int, float)) or isinstance(target, bool):
+                raise ValueError(f"scenario criteria[{index}] 'target' must be a number")
+            context = entry.get("context", {})
+            if not isinstance(context, Mapping):
+                raise ValueError(
+                    f"scenario criteria[{index}] 'context' must be a mapping of condition -> value")
+            try:
+                # `make_criterion` owns operator validation; it is never duplicated here.
+                built.append(
+                    make_criterion(property_name, operator, float(target), context=dict(context)))
+            except ValueError as error:
+                raise ValueError(f"scenario criteria[{index}]: {error}") from error
+        return tuple(built)
+
+    @staticmethod
+    def _criteria_from_legacy(config: Mapping[str, object]) -> Tuple[Criterion, ...]:
+        """The single-property form, expanded into its Cartesian criteria
+        -- one per declared context, in declaration order. This produces
+        exactly the criteria the pre-Phase-103 `bootstrap_research_
+        scenario` built inline, so a legacy scenario is unchanged."""
         property_name = config["property"]
         if not isinstance(property_name, str) or not property_name.strip():
             raise ValueError("scenario 'property' must be a non-empty string")
-
+        if "contexts" not in config:
+            raise ValueError("scenario is missing required field 'contexts'")
         contexts = config["contexts"]
         if not isinstance(contexts, (list, tuple)) or not contexts:
             raise ValueError("scenario 'contexts' must be a non-empty list of experimental contexts")
         if not all(isinstance(c, Mapping) for c in contexts):
             raise ValueError("every entry in scenario 'contexts' must be a mapping of condition -> value")
 
-        process = config.get("process", DEFAULT_PROCESS_KEY)
-        if not isinstance(process, str) or not process.strip():
-            raise ValueError("scenario 'process' must be a non-empty string when supplied")
-
         criterion = config.get("criterion", {})
         if not isinstance(criterion, Mapping):
-            raise ValueError("scenario 'criterion' must be a mapping with 'operator' and 'target' when supplied")
+            raise ValueError(
+                "scenario 'criterion' must be a mapping with 'operator' and 'target' when supplied")
         operator = criterion.get("operator", ">=")
         if not isinstance(operator, str) or not operator.strip():
             raise ValueError("scenario criterion 'operator' must be a non-empty string when supplied")
         target = criterion.get("target", DEFAULT_CRITERION_TARGET)
         if not isinstance(target, (int, float)) or isinstance(target, bool):
             raise ValueError("scenario criterion 'target' must be a number when supplied")
-
-        return ResearchScenario(
-            name=name, formulations=tuple(formulations), property=property_name,
-            contexts=tuple(dict(c) for c in contexts), process=process,
-            criterion_operator=operator, criterion_target=float(target),
+        return tuple(
+            make_criterion(property_name, operator, float(target), context=dict(context))
+            for context in contexts
         )
 
     def describe_candidate_space(self) -> str:
-        """`formulations x contexts` -- the candidate count this
+        """`formulations x criteria` -- the candidate count this
         scenario's configuration implies, for a caller that wants to
         state it before construction. Pure arithmetic over its own
         configuration; asserts nothing about the resulting candidates,
         which `materials.candidates.generate_candidates` alone
         determines."""
-        return f"{len(self.formulations)} formulation(s) x {len(self.contexts)} context(s)"
+        return f"{len(self.formulations)} formulation(s) x {len(self.criteria)} criteria"
 
 
 MEASUREMENT_KEYS = ("property", "value", "unit")
@@ -826,11 +956,13 @@ def bootstrap_research_scenario(
         admit_referent(pool, formulation)
         pool.put_referent(formulation)
 
-    criteria = tuple(
-        make_criterion(scenario.property, scenario.criterion_operator, scenario.criterion_target, context=context)
-        for context in scenario.contexts
-    )
-    query = make_material_program_query(formulation_keys, scenario.process, (scenario.property,))
+    # PHASE 103 -- the scenario's criteria ARE the programme declaration, and
+    # the evidence query's property set is DERIVED from them. That derivation
+    # is the whole point: a criterion can no longer name a property the query
+    # does not retrieve, which Phase 102 demonstrated silently turns a real
+    # PASS into INSUFFICIENT_EVIDENCE.
+    criteria = scenario.criteria
+    query = make_material_program_query(formulation_keys, scenario.process, scenario.properties)
     iteration = reevaluate_program(pool, engine, query, criteria)
     candidates = generate_candidates(iteration.specification)
 
@@ -869,10 +1001,10 @@ def bootstrap_multi_candidate_scenario(clock: Callable[[], str] = _utc_now_iso) 
     scenario = ResearchScenario(
         name="default two-context tensile strength study",
         formulations=(DEFAULT_FORMULATION_KEY,),
-        property=DEFAULT_PROPERTY,
-        contexts=(CONTEXT_ROOM_TEMPERATURE, CONTEXT_ELEVATED_TEMPERATURE),
+        criteria=tuple(
+            make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET, context=context)
+            for context in (CONTEXT_ROOM_TEMPERATURE, CONTEXT_ELEVATED_TEMPERATURE)
+        ),
         process=DEFAULT_PROCESS_KEY,
-        criterion_operator=">=",
-        criterion_target=DEFAULT_CRITERION_TARGET,
     )
     return bootstrap_research_scenario(scenario, clock=clock)

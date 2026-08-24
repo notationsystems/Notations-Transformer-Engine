@@ -282,11 +282,15 @@ def test_scenario_metadata_does_not_become_scientific_state(state: WorkbenchStat
     assert scenario is not None
     assert scenario.name == "polymer tensile strength study"
 
+    # PHASE 103: `criteria` replaced the single-property fields as the sole
+    # STORED declaration; property/contexts/criterion_* are now derived views
+    # over it, so they cannot drift from what is actually evaluated. The
+    # invariant this test protects is unchanged: engineering configuration
+    # only, never scientific state.
     scenario_fields = set(vars(scenario).keys())
-    assert scenario_fields == {
-        "name", "formulations", "property", "contexts", "process",
-        "criterion_operator", "criterion_target",
-    }
+    assert scenario_fields == {"name", "formulations", "criteria", "process"}
+    assert scenario.property == "tensile_strength"          # derived, still readable
+    assert len(scenario.contexts) == 3                       # derived from the criteria
     for forbidden in ("samples", "observations", "predictions", "residuals", "session", "state"):
         assert not hasattr(scenario, forbidden)
 
@@ -350,7 +354,10 @@ def test_optional_fields_default_so_the_minimal_scenario_shape_loads():
     assert scenario.process == DEFAULT_PROCESS_KEY
     assert scenario.criterion_operator == ">="
     assert scenario.criterion_target == DEFAULT_CRITERION_TARGET
-    assert scenario.describe_candidate_space() == "2 formulation(s) x 2 context(s)"
+    # PHASE 103: the second factor is criteria, which equals the context count
+    # in this single-property case but is the figure that actually drives
+    # candidate generation.
+    assert scenario.describe_candidate_space() == "2 formulation(s) x 2 criteria"
 
     built = bootstrap_research_scenario(scenario, clock=_fixed_clock())
     assert len(built.list_candidates()) == 4

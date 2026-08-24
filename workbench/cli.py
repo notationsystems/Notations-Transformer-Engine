@@ -148,11 +148,15 @@ def _candidate_line(state: WorkbenchState, candidate: ActionCandidate) -> str:
 
 
 def _short_candidate_line(state: WorkbenchState, candidate: ActionCandidate) -> str:
-    """The compact form used inside dense tables: formulation + context."""
-    return (
-        f"{candidate.formulation.natural_key} {theme.DOT} "
-        f"{theme.context(candidate.target_context)}"
-    )
+    """The compact form used inside dense tables: formulation + context,
+    plus the PROPERTY when the scenario declares more than one. PHASE 103
+    -- with several properties, formulation + context no longer names a
+    cell uniquely, and two rows would read identically."""
+    parts = [candidate.formulation.natural_key]
+    if state.scenario is not None and len(state.scenario.properties) > 1:
+        parts.append(candidate.property)
+    parts.append(theme.context(candidate.target_context))
+    return f" {theme.DOT} ".join(parts)
 
 
 def _no_selection_notice() -> str:
@@ -194,11 +198,11 @@ def format_scenario_banner(state: WorkbenchState) -> str:
         body.append(theme.paint(scenario.name, theme.BOLD, theme.VALUE))
         body.append("")
         body.append(theme.kv("process", theme.paint(scenario.process, theme.VALUE)))
-        body.append(theme.kv("property", theme.paint(scenario.property, theme.VALUE)))
-        body.append(theme.kv(
-            "criterion",
-            theme.paint(f"{scenario.criterion_operator} {theme.num(scenario.criterion_target)}", theme.VALUE),
-        ))
+        body.append(theme.kv("properties", theme.paint(
+            ", ".join(scenario.properties), theme.VALUE)))
+        body.append(theme.kv("criteria", theme.paint(
+            str(len(scenario.criteria)), theme.VALUE)
+            + theme.paint("   see `scenario` for each", theme.MUTED)))
         body.append(theme.kv("search space", theme.paint(scenario.describe_candidate_space(), theme.VALUE)))
         body.append("")
 
@@ -218,6 +222,22 @@ def format_scenario_banner(state: WorkbenchState) -> str:
         "research scenario", body,
         right=f"{len(candidates)} candidate{'s' if len(candidates) != 1 else ''}",
     )
+
+
+def _scenario_criteria_rows(scenario) -> List[str]:
+    """Every declared criterion, one row each, numbered in the author's
+    own order. PHASE 103 -- the scenario may declare several properties
+    and several criteria per property, so a single `property`/`criterion`
+    pair can no longer stand for the programme."""
+    rows: List[str] = []
+    for position, criterion in enumerate(scenario.criteria, start=1):
+        rows.append(
+            "  " + theme.paint(theme.index(position), theme.ACCENT) + "  "
+            + theme.paint(criterion.property, theme.VALUE) + " "
+            + theme.paint(f"{criterion.operator} {theme.num(criterion.target)}", theme.VALUE)
+        )
+        rows.append("     " + theme.paint(theme.context(criterion.context), theme.MUTED))
+    return rows
 
 
 def format_help() -> str:
@@ -272,11 +292,18 @@ def format_scenario(state: WorkbenchState) -> str:
     body: List[str] = [""]
     body.append(theme.paint(scenario.name, theme.BOLD, theme.VALUE))
     body.append("")
-    body.append(theme.kv("property", theme.paint(scenario.property, theme.VALUE)))
     body.append(theme.kv("process", theme.paint(scenario.process, theme.VALUE)))
-    body.append(theme.kv("criterion", theme.paint(
-        f"{scenario.property} {scenario.criterion_operator} {theme.num(scenario.criterion_target)}", theme.VALUE,
-    )))
+    body.append(theme.kv("properties", theme.paint(", ".join(scenario.properties), theme.VALUE)))
+    body.append("")
+
+    body.append(theme.divider("declared criteria"))
+    body.append("")
+    body.extend(_scenario_criteria_rows(scenario))
+    body.append("")
+    body.append(theme.paint(
+        "  Each criterion is evaluated independently against its own", theme.MUTED))
+    body.append(theme.paint(
+        "  property and context. None is compared with another.", theme.MUTED))
     body.append("")
 
     body.append(theme.divider("formulations"))
@@ -310,7 +337,8 @@ def format_status(state: WorkbenchState) -> str:
     body: List[str] = [""]
     if state.scenario is not None:
         body.append(theme.kv("study", theme.paint(state.scenario.name, theme.VALUE)))
-        body.append(theme.kv("property", theme.paint(state.scenario.property, theme.VALUE)))
+        body.append(theme.kv("properties", theme.paint(
+            ", ".join(state.scenario.properties), theme.VALUE)))
     body.append(theme.kv("model state", theme.ident(state.session.state.id)))
     body.append(theme.kv("transitions", theme.paint(str(len(state.session.state_history) - 1), theme.VALUE)))
     body.append(theme.kv("observations", theme.paint(str(state.total_sample_count()), theme.VALUE)))
@@ -2160,13 +2188,23 @@ def resolve_candidate(state: WorkbenchState, args: List[str]):
     if not matches:
         formulations = sorted({c.formulation.natural_key for c in candidates})
         contexts = sorted({theme.context(c.target_context) for c in candidates})
-        return theme.panel("no such candidate", [
+        properties = sorted({c.property for c in candidates})
+        # PHASE 103 -- with several properties declared, a selector naming only
+        # formulation and context is ambiguous, so the guidance must say that
+        # a property is available to name. Terms are matched exactly, never
+        # fuzzily, so the accepted words are listed in full.
+        rows = [
             theme.paint(f"nothing in this scenario matches {' '.join(args)!r}.", theme.VALUE),
             "",
-            theme.kv("expected", theme.paint("select <formulation> <context>", theme.MUTED)),
+            theme.kv("expected", theme.paint(
+                "select <formulation> <property> <context>" if len(properties) > 1
+                else "select <formulation> <context>", theme.MUTED)),
             theme.kv("formulations", theme.paint(", ".join(formulations), theme.MUTED)),
-            theme.kv("contexts", theme.paint(", ".join(contexts), theme.MUTED)),
-        ], tone=theme.ERR)
+        ]
+        if len(properties) > 1:
+            rows.append(theme.kv("properties", theme.paint(", ".join(properties), theme.MUTED)))
+        rows.append(theme.kv("contexts", theme.paint(", ".join(contexts), theme.MUTED)))
+        return theme.panel("no such candidate", rows, tone=theme.ERR)
     if len(matches) > 1:
         listing = "   ".join(
             f"{theme.index(_display_index(state, c))} {c.formulation.natural_key} "
