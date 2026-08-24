@@ -79,9 +79,26 @@ class InformationValueModel(Protocol):
     "which technique produced this," never a closed enum. `estimate`
     is a pure function of the structural facts it is given; it must not
     reach into `EvidencePool`/`RetrievalEngine` (nothing in this
-    module's own contract gives it the means to)."""
+    module's own contract gives it the means to).
 
-    name: str
+    Declared as a read-only `@property` (Phase 59 fix) rather than a
+    plain `name: str` field: a plain field is INVARIANT under mypy's
+    structural typing -- it requires an implementation with a settable
+    attribute of the exact same type -- which rejects an otherwise
+    perfectly valid implementation like `materials.model_state.
+    ModelStateInformationValueModel.name` that computes its name from
+    instance state (`f"model_state:{self._state.id}"`) via a read-only
+    `@property`, since a class cannot honestly offer a SETTABLE `name`
+    that also derives from immutable instance data. A property-typed
+    protocol member accepts both a read-only property AND a plain class
+    attribute (`NullInformationValueModel.name`/`SurrogateInformationValueModel.
+    name`, both unchanged) as valid implementations -- this widens the
+    contract to what every existing and intended implementation actually
+    needs (read access only; nothing in this codebase ever assigns to
+    `model.name`), without weakening it in any way that matters."""
+
+    @property
+    def name(self) -> str: ...
 
     def estimate(self, information_value: CandidateInformationValue) -> Tuple[Optional[float], Optional[str]]:
         """Returns (value, basis). `value=None` means the model itself
