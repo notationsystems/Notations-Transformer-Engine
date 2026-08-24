@@ -111,6 +111,7 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     ("review", (
         ("timeline [n]", "the real state trajectory, and one state within it"),
         ("thread [n|terms]", "one candidate's projection through that trajectory"),
+        ("state [n]", "every candidate cell of one real state"),
         ("history", "transition narrative for this candidate"),
         ("diagnostics", "full detail for every transition"),
     )),
@@ -1130,6 +1131,87 @@ def format_timeline_state(state: WorkbenchState, index: int) -> str:
     )
 
 
+# -- PHASE 93: whole-state enumeration ------------------------------------------------------------
+#
+# The CELL projection, as opposed to `timeline`'s temporal one and
+# `thread`'s single-candidate one. It answers exactly one question:
+# what does this ModelState contain for every candidate cell?
+#
+# It is an ENUMERATION, never an interpretation. Phase 92 established
+# that different candidate cells are independently predicted quantities
+# with no defined scientific relation between them, so this view
+# computes nothing spanning two rows: no difference, no ordering by
+# value, no aggregate, no ranking. Each row is a self-contained reading
+# of one cell, and rows appear in the candidate registry's own
+# id-sorted order -- the same order `candidates`, `select <n>`,
+# `decide`, `timeline` and `thread` already use.
+#
+# Utility is deliberately absent. Phase 92 classified it as a
+# decision-policy quantity, not a material one; placing it beside a
+# prediction here would invite exactly the reading this view exists to
+# avoid. It stays in `decide` and `explain`, where its policy basis is
+# disclosed.
+
+
+def format_state(state: WorkbenchState, index: int) -> str:
+    """Every candidate cell of one real state, side by side. Lossless
+    with respect to the registry: every candidate appears exactly once,
+    including those with no evidence at all, because a search space is
+    not the same thing as the evidence gathered in it."""
+    history = state.session.state_history
+    model_state = history[index]
+    unit = _unit_for(state)
+    is_current = model_state.id == state.session.state.id
+    candidates = state.list_candidates()
+    occupied = sum(
+        1 for c in candidates if state.prediction_at(c, model_state).sample_count > 0)
+
+    body: List[str] = [
+        "",
+        theme.kv("state", theme.paint(f"S{index}", theme.TITLE)
+                 + theme.paint("   display index only", theme.MUTED)),
+        theme.kv("state id", theme.ident(model_state.id, size=24)),
+        theme.kv("basis", theme.badge("real", theme.ACCENT)
+                 + theme.paint("   admitted evidence, not a projection", theme.MUTED)),
+        theme.kv("position", theme.paint(
+            "CURRENT" if is_current else "HISTORICAL",
+            theme.ACCENT if is_current else theme.MUTED)),
+        "",
+        theme.kv("candidate cells", theme.paint(str(len(candidates)), theme.VALUE)
+                 + theme.paint("   the complete registry", theme.MUTED)),
+        theme.kv("cells with evidence", theme.paint(str(occupied), theme.VALUE)
+                 + theme.paint("   the rest hold no sample at this state", theme.MUTED)),
+        "",
+        theme.paint("  Each cell is read independently. This view states no relation", theme.MUTED),
+        theme.paint("  between any two of them.", theme.MUTED),
+        "",
+        theme.divider("cells"),
+        "",
+    ]
+
+    for position, candidate in enumerate(candidates, start=1):
+        prediction = state.prediction_at(candidate, model_state)
+        estimate = state.information_value_estimate(candidate, model_state)
+        body.append(
+            theme.paint(theme.index(position), theme.ACCENT) + "  "
+            + _candidate_line(state, candidate).split("  ", 1)[-1]
+        )
+        body.extend(theme.tree([
+            ("prediction", theme.quantity(prediction.predicted_value, unit)),
+            ("uncertainty", theme.quantity(prediction.uncertainty)),
+            ("samples", theme.paint(str(prediction.sample_count), theme.VALUE)),
+            ("information", theme.paint(
+                estimate.estimate_status,
+                theme.WARN if estimate.estimate is None else theme.VALUE)),
+        ], label_width=12))
+        body.append("")
+
+    return theme.panel(
+        "state", body,
+        right=f"S{index} · {len(candidates)} candidate cell(s)",
+    )
+
+
 # -- PHASE 91: candidate evidence threads -------------------------------------------------------------
 #
 # A thread is a PROJECTION of the global real-state trajectory, not a
@@ -1901,26 +1983,54 @@ def _cmd_thread(state: WorkbenchState, args: List[str]) -> str:
     return format_thread(state, resolved)
 
 
+def _resolve_state_index(state: WorkbenchState, token: str, command: str):
+    """One display index -> one position in the real chain, or a notice.
+    PHASE 93 factored this out of `_cmd_timeline` so `state <n>` reuses
+    the SAME navigation rather than a parallel copy of it: there is one
+    state-selector semantics in this instrument, not two."""
+    history = state.session.state_history
+    hint = f"{command} <0-{len(history) - 1}>   ·   timeline   lists them"
+    try:
+        index = int(token)
+    except ValueError:
+        return theme.notice("unreadable state number", f"{token!r} is not a number.", hint=hint)
+    if not 0 <= index < len(history):
+        return theme.notice(
+            "no such state", f"S{index} is not in this session's real history.", hint=hint)
+    return index
+
+
 def _cmd_timeline(state: WorkbenchState, args: List[str]) -> str:
     """Observational only. With no argument, the whole real trajectory;
     with a number, one state by DISPLAY index (identity remains the
     state's own hash, which the view prints beside it)."""
-    history = state.session.state_history
     if not args:
         return format_timeline(state)
-    try:
-        index = int(args[0])
-    except ValueError:
+    resolved = _resolve_state_index(state, args[0], "timeline")
+    if isinstance(resolved, str):
+        return resolved
+    return format_timeline_state(state, resolved)
+
+
+def _cmd_state(state: WorkbenchState, args: List[str]) -> str:
+    """Observational only. The whole candidate registry read at one real
+    state. PHASE 93 sec.11 -- `state` is never silently filtered: a
+    trailing candidate selector is REFUSED rather than quietly narrowing
+    the enumeration, because a partial view under a whole-state name
+    would misrepresent what the state contains. `thread` is the
+    candidate-specific view."""
+    if not args:
+        return format_state(state, len(state.session.state_history) - 1)
+    resolved = _resolve_state_index(state, args[0], "state")
+    if isinstance(resolved, str):
         return theme.notice(
-            "unreadable state number", f"{args[0]!r} is not a number.",
-            hint=f"timeline <0-{len(history) - 1}>   ·   timeline   lists them",
+            "state is not filterable",
+            f"{' '.join(args)!r} is not a state number, and `state` is always the "
+            "complete candidate registry.",
+            hint=f"state   ·   state <0-{len(state.session.state_history) - 1}>"
+                 f"   ·   thread {' '.join(args)}   for one candidate",
         )
-    if not 0 <= index < len(history):
-        return theme.notice(
-            "no such state", f"S{index} is not in this session's real history.",
-            hint=f"timeline <0-{len(history) - 1}>   ·   timeline   lists them",
-        )
-    return format_timeline_state(state, index)
+    return format_state(state, resolved)
 
 
 def _cmd_compare(state: WorkbenchState, args: List[str]) -> str:
@@ -2153,6 +2263,8 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return _cmd_predict(state)
     if command == "explore":
         return _cmd_explore(state, args)
+    if command == "state":
+        return _cmd_state(state, args)
     if command == "thread":
         return _cmd_thread(state, args)
     if command == "timeline":

@@ -280,7 +280,14 @@ def kv(
     carries meaning."""
     rendered = paint(value, tone) if tone else value
     text = label.upper() if upper else label
-    return paint(pad(text, label_width), LABEL) + rendered
+    # `pad` leaves an already-oversized label untouched, which would butt it
+    # straight against its value. A label that fills its own column must
+    # still be separated from what it labels. This is the same guarantee
+    # `tree` and `lineage` make; all three label primitives now agree.
+    column = pad(text, label_width)
+    if visible_len(text) >= label_width:
+        column = column + " "
+    return paint(column, LABEL) + rendered
 
 
 def tree(rows: Sequence[Tuple[str, str]], *, label_width: int = 14) -> List[str]:
