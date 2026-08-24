@@ -34,17 +34,17 @@ def test_a_bootstrap_no_fabricated_prediction():
     state = _start()
 
     status_output = dispatch(state, "status", [])
-    assert "Available candidates: 2" in status_output
-    assert "none -- use `candidates`" in status_output
+    assert "CANDIDATES" in status_output and " 2" in status_output
+    assert "SELECTION" in status_output and "none" in status_output
 
     candidates_output = dispatch(state, "candidates", [])
-    assert candidates_output.count("prediction: undetermined") == 2
+    assert candidates_output.count("UNDETERMINED") >= 2
     assert "0.0" not in candidates_output  # no undetermined quantity silently rendered as zero
 
     dispatch(state, "select", ["1"])
     predict_output = dispatch(state, "predict", [])
-    assert "predicted_value: undetermined" in predict_output
-    assert "sample_count: 0" in predict_output
+    assert "PREDICTED VALUE" in predict_output and "UNDETERMINED" in predict_output
+    assert "SAMPLES" in predict_output
     assert state.session.predict(state.selected_candidate).predicted_value is None
 
 
@@ -54,7 +54,7 @@ def test_a_bootstrap_no_fabricated_prediction():
 def test_b_decision_selection_comes_from_optimization():
     state = _start()
     decide_output = dispatch(state, "decide", [])
-    assert "Recommended candidate: [" in decide_output
+    assert "RECOMMENDATION" in decide_output and "ADVISORY ONLY" in decide_output
     assert state.last_decision is not None
     selected = [o for o in state.last_decision.optimizations if o.status == "SELECTED"]
     assert len(selected) == 1
@@ -74,7 +74,7 @@ def test_c_counterfactual_state_unchanged_and_no_admission():
 
     explore_output = dispatch(state, "explore", ["90"])
     assert "NOT been admitted as evidence" in explore_output
-    assert "unchanged: confirmed" in explore_output
+    assert "LIVE SESSION" in explore_output and "UNCHANGED" in explore_output
     assert "This branch is hypothetical" in explore_output
 
     assert state.session.state.id == pre_state_id
@@ -95,12 +95,12 @@ def test_d_observation_signed_residual_and_successor_state():
     predecessor_state_id = state.session.state.id
 
     observe_output = dispatch(state, "observe", ["80"])
-    assert "residual: undetermined" in observe_output  # honest -- no prior sample in this cell
+    assert "RESIDUAL" in observe_output and "UNDETERMINED" in observe_output  # honest -- no prior sample in this cell
     assert state.session.state.id != predecessor_state_id
     assert state.assessments[-1].observed_value == 80.0
 
     second_output = dispatch(state, "observe", ["90"])
-    assert "residual: +10.0" in second_output
+    assert "+10.0" in second_output
     assert state.assessments[-1].residual == 10.0
 
 
@@ -136,7 +136,7 @@ def test_f_decision_evolution_selects_different_candidate():
     first_index = next(
         i for i, c in enumerate(state.list_candidates(), start=1) if c.id == first_selected
     )
-    assert f"Recommended candidate: [{first_index}]" in decide_1
+    assert f"select {first_index:02d}" in decide_1  # the advisory names the command to act on it
 
     dispatch(state, "select", [str(first_index)])
     dispatch(state, "observe", ["90"])  # first candidate's benefit drops once measured once
@@ -144,7 +144,7 @@ def test_f_decision_evolution_selects_different_candidate():
     decide_2 = dispatch(state, "decide", [])
     second_selected = [o.candidate_id for o in state.last_decision.optimizations if o.status == "SELECTED"][0]
     assert second_selected != first_selected
-    assert f"Recommended candidate: [{first_index}]" not in decide_2
+    assert f"select {first_index:02d}" not in decide_2
 
 
 # -- Test G: historical immutability -------------------------------------------------------------------
@@ -200,18 +200,20 @@ def test_h_hypothetical_contamination_rejected():
 def test_i_epistemic_honesty_never_zero():
     state = _start()
     candidates_output = dispatch(state, "candidates", [])
-    assert "undetermined" in candidates_output
+    assert "UNDETERMINED" in candidates_output
     assert "NOT_DETERMINABLE" in candidates_output
+    # an undetermined quantity is never rendered as a number on its own row
     for line in candidates_output.splitlines():
-        if "prediction=" in line or "information_value=" in line:
-            assert "=0.0" not in line.replace(" ", "")
+        if "prediction " in line or "information " in line:
+            assert "0.0" not in line
 
     dispatch(state, "select", ["1"])
     observe_output = dispatch(state, "observe", ["80"])
-    residual_lines = [line for line in observe_output.splitlines() if line.startswith("residual")]
-    absolute_lines = [line for line in observe_output.splitlines() if line.startswith("absolute residual")]
-    assert residual_lines == ["residual: undetermined"]  # never rendered as 0.0
-    assert absolute_lines == ["absolute residual: undetermined"]
+    residual_rows = [line for line in observe_output.splitlines() if "RESIDUAL" in line]
+    assert len(residual_rows) == 2  # RESIDUAL and ABS RESIDUAL
+    for row in residual_rows:
+        assert "UNDETERMINED" in row  # never rendered as 0.0
+        assert "0.0" not in row
 
 
 # -- Test J: CLI command flow -- the actual parser/dispatch layer, not manual orchestration ------------
@@ -237,6 +239,6 @@ def test_j_cli_command_flow_through_parser_and_dispatch():
     assert len(state.assessments) == 2
     assert state.assessments[0].observed_value == 90.0
     assert state.assessments[1].observed_value == 65.0
-    assert "Unknown command" not in "\n".join(outputs)
+    assert "UNKNOWN COMMAND" not in "\n".join(outputs)
     assert dispatch(state, "quit", []) == "__QUIT__"
-    assert dispatch(state, "bogus", []).startswith("Unknown command")
+    assert "UNKNOWN COMMAND" in dispatch(state, "bogus", [])

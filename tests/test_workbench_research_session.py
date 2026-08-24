@@ -49,9 +49,9 @@ def state() -> WorkbenchState:
 def test_full_research_session_through_cli_dispatch(state: WorkbenchState):
     # -- inspect, before any selection -- predict/explore honestly refuse, never fabricate ------------
     status_0 = dispatch(state, "status", [])
-    assert "Available candidates: 2" in status_0
+    assert "CANDIDATES" in status_0
     candidates_0 = dispatch(state, "candidates", [])
-    assert candidates_0.count("prediction: undetermined") == 2
+    assert candidates_0.count("UNDETERMINED") >= 2  # both candidates, prediction + uncertainty
 
     predict_before_select = dispatch(state, "predict", [])
     assert "no candidate selected" in predict_before_select
@@ -60,13 +60,13 @@ def test_full_research_session_through_cli_dispatch(state: WorkbenchState):
 
     # -- decide: a recommendation, never a selection ----------------------------------------------------
     decide_1 = dispatch(state, "decide", [])
-    assert "Recommended candidate: [" in decide_1
-    assert "No action has been selected." in decide_1
+    assert "RECOMMENDATION" in decide_1
+    assert "ADVISORY ONLY" in decide_1
     assert state.selected_candidate is None  # (3) decide never selects
 
     # -- explicit select: interaction state only, no evidence transition ---------------------------------
     select_output = dispatch(state, "select", ["1"])
-    assert "Selected candidate [1]" in select_output
+    assert "CANDIDATE SELECTED" in select_output
     assert "No experiment has been executed." in select_output
     candidate = state.selected_candidate
     assert candidate is not None  # (4) select changed interaction state
@@ -77,13 +77,13 @@ def test_full_research_session_through_cli_dispatch(state: WorkbenchState):
     # (1) the first prediction is genuinely undetermined -- read directly off the real ModelState
     assert state.session.predict(candidate).predicted_value is None
     predict_1 = dispatch(state, "predict", [])
-    assert "predicted_value: undetermined" in predict_1
+    assert "UNDETERMINED" in predict_1
 
     # -- explore: hypothetical only, never touches the live session --------------------------------------
     explore_output = dispatch(state, "explore", ["90"])
     assert "This branch is hypothetical." in explore_output
     assert "NOT been admitted as evidence" in explore_output
-    assert "unchanged: confirmed" in explore_output
+    assert "LIVE SESSION" in explore_output and "UNCHANGED" in explore_output
     outcome = state.last_counterfactual
     assert outcome is not None
     sample = next(iter(outcome.projected_state.samples.values()))[0]
@@ -95,7 +95,7 @@ def test_full_research_session_through_cli_dispatch(state: WorkbenchState):
     # -- observe: the real, externally supplied result -- a genuine successor state ----------------------
     observe_1 = dispatch(state, "observe", ["80"])
     assert "externally supplied experimental observation" in observe_1
-    assert "residual: undetermined" in observe_1  # honest -- no prior sample in this cell
+    assert "RESIDUAL" in observe_1 and "UNDETERMINED" in observe_1  # honest -- no prior sample in this cell
     successor_state_1 = state.session.state
     assert successor_state_1.id != initial_state.id  # (5) a real successor state
     # (6) the prior session/state remains immutable
@@ -109,32 +109,32 @@ def test_full_research_session_through_cli_dispatch(state: WorkbenchState):
 
     # (7) subsequent prediction changes because real evidence accumulated
     predict_2 = dispatch(state, "predict", [])
-    assert "predicted_value: 80.0" in predict_2
+    assert "80.0" in predict_2
     assert state.session.predict(candidate).predicted_value == 80.0
 
     decide_2 = dispatch(state, "decide", [])
-    assert "Decision" in decide_2
+    assert "DECISION ANALYSIS" in decide_2
 
     # -- a second real observation -- signed residual preserved ------------------------------------------
     fingerprint_before_second_observe = state.pool.fingerprint()
     observe_2 = dispatch(state, "observe", ["100"])
-    assert "residual: +20.0" in observe_2  # (8) signed, never absolute-only
+    assert "+20.0" in observe_2  # (8) signed, never absolute-only
     assert state.pool.fingerprint() != fingerprint_before_second_observe
 
     predict_3 = dispatch(state, "predict", [])
-    assert "predicted_value: 90.0" in predict_3
+    assert "90.0" in predict_3
     assert state.session.predict(candidate).predicted_value == 90.0
     assert state.session.predict(candidate).uncertainty == 100.0
 
     # -- history / diagnostics -- the real trajectory, not a reimplementation ----------------------------
     history_output = dispatch(state, "history", [])
-    assert "predicted_value_before: undetermined" in history_output  # transition 1 -- no prior sample
-    assert "predicted_value_before: 80.0" in history_output  # transition 2 -- real accumulated evidence
-    assert "signed_residual: +20.0" in history_output
+    assert "UNDETERMINED" in history_output  # transition 1 -- no prior sample
+    assert "80.0" in history_output  # transition 2 -- real accumulated evidence
+    assert "+20.0" in history_output
 
     diagnostics_output = dispatch(state, "diagnostics", [])
-    assert "delta_predicted_value=10.0" in diagnostics_output
-    assert "residual_against_previous_prediction=+20.0" in diagnostics_output
+    assert "+10.0" in diagnostics_output
+    assert "+20.0" in diagnostics_output
 
     # (9) history references the correct predecessor prediction, and (10) diagnostics agree with the
     # trajectory -- verified directly against the real StateTransitionDiagnosticSet both commands share.

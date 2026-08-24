@@ -127,11 +127,11 @@ def test_signed_residuals_both_directions(state: WorkbenchState):
     dispatch(state, "observe", ["80"])
 
     positive_output = dispatch(state, "observe", ["100"])
-    assert "residual: +20.0" in positive_output
+    assert "+20.0" in positive_output
     assert state.assessments[-1].residual == 20.0
 
     negative_output = dispatch(state, "observe", ["60"])
-    assert "residual: -30.0" in negative_output  # 60 - mean([80, 100]) = 60 - 90
+    assert "-30.0" in negative_output  # 60 - mean([80, 100]) = 60 - 90
     assert state.assessments[-1].residual == -30.0
 
 
@@ -361,16 +361,17 @@ def test_optional_fields_default_so_the_minimal_scenario_shape_loads():
 
 def test_startup_banner_lists_the_scenario_and_every_candidate(state: WorkbenchState):
     banner = format_scenario_banner(state)
-    assert "Research scenario:" in banner
+    assert "RESEARCH SCENARIO" in banner
     assert "polymer tensile strength study" in banner
-    assert "observations = 0" in banner
+    assert "OBSERVATIONS" in banner
+    assert "9 CANDIDATES" in banner
     for formulation in ("baseline", "modified", "high_filler"):
-        assert f"{formulation} / tensile_strength /" in banner
+        assert f"{formulation} \u00b7 tensile_strength \u00b7" in banner
     for temperature in ("25 C", "80 C", "120 C"):
         assert temperature in banner
-    # every candidate is listed, numbered to match `select <n>`
+    # every candidate is listed, zero-padded to match `select <n>`
     for i in range(1, 10):
-        assert f"  {i}. " in banner
+        assert f"{i:02d}  " in banner
 
 
 # -- the --scenario CLI flag itself: the smallest natural extension over run_repl's state parameter -----
@@ -388,13 +389,13 @@ def test_main_with_scenario_flag_starts_the_real_repl_against_it(monkeypatch, ca
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "polymer tensile strength study" in output  # the banner announced the loaded study
-    assert "Available candidates: 9" in output
+    assert "9 CANDIDATES" in output
 
 
 def test_main_with_missing_scenario_file_fails_cleanly(capsys):
     exit_code = main(["--scenario", "/nonexistent/path/does-not-exist.json"])
     assert exit_code == 1
-    assert "Could not load scenario" in capsys.readouterr().err
+    assert "SCENARIO NOT LOADED" in capsys.readouterr().err
 
 
 def test_main_with_no_scenario_flag_uses_the_unchanged_default(monkeypatch, capsys):
@@ -402,4 +403,4 @@ def test_main_with_no_scenario_flag_uses_the_unchanged_default(monkeypatch, caps
     exit_code = main([])
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "Available candidates: 2" in output  # bootstrap_multi_candidate_scenario, unchanged
+    assert "2 CANDIDATES" in output  # bootstrap_multi_candidate_scenario, unchanged

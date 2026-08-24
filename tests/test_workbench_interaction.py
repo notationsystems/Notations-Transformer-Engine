@@ -133,12 +133,12 @@ def test_dispatch_end_to_end_via_cli_layer():
     state = bootstrap_default_scenario(clock=_fixed_clock())
     index = next(i for i, c in enumerate(state.list_candidates()) if c.property == DEFAULT_PROPERTY)
 
-    assert "none -- use `candidates`" in dispatch(state, "status", [])
+    assert "SELECTION" in dispatch(state, "status", []) and "none" in dispatch(state, "status", [])
     dispatch(state, "select", [str(index + 1)])  # workbench.cli displays/accepts candidates 1-indexed
     assert state.selected_candidate is not None
 
     predict_output = dispatch(state, "predict", [])
-    assert "undetermined" in predict_output
+    assert "UNDETERMINED" in predict_output
 
     explore_output = dispatch(state, "explore", ["90"])
     assert "hypothetical" in explore_output.lower()
@@ -161,4 +161,4 @@ def test_quit_sentinel_and_unknown_command():
     state = _bootstrap_and_select()
     assert dispatch(state, "quit", []) == "__QUIT__"
     assert dispatch(state, "exit", []) == "__QUIT__"
-    assert "Unknown command" in dispatch(state, "bogus", [])
+    assert "UNKNOWN COMMAND" in dispatch(state, "bogus", [])

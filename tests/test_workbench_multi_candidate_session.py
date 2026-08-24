@@ -199,7 +199,7 @@ def test_candidate_and_context_isolation_through_the_interaction_sequence(state:
     dispatch(state, "predict", [])
     dispatch(state, "decide", [])
     observe_1 = dispatch(state, "observe", ["80"])
-    assert "residual: undetermined" in observe_1  # honest -- first sample in this cell
+    assert "RESIDUAL" in observe_1 and "UNDETERMINED" in observe_1  # honest -- first sample in this cell
 
     # (candidate isolation, part 1) only a_room's sample count changed
     assert _sample_count(state, a_room) == 1
@@ -214,7 +214,7 @@ def test_candidate_and_context_isolation_through_the_interaction_sequence(state:
     # -- select 2 (b_room); observe 60 ---------------------------------------------------------------
     dispatch(state, "select", [str(_display_index(state, b_room))])
     observe_2 = dispatch(state, "observe", ["60"])
-    assert "residual: undetermined" in observe_2
+    assert "RESIDUAL" in observe_2 and "UNDETERMINED" in observe_2
 
     # (candidate isolation, part 2) a_room retains its sample; b_room gains one; the rest untouched
     assert _sample_count(state, a_room) == 1
@@ -230,7 +230,7 @@ def test_candidate_and_context_isolation_through_the_interaction_sequence(state:
     # -- select 1 (a_room) again; observe 100 -- a positive residual --------------------------------
     dispatch(state, "select", [str(_display_index(state, a_room))])
     observe_3 = dispatch(state, "observe", ["100"])
-    assert "residual: +20.0" in observe_3  # 100 - 80
+    assert "+20.0" in observe_3  # 100 - 80
     assert _sample_count(state, a_room) == 2
     assert _sample_count(state, b_room) == 1  # (context isolation) b_room's own cell is untouched
     assert state.session.predict(a_room).predicted_value == 90.0  # (3) prediction evolution, read from predict()
@@ -242,7 +242,7 @@ def test_candidate_and_context_isolation_through_the_interaction_sequence(state:
     # -- select 3 (b_elevated); observe 75 -- exercises the fourth, previously-untouched candidate ---
     dispatch(state, "select", [str(_display_index(state, b_elevated))])
     observe_4 = dispatch(state, "observe", ["75"])
-    assert "residual: undetermined" in observe_4
+    assert "RESIDUAL" in observe_4 and "UNDETERMINED" in observe_4
     assert _sample_count(state, b_elevated) == 1
     # (context isolation, the critical case) a_room (f1/tensile_strength/25C) never moved,
     # even though a_elevated (f1/tensile_strength/100C) shares BOTH formulation and property.
@@ -256,7 +256,7 @@ def test_candidate_and_context_isolation_through_the_interaction_sequence(state:
     # -- a negative residual, for completeness: observe a value below a_room's running mean ----------
     dispatch(state, "select", [str(_display_index(state, a_room))])
     observe_5 = dispatch(state, "observe", ["50"])
-    assert "residual: -40.0" in observe_5  # 50 - mean([80, 100]) = 50 - 90
+    assert "-40.0" in observe_5  # 50 - mean([80, 100]) = 50 - 90
 
 
 # -- decision evolution: recomputed from current state, never cached ----------------------------------
