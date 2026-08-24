@@ -345,6 +345,7 @@ class WorkbenchState:
     locator_counter: int = 0
     last_counterfactual: Optional[CounterfactualOutcome] = None
     last_decision: Optional[OptimizationResult] = None
+    previous_decision: Optional[OptimizationResult] = None
     scenario: Optional[ResearchScenario] = None
 
     def list_candidates(self) -> Tuple[ActionCandidate, ...]:
@@ -396,6 +397,10 @@ class WorkbenchState:
         the human's own interaction choice (`select_candidate`) remain
         two separate things."""
         result = evaluate_decision(self.candidates, self.session.state, self.session.iteration)
+        # keep the prior result so `explain` can report what changed -- both are
+        # already-immutable OptimizationResults, held by reference, never recomputed.
+        if self.last_decision is not None:
+            self.previous_decision = self.last_decision
         self.last_decision = result
         return result
 
@@ -467,6 +472,12 @@ class WorkbenchState:
         self.session = new_session
         self.assessments.append(assessment)
         self.last_counterfactual = None
+        # the decision computed against the pre-observation state is stale as a
+        # recommendation but remains a true record of what the policy ranked
+        # before this evidence existed -- which is exactly the comparison
+        # `explain` reports across an observation. Demote it, do not discard it.
+        if self.last_decision is not None:
+            self.previous_decision = self.last_decision
         self.last_decision = None
         return assessment, prediction
 

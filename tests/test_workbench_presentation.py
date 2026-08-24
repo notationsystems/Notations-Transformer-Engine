@@ -28,14 +28,17 @@ FRAME_STARTS = "┌│└╔║╚"
 # every view, in the order a session actually exercises them, including
 # each error state -- so a regression in any one of them fails here.
 VIEW_SCRIPT = (
-    ("help", []), ("scenario", []), ("status", []), ("candidates", []), ("decide", []),
-    ("select", ["1"]), ("predict", []), ("explore", ["90"]),
+    ("help", []), ("scenario", []), ("status", []), ("candidates", []),
+    ("inspect", []), ("explain", []),  # before anything: no selection, no decision
+    ("decide", []),
+    ("select", ["1"]), ("predict", []), ("inspect", []), ("explain", []),
+    ("explore", ["90"]),
     ("observe", ["80"]), ("observe", ["100"]),
-    ("history", []), ("diagnostics", []), ("status", []),
-    ("candidates", []), ("decide", []),
+    ("history", []), ("diagnostics", []), ("status", []), ("inspect", []),
+    ("candidates", []), ("decide", []), ("explain", []),
     ("select", ["99"]), ("select", ["x"]), ("select", []),
     ("observe", ["abc"]), ("observe", []), ("explore", ["abc"]), ("explore", []),
-    ("bogus", []),
+    ("inspect", ["99"]), ("bogus", []),
 )
 
 
@@ -216,7 +219,8 @@ def test_every_error_state_names_what_was_expected(state: WorkbenchState):
     for command, args in (
         ("select", ["99"]), ("select", ["x"]), ("select", []),
         ("observe", ["abc"]), ("observe", []),
-        ("explore", ["abc"]), ("explore", []), ("bogus", []),
+        ("explore", ["abc"]), ("explore", []),
+        ("inspect", ["99"]), ("bogus", []),
     ):
         text = dispatch(state, command, args)
         assert "EXPECTED" in text, f"{command} {args}: no expected-form guidance"
@@ -227,7 +231,8 @@ def test_help_documents_every_dispatchable_command(state: WorkbenchState):
     documented = {name.split()[0] for _, commands in COMMAND_GROUPS for name, _ in commands}
     dispatchable = {
         "help", "scenario", "status", "candidates", "decide", "select",
-        "predict", "explore", "observe", "history", "diagnostics", "quit",
+        "predict", "explore", "observe", "inspect", "explain",
+        "history", "diagnostics", "quit",
     }
     assert documented == dispatchable
     text = dispatch(state, "help", [])

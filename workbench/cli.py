@@ -58,6 +58,8 @@ from materials.candidates import ActionCandidate
 from materials.diagnostics import StateTransitionDiagnostic
 from materials.model_state import Prediction
 from materials.optimization import OptimizationResult
+from experiment.session import trajectory_of
+from materials.diagnostics import diagnose_transitions
 from workbench import theme
 from workbench.interaction import (
     WorkbenchState, bootstrap_multi_candidate_scenario, bootstrap_research_scenario, evaluate_decision,
@@ -79,7 +81,8 @@ _SHORT_STATUS = {
 # near-universal terminal request for help, `about` is the common
 # word for a programme summary, and `q`/`exit` are what people type
 # to leave. No abbreviation is invented for any other command.
-ALIASES = {"?": "help", "about": "scenario", "q": "quit", "exit": "quit", "focus": "select"}
+ALIASES = {"?": "help", "about": "scenario", "q": "quit", "exit": "quit",
+           "focus": "select", "why": "explain"}
 
 COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
     ("inspect", (
@@ -87,9 +90,11 @@ COMMAND_GROUPS: Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...] = (
         ("status", "session state, selection, recommendation, residual"),
         ("candidates", "registry with predictions and utility"),
         ("predict", "model prediction for the active candidate"),
+        ("inspect [n|terms]", "everything computed about one candidate"),
     )),
     ("decide", (
         ("decide", "utility landscape and recommendation"),
+        ("explain", "why the last decision ranked as it did"),
         ("select <n|terms>", "activate a candidate by number or by name"),
         ("select clear", "deactivate the current candidate"),
         ("explore <value>", "project a hypothetical outcome"),
@@ -475,6 +480,187 @@ def format_prediction(state: WorkbenchState, candidate: ActionCandidate, predict
     return theme.panel(
         "projection · real state", body,
         right=f"candidate {theme.index(_display_index(state, candidate))}",
+    )
+
+
+def _transitions_for(state: WorkbenchState, candidate: ActionCandidate):
+    """Every real transition whose assessment belongs to this candidate,
+    matched by `candidate_id` -- never by list position. Reads the
+    `StateTransitionDiagnosticSet` `materials.diagnostics` already
+    produced for the session's own trajectory."""
+    trajectory = trajectory_of(state.session)
+    diagnostics = diagnose_transitions(trajectory, candidate, tuple(state.assessments))
+    return [d for d in diagnostics.diagnostics if d.assessment is not None]
+
+
+def format_inspection(state: WorkbenchState, candidate: ActionCandidate) -> str:
+    """The complete computational state relevant to one candidate. A
+    projection over existing objects -- `ActionCandidate`, `Prediction`,
+    `InformationValueEstimate`, `CandidateOptimization`,
+    `StateTransitionDiagnostic` -- with no data model of its own."""
+    prediction = state.session.predict(candidate)
+    estimate = state.information_value_estimate(candidate)
+    decision = evaluate_decision(state.candidates, state.session.state, state.session.iteration)
+    optimization = next(o for o in decision.optimizations if o.candidate_id == candidate.id)
+    transitions = _transitions_for(state, candidate)
+    unit = _unit_for(state)
+    measured = prediction.sample_count > 0
+
+    body: List[str] = [
+        "",
+        theme.kv("candidate", _candidate_line(state, candidate)),
+        theme.kv("formulation", theme.paint(candidate.formulation.natural_key, theme.VALUE)),
+        theme.kv("property", theme.paint(candidate.property, theme.VALUE)),
+        theme.kv("context", theme.paint(theme.context(candidate.target_context), theme.VALUE)),
+        "",
+        theme.divider("identity"),
+        "",
+        theme.kv("candidate_id", theme.ident(candidate.id, 24)),
+        theme.kv("model_state_key", theme.ident(prediction.model_state_key, 24)),
+        theme.kv("model state", theme.ident(prediction.state_id, 24)),
+        "",
+        theme.divider("computed state"),
+        "",
+        theme.kv("basis", theme.badge("real state", theme.ACCENT)
+                 + theme.paint("   admitted evidence, not a projection", theme.MUTED)),
+        theme.kv("measured", theme.badge("yes", theme.ACCENT) if measured else theme.badge("no", theme.WARN)),
+        theme.kv("samples", theme.paint(str(prediction.sample_count), theme.VALUE)),
+        theme.kv("prediction", theme.quantity(prediction.predicted_value, unit)),
+        theme.kv("uncertainty", theme.quantity(prediction.uncertainty)),
+        theme.kv("information", theme.paint(
+            estimate.estimate_status, theme.WARN if estimate.estimate is None else theme.VALUE)),
+        theme.kv("utility", theme.quantity(optimization.utility.utility)
+                 + ("" if estimate.estimate is not None else theme.paint(
+                     "   from exploration policy, not a measured quantity", theme.MUTED))),
+        theme.kv("optimization", theme.paint(
+            _SHORT_STATUS.get(optimization.status, optimization.status.lower()),
+            theme.ACCENT if optimization.status == "SELECTED" else theme.MUTED)),
+        "",
+        theme.divider("observed history"),
+        "",
+    ]
+    if not transitions:
+        body.append(theme.paint("No observation has been admitted for this candidate.", theme.WARN))
+        body.append(theme.paint("Its prediction rests on no evidence at all.", theme.MUTED))
+    else:
+        last = transitions[-1]
+        body.append(theme.kv("transitions", theme.paint(str(len(transitions)), theme.VALUE)))
+        body.append(theme.kv("last observed", theme.quantity(last.observation_value, unit)))
+        body.append(theme.kv("last residual", theme.quantity(
+            last.residual_against_previous_prediction, unit, signed=True)))
+        body.append(theme.kv("last transition", theme.transition(
+            theme.ident(last.predecessor_state_id), theme.ident(last.successor_state_id))))
+    body.append("")
+    return theme.panel(
+        "candidate inspection", body,
+        right=f"candidate {theme.index(_display_index(state, candidate))}",
+    )
+
+
+def format_explanation(state: WorkbenchState, optimization: OptimizationResult) -> str:
+    """Explains an EXISTING computation -- which candidate the policy
+    recommended, what each alternative received, which inputs were
+    undetermined, and what changed since the last decision. Reports
+    computational facts only: no causal or scientific claim is made
+    about any material."""
+    selected = [o for o in optimization.optimizations if o.status == "SELECTED"]
+    body: List[str] = [""]
+
+    if not selected:
+        body.append(theme.paint("No candidate is selectable under the current policy.", theme.WARN))
+        body.append(theme.paint("Every candidate's utility is undetermined, so none can rank.", theme.MUTED))
+        body.append("")
+        return theme.panel("decision explanation", body, right="no recommendation")
+
+    chosen = next(c for c in state.list_candidates() if c.id == selected[0].candidate_id)
+    body.append(theme.kv("recommended", _candidate_line(state, chosen)))
+    body.append(theme.kv("utility", theme.quantity(selected[0].utility.utility)))
+    body.append(theme.kv("policy", theme.paint(
+        f"max_candidates={optimization.policy.max_candidates}", theme.VALUE)))
+    body.append(theme.kv("reason", theme.paint(
+        "highest determinate utility among eligible candidates", theme.VALUE)))
+    body.append("")
+
+    body.append(theme.divider("alternatives considered"))
+    body.append("")
+    for option in optimization.optimizations:
+        candidate = next(c for c in state.list_candidates() if c.id == option.candidate_id)
+        mark = theme.paint(theme.ARROW, theme.ACCENT) if option.status == "SELECTED" else " "
+        body.append(
+            f"  {mark} " + theme.paint(theme.index(_display_index(state, candidate)), theme.ACCENT) + "  "
+            + theme.pad(theme.truncate(_short_candidate_line(state, candidate), 26), 28)
+            + theme.pad(theme.quantity(option.utility.utility), 12)
+            + theme.paint(_SHORT_STATUS.get(option.status, option.status.lower()), theme.MUTED)
+        )
+    body.append("")
+
+    body.append(theme.divider("contributing inputs"))
+    body.append("")
+    body.append(
+        "  " + theme.paint(theme.pad("  #", 6), theme.LABEL)
+        + theme.paint(theme.pad("SAMPLES", 10), theme.LABEL)
+        + theme.paint(theme.pad("UNCERTAINTY", 16), theme.LABEL)
+        + theme.paint("INFORMATION", theme.LABEL)
+    )
+    undetermined: List[str] = []
+    for option in optimization.optimizations:
+        candidate = next(c for c in state.list_candidates() if c.id == option.candidate_id)
+        prediction = state.session.predict(candidate)
+        estimate = state.information_value_estimate(candidate)
+        n = theme.index(_display_index(state, candidate))
+        body.append(
+            "    " + theme.pad(theme.paint(n, theme.ACCENT), 4)
+            + theme.pad(theme.paint(str(prediction.sample_count), theme.VALUE), 10)
+            + theme.pad(theme.quantity(prediction.uncertainty), 16)
+            + theme.paint(
+                estimate.estimate_status, theme.WARN if estimate.estimate is None else theme.VALUE)
+        )
+        if estimate.estimate is None:
+            undetermined.append(n)
+    body.append("")
+
+    if undetermined:
+        body.append(theme.paint(
+            f"  Candidates {', '.join(undetermined)}", theme.WARN))
+        body.append(theme.paint(
+            "  have no computable information value.", theme.WARN))
+        body.append(theme.paint(
+            "  Their utility input came from the workbench's explicit", theme.MUTED))
+        body.append(theme.paint(
+            "  exploration policy, not from a measured quantity.", theme.MUTED))
+        body.append(theme.paint(
+            "  See workbench.interaction._utility_input_for.", theme.MUTED))
+        body.append("")
+
+    previous = state.previous_decision
+    body.append(theme.divider("change since last decision"))
+    body.append("")
+    if previous is None:
+        body.append(theme.paint("This is the first decision in this session.", theme.MUTED))
+    else:
+        previous_selected = [o for o in previous.optimizations if o.status == "SELECTED"]
+        previous_id = previous_selected[0].candidate_id if previous_selected else None
+        if previous_id is not None:
+            was = next(c for c in state.list_candidates() if c.id == previous_id)
+            body.append(theme.kv("previously", _candidate_line(state, was)))
+        else:
+            body.append(theme.kv("previously", theme.paint("no candidate was selectable", theme.WARN)))
+        body.append(theme.kv("now", _candidate_line(state, chosen)))
+        body.append("")
+        if previous_id == chosen.id:
+            body.append(theme.paint("  The recommendation is unchanged.", theme.VALUE))
+        else:
+            body.append(theme.paint(
+                "  The recommendation changed because the computed", theme.VALUE))
+            body.append(theme.paint(
+                "  utility landscape changed.", theme.VALUE))
+        body.append(theme.paint(
+            "  No claim is made about any material — only about the computation.", theme.MUTED))
+    body.append("")
+
+    return theme.panel(
+        "decision explanation", body,
+        right=f"policy max_candidates={optimization.policy.max_candidates}",
     )
 
 
@@ -903,6 +1089,17 @@ def _cmd_select(state: WorkbenchState, args: List[str]) -> str:
     return format_selection(state, resolved)
 
 
+def _cmd_inspect(state: WorkbenchState, args: List[str]) -> str:
+    if not args:
+        if state.selected_candidate is None:
+            return _no_selection_notice()
+        return format_inspection(state, state.selected_candidate)
+    resolved = resolve_candidate(state, args)
+    if isinstance(resolved, str):
+        return resolved
+    return format_inspection(state, resolved)
+
+
 def _cmd_predict(state: WorkbenchState) -> str:
     try:
         prediction = state.predict()
@@ -1008,6 +1205,15 @@ def dispatch(state: WorkbenchState, command: str, args: List[str]) -> str:
         return format_candidates(state)
     if command == "decide":
         return format_decision(state, state.decide())
+    if command == "inspect":
+        return _cmd_inspect(state, args)
+    if command == "explain":
+        if state.last_decision is None:
+            return theme.notice(
+                "no decision yet", "nothing has been decided in this session.",
+                hint="decide   then   explain", tone=theme.WARN,
+            )
+        return format_explanation(state, state.last_decision)
     if command == "select":
         return _cmd_select(state, args)
     if command == "predict":
