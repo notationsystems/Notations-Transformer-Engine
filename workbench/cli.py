@@ -11,6 +11,14 @@ No CLI framework, no third-party dependency: `parse_command`/`dispatch`/
 `run_repl` are plain functions over `str`/`WorkbenchState`, using only
 the standard library (`sys`, `builtins.input`/`print`).
 
+PHASE 73 -- `main` optionally accepts `--scenario <path.json>`: the
+smallest natural extension over `run_repl`'s pre-existing `state`
+parameter (investigated, not assumed -- see `workbench/interaction.py`'s
+own Phase 73 docstring section for why no new scenario TYPE was
+needed). With no `--scenario` argument, `main`/`run_repl` behave exactly
+as before (`bootstrap_multi_candidate_scenario`, unchanged) -- the
+default two-candidate startup is byte-for-byte compatible.
+
 PHASE 70 -- FROM DEMONSTRATION TO INSTRUMENT: `run_repl`'s default
 scenario is now `workbench.interaction.bootstrap_multi_candidate_scenario`
 (two candidates) rather than the single-candidate `bootstrap_default_
@@ -97,6 +105,7 @@ each only reads fields off the object it was given.
 
 from __future__ import annotations
 
+import json
 import sys
 from typing import List, Optional, Tuple
 
@@ -105,7 +114,9 @@ from materials.candidates import ActionCandidate
 from materials.diagnostics import StateTransitionDiagnostic
 from materials.model_state import Prediction
 from materials.optimization import CandidateOptimization, OptimizationResult
-from workbench.interaction import WorkbenchState, bootstrap_multi_candidate_scenario, evaluate_decision
+from workbench.interaction import (
+    WorkbenchState, bootstrap_multi_candidate_scenario, bootstrap_research_scenario, evaluate_decision,
+)
 
 HELP_TEXT = """\
 Available commands:
@@ -545,7 +556,31 @@ def run_repl(state: Optional[WorkbenchState] = None) -> None:
         print(output)
 
 
+def _load_scenario_state(path: str) -> WorkbenchState:
+    """`--scenario <path>`: the smallest natural extension over `run_repl`'s
+    existing `state` parameter (Phase 73) -- reads a plain JSON scenario
+    DEFINITION (formulations/property/criterion/contexts, never
+    observations/predictions/residuals) with only the standard library
+    `json` module, and hands it to `workbench.interaction.
+    bootstrap_research_scenario` unmodified. No schema framework, no new
+    parsing beyond `json.load` plus that function's own minimal
+    structural checks."""
+    with open(path, encoding="utf-8") as f:
+        config = json.load(f)
+    return bootstrap_research_scenario(config)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) >= 2 and argv[0] == "--scenario":
+        try:
+            state = _load_scenario_state(argv[1])
+        except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
+            print(f"Could not load scenario {argv[1]!r}: {e}", file=sys.stderr)
+            return 1
+        print(f"Loaded scenario from {argv[1]} ({len(state.list_candidates())} candidate(s)).")
+        run_repl(state=state)
+        return 0
     run_repl()
     return 0
 

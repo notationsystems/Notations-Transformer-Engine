@@ -129,7 +129,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple
 
 from evidence.admission import admit_document, admit_record, admit_referent
 from evidence.pool import EvidencePool
@@ -420,41 +420,105 @@ def bootstrap_default_scenario(clock: Callable[[], str] = _utc_now_iso) -> Workb
     )
 
 
-def bootstrap_multi_candidate_scenario(clock: Callable[[], str] = _utc_now_iso) -> WorkbenchState:
-    """The interactive CLI's own default scenario -- two experimental
-    contexts (room/elevated temperature) for one formulation/property,
-    so `decide`/`select`/`candidates` are meaningful the moment `python
-    -m workbench` starts, with no external file required (Phase 70
-    sec.2). Reuses the exact scenario `workbench/investigation.py`
-    (Phase 69) already validated end to end -- that module now calls
-    this function too, rather than keeping its own copy of this
-    construction. `bootstrap_default_scenario` above is left completely
-    unchanged and remains `workbench.demo`'s own single-candidate
-    scenario; neither function was merged into the other (Phase 70's own
-    instruction that the demo and the interactive CLI stay independent
-    cuts both ways)."""
+def bootstrap_research_scenario(config: Mapping[str, object], clock: Callable[[], str] = _utc_now_iso) -> WorkbenchState:
+    """Phase 73: builds a `WorkbenchState` from a plain, standard-
+    library-representable SCENARIO DEFINITION -- what a researcher wants
+    to investigate -- never from SCIENTIFIC STATE (samples/predictions/
+    residuals stay exactly what `ModelState`/`ExperimentSession` already
+    are; `config` describes candidates, not observations, and this
+    function never admits an `Observation` or a `ClaimedRelationship`).
+
+    `config` is a plain `Mapping` -- exactly what `json.load` on a file
+    like `examples/polymer_tensile_strength.json` already produces, no
+    parsing beyond the standard library `json` module, no schema
+    framework. Required keys, each read and validated only enough to
+    fail with a clear message (Phase 73's own instruction: "validate
+    only the structural fields the workbench actually requires," never
+    a general configuration-validation framework):
+
+      process       -- str, the shared process natural key.
+      formulations  -- list[str], one or more formulation natural keys.
+      property      -- str, the single property this scenario concerns
+                        (Phase 73's own core-question example is
+                        single-property; multi-property was investigated
+                        and deliberately NOT added -- `materials.
+                        candidates`/`materials.decision` already support
+                        it structurally via `properties: Iterable[str]`
+                        and per-criterion `property`, so nothing here
+                        would need to change to add it later, but doing
+                        so now would be scope this phase does not ask
+                        for).
+      criterion     -- {"operator": str, "target": number}, applied
+                        identically across every context -- the same
+                        "one fixed criterion per context" shape `bootstrap_
+                        multi_candidate_scenario` below already used with
+                        two hardcoded contexts, generalized to however
+                        many `config["contexts"]` supplies.
+      contexts      -- list[mapping], one or more experimental contexts;
+                        each becomes its own `Criterion`/`ActionCandidate`/
+                        `ModelState` cell, exactly the same criterion-
+                        context-is-part-of-the-key discipline Phase 53
+                        established and Phase 72 re-verified at N>2.
+
+    This is exactly the SAME composition `bootstrap_default_scenario`/
+    `bootstrap_multi_candidate_scenario` (below) already use --
+    `reevaluate_program` -> `generate_candidates` -> `evaluate_candidates`
+    -> `select_candidates` -> `assemble_experiment_plan` -> `assemble_
+    experimental_design` -> `assemble_experimental_campaign` -> `make_
+    experiment_session` -- generalized to read its formulation/property/
+    criterion/context inputs from `config` instead of module-level
+    constants. No new candidate-generation mechanism, no new identity
+    scheme: every id involved (`Referent.id`, `ActionCandidate.id`,
+    `ModelState` cell keys) is derived exactly the way it always has
+    been, by the exact same `materials.*` functions.
+
+    Per Phase 73's stop-condition test, this function itself is the
+    smallest clean public entry point the investigation asked for -- a
+    thin, non-duplicating composition, never a new domain TYPE: no
+    `ResearchScenario` dataclass was introduced (the investigation found
+    every answer pointed toward caller composition already being
+    sufficient -- see `docs/EXPERIMENT_ARCHITECTURE.md`/this module's
+    own accumulated docstrings for the established "structurally ready,
+    not yet necessary, defer" discipline this project has applied
+    repeatedly since Phase 24-26/30)."""
+    process_key = str(config["process"])
+    formulations_field = config["formulations"]
+    if not isinstance(formulations_field, (list, tuple)) or not formulations_field:
+        raise ValueError("scenario config 'formulations' must be a non-empty list of formulation keys")
+    formulation_keys = [str(f) for f in formulations_field]
+    property_name = str(config["property"])
+    criterion_config = config["criterion"]
+    if not isinstance(criterion_config, Mapping):
+        raise ValueError("scenario config 'criterion' must be a mapping with 'operator' and 'target'")
+    operator = str(criterion_config["operator"])
+    target = float(criterion_config["target"])  # type: ignore[arg-type]
+    contexts_field = config["contexts"]
+    if not isinstance(contexts_field, (list, tuple)) or not contexts_field:
+        raise ValueError("scenario config 'contexts' must be a non-empty list of experimental contexts")
+    contexts = [dict(c) for c in contexts_field]
+
     pool = EvidencePool()
     engine = DeterministicRetrievalEngine()
 
-    source = make_source(kind="lab_notebook", name="Interactive workbench session")
+    source = make_source(kind="lab_notebook", name="User-defined research scenario")
     pool.put_source(source)
     doc = make_document(
-        source_id=source.id, raw_content="interactive workbench session",
+        source_id=source.id, raw_content="user-defined research scenario",
         retrieval_method="manual_entry", retrieved_at=clock(),
     )
     admit_document(pool, doc)
     pool.put_document(doc)
-    process = make_referent(natural_key=DEFAULT_PROCESS_KEY, kind="process")
+    process = make_referent(natural_key=process_key, kind="process")
     admit_referent(pool, process)
     pool.put_referent(process)
-    formulation = make_referent(natural_key=DEFAULT_FORMULATION_KEY, kind="formulation")
-    admit_referent(pool, formulation)
-    pool.put_referent(formulation)
+    for formulation_key in formulation_keys:
+        formulation = make_referent(natural_key=formulation_key, kind="formulation")
+        admit_referent(pool, formulation)
+        pool.put_referent(formulation)
 
-    criterion_room = make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET, context=CONTEXT_ROOM_TEMPERATURE)
-    criterion_elevated = make_criterion(DEFAULT_PROPERTY, ">=", DEFAULT_CRITERION_TARGET, context=CONTEXT_ELEVATED_TEMPERATURE)
-    query = make_material_program_query([DEFAULT_FORMULATION_KEY], DEFAULT_PROCESS_KEY, (DEFAULT_PROPERTY,))
-    iteration = reevaluate_program(pool, engine, query, (criterion_room, criterion_elevated))
+    criteria = tuple(make_criterion(property_name, operator, target, context=context) for context in contexts)
+    query = make_material_program_query(formulation_keys, process_key, (property_name,))
+    iteration = reevaluate_program(pool, engine, query, criteria)
     candidates = generate_candidates(iteration.specification)
 
     evaluations = evaluate_candidates(candidates)
@@ -468,3 +532,32 @@ def bootstrap_multi_candidate_scenario(clock: Callable[[], str] = _utc_now_iso) 
         pool=pool, engine=engine, document_id=doc.id, candidates=candidates,
         campaign=campaign, session=session, clock=clock,
     )
+
+
+def bootstrap_multi_candidate_scenario(clock: Callable[[], str] = _utc_now_iso) -> WorkbenchState:
+    """The interactive CLI's own default scenario -- two experimental
+    contexts (room/elevated temperature) for one formulation/property,
+    so `decide`/`select`/`candidates` are meaningful the moment `python
+    -m workbench` starts, with no external file required (Phase 70
+    sec.2). Reuses the exact scenario `workbench/investigation.py`
+    (Phase 69) already validated end to end -- that module now calls
+    this function too, rather than keeping its own copy of this
+    construction. `bootstrap_default_scenario` above is left completely
+    unchanged and remains `workbench.demo`'s own single-candidate
+    scenario; neither function was merged into the other (Phase 70's own
+    instruction that the demo and the interactive CLI stay independent
+    cuts both ways).
+
+    Phase 73: now a thin, fixed-config call into `bootstrap_research_
+    scenario` above rather than its own copy of the same construction --
+    behavior-preserving (re-verified against every existing test this
+    function's output feeds), never a second implementation of the same
+    composition."""
+    config = {
+        "process": DEFAULT_PROCESS_KEY,
+        "formulations": [DEFAULT_FORMULATION_KEY],
+        "property": DEFAULT_PROPERTY,
+        "criterion": {"operator": ">=", "target": DEFAULT_CRITERION_TARGET},
+        "contexts": [CONTEXT_ROOM_TEMPERATURE, CONTEXT_ELEVATED_TEMPERATURE],
+    }
+    return bootstrap_research_scenario(config, clock=clock)

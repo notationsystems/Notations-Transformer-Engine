@@ -1,0 +1,24 @@
+{
+  "process": "process-std-190c",
+  "formulations": [
+    "F1-baseline",
+    "F2-modified",
+    "F3-high-filler"
+  ],
+  "property": "tensile_strength",
+  "criterion": {
+    "operator": ">=",
+    "target": 80.0
+  },
+  "contexts": [
+    {
+      "temperature_c": 25
+    },
+    {
+      "temperature_c": 80
+    },
+    {
+      "temperature_c": 120
+    }
+  ]
+}
