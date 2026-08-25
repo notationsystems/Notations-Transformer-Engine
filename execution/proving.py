@@ -191,6 +191,28 @@ def prove_and_verify(
 
     # 1. The checked native execution.
     native = run_specification(spec)
+    return prove_and_verify_result(
+        native, spec, proof_out, host, elf, prove_timeout=prove_timeout
+    )
+
+
+def prove_and_verify_result(
+    native: ExecutionResult,
+    spec: ExecutionSpecification,
+    proof_out: pathlib.Path,
+    host: pathlib.Path,
+    elf: pathlib.Path,
+    prove_timeout: int = 3600,
+) -> ProvedRun:
+    """Stage 7 split: prove and independently verify against an ALREADY
+    EXECUTED native result. The scientific computation runs once; how
+    many backends warrant it is the verification policy's business, and
+    re-running the science per warrant would be both wasteful and a
+    category error (the proof's own in-guest execution is part of the
+    proof, not a second scientific result)."""
+    if not host.exists() or not elf.exists():
+        raise ProvingUnavailable(f"host {host} or guest artifact {elf} not built")
+    _require_registered_artifact(spec, elf)
     if native.status != "completed":
         raise ProvedRunError(
             f"native execution halted (exit {native.exit_code}); a run with no output "
