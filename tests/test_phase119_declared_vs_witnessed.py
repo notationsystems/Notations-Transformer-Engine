@@ -176,10 +176,47 @@ caller wrote. Everything the architecture does correctly -- immutability,
 content-addressing, append-only history, the admission gates -- operates
 entirely above that line and is untouched by this result.
 
-CONSEQUENCE FOR PRODUCTION: none. Zero production changes, and the Phase
-118 suggestion is WITHDRAWN: making `extraction_method` mandatory would
-remove a misleading default without restoring any boundary, and should
-not be justified on those grounds.
+TWO FINDINGS, NOT ONE -- CORRECTING THIS PHASE'S FIRST READING
+---------------------------------------------------------------
+The withdrawal above over-reached. "Should not be justified on THOSE
+grounds" is not "should not be done", and conflating them was an error.
+The correct split:
+
+FINDING A -- A DEFECT, INDEPENDENT OF ANYTHING ABOVE.
+A constructor must not silently assign an epistemically stronger label
+than the caller supplied. This architecture holds "unknown stays unknown"
+everywhere else, without exception: `predict` returns None rather than a
+number; `RankingPolicy.unknown_utility_policy` is required; a declared
+order returns None for an unenumerated value rather than False; no policy
+has any default at all. `make_experimental_result` inverts that rule --
+it converts ABSENCE OF INFORMATION into POSITIVE INFORMATION.
+
+Swept exhaustively: 92 defaults in production, 78 inert. Of the 14
+non-inert ones, 8 are presentation geometry or colour, 2 describe what
+the function itself does (`ordering="sorted_by_id"` -- it does sort by
+id; `relationship_type="tested_during"` -- it labels the edge being
+constructed), 1 asserts EMPTINESS (`initial_state=EMPTY_MODEL_STATE`,
+the rule applied correctly), 1 is scenario configuration, and 1 is
+defensible in context (`DispatchedMeasurement`, since a dispatcher is
+meant to measure).
+
+EXACTLY ONE ASSERTS THAT AN EVENT OCCURRED IN THE WORLD.
+
+FINDING B -- UNRESOLVED, AND PROBABLY UNRESOLVABLE INTERNALLY.
+Everything above this note. A required declaration is still not evidence
+that the declared event occurred, and no arrangement of the public API
+makes it so.
+
+The two are independent. Finding A is fixable in one line and would
+restore a local rule the architecture otherwise holds universally.
+Finding B is the external-trust boundary and is not fixable from inside.
+Repairing A does not touch B, and the failure of B is not a reason to
+leave A in place.
+
+CONSEQUENCE FOR PRODUCTION: none in this phase. The default stands
+UNREPAIRED, pending an explicit decision -- it would be the first
+production change since Phase 103, and the standing constraint has been
+zero production changes throughout.
 """
 
 from __future__ import annotations
@@ -381,9 +418,10 @@ def test_no_candidate_witness_is_produced_independently_of_the_caller():
 # -- 11/12. nothing was repaired, and the suggestion is withdrawn ------------------------------------------
 
 
-def test_the_phase_118_suggestion_is_withdrawn_and_unimplemented():
-    """Making `extraction_method` mandatory would remove a misleading
-    default without restoring any boundary. The default stands."""
+def test_the_default_stands_unrepaired_pending_an_explicit_decision():
+    """FINDING A is a defect on its own grounds (unknown stays unknown);
+    FINDING B is unresolvable internally. Repairing A does not touch B,
+    and B's failure is not a reason to leave A. Nothing is changed here."""
     assert inspect.signature(make_experimental_result).parameters[
         "extraction_method"].default == MEASUREMENT
 
@@ -404,3 +442,48 @@ def test_phase_119_added_no_witness_machinery():
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in forbidden:
                     hits.append(f"{path.relative_to(REPO)}: {node.name}")
     assert hits == [], hits
+
+
+def test_exactly_one_production_default_asserts_a_world_event():
+    """FINDING A's evidence, swept exhaustively rather than asserted."""
+    import ast
+
+    INERT = {"None", "()", "''", '""', "0", "False", "True", "{}", "[]",
+             "tuple()", "dict()", "1", "1.0", "0.0"}
+    assertive = []
+    for package in ("evidence", "retrieval", "materials", "experiment",
+                    "workbench", "scout"):
+        root = REPO / package
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text())
+            for fn in [n for n in ast.walk(tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+                defaults = list(fn.args.defaults)
+                named = fn.args.args[len(fn.args.args) - len(defaults):] if defaults else []
+                for arg, default in zip(named, defaults):
+                    rendered = ast.unparse(default)
+                    if rendered in INERT or rendered.startswith(
+                            ("field(", "MappingProxyType", "_utc_now", "lambda")):
+                        continue
+                    assertive.append((str(path.relative_to(REPO)), fn.name, arg.arg, rendered))
+
+    by_default = {rendered for _, _, _, rendered in assertive}
+    assert "'measurement:campaign_execution'" in by_default
+
+    # theme.py holds only presentation geometry and colour
+    non_theme = [row for row in assertive if not row[0].startswith("workbench/theme")]
+    assert sorted(non_theme) == [
+        ("experiment/session.py", "make_experiment_session", "initial_state",
+         "EMPTY_MODEL_STATE"),
+        ("materials/results.py", "admit_experimental_result", "relationship_type",
+         "'tested_during'"),
+        ("materials/results.py", "make_experimental_result", "extraction_method",
+         "'measurement:campaign_execution'"),
+        ("retrieval/result.py", "make_retrieval_result", "ordering", "'sorted_by_id'"),
+    ], non_theme
+    # EMPTY_MODEL_STATE asserts emptiness -- the unknown-stays-unknown rule
+    # applied correctly. `sorted_by_id` describes what the function does.
+    # `tested_during` labels the edge it constructs. Only
+    # `measurement:campaign_execution` asserts an event in the world.
