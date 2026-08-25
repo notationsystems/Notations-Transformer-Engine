@@ -323,9 +323,11 @@ def test_the_ledger_supplies_no_witness(trace):
 # -- the two ledgers stay separate -------------------------------------------------------------------------
 
 
-def test_no_production_package_imports_the_operation_trace():
-    """It is an instrument, not a dependency. Nothing in the scientific
-    layers knows it exists."""
+def test_exactly_one_seam_references_the_operation_trace_and_only_for_typing():
+    """PHASE 125 attached it. `experiment/step.py` is the one seam, and it
+    imports the trace under TYPE_CHECKING only -- so the runtime coupling
+    from the scientific layers to the instrument is still ZERO, and a
+    caller that passes no trace runs exactly the code it ran before."""
     importers = []
     for package in ("evidence", "retrieval", "materials", "experiment",
                     "workbench", "scout"):
@@ -341,7 +343,17 @@ def test_no_production_package_imports_the_operation_trace():
                     for alias in node.names:
                         if alias.name.startswith("operations"):
                             importers.append(str(path.relative_to(REPO)))
-    assert importers == []
+    assert importers == ["experiment/step.py"]
+
+    # ...and that single import is annotation-only
+    step = ast.parse((REPO / "experiment" / "step.py").read_text())
+    guarded = [n for n in ast.walk(step)
+               if isinstance(n, ast.If)
+               and getattr(n.test, "id", "") == "TYPE_CHECKING"]
+    assert any(
+        isinstance(inner, ast.ImportFrom) and (inner.module or "").startswith("operations")
+        for block in guarded for inner in block.body
+    )
 
 
 def test_the_operation_trace_imports_nothing_from_the_scientific_layers():

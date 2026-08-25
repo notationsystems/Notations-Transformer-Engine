@@ -179,12 +179,15 @@ def test_invoked_and_raised_are_both_indistinguishable_from_never():
     assert state.pool.fingerprint() != baseline
 
 
-def test_dispatch_is_a_plain_call_with_no_observation_point():
+def test_the_observation_point_is_optional_and_absent_by_default():
+    """WHEN THIS AUDIT RAN there was no observation point at all. Phase 125
+    added one, and made it OPTIONAL: the default is None, so every fact
+    classified UNRECOVERABLE above remains unrecoverable for any caller
+    that does not opt in."""
     from experiment.step import run_experiment_step
-    source = inspect.getsource(run_experiment_step)
-    assert "dispatched = dispatcher.dispatch(chosen_candidate)" in source
-    tree = ast.parse(source.lstrip())
-    assert not any(isinstance(n, ast.Try) for n in ast.walk(tree))
+    parameters = inspect.signature(run_experiment_step).parameters
+    assert "trace" in parameters
+    assert parameters["trace"].default is None
 
 
 # -- Q4/Q5 -- retries and identical executions ---------------------------------------------------------

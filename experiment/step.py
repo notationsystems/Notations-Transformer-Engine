@@ -62,6 +62,7 @@ transition that follows it."
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 from evidence.admission import admit_record
 from evidence.types import Observation, make_record
@@ -75,6 +76,9 @@ from materials.model_state import ModelStateInformationValueModel, predict, upda
 from materials.optimization import SELECTED, OptimizationResult, optimize_candidates
 from materials.plan import assemble_experiment_plan
 from materials.results import ExperimentalResult, admit_experimental_result, make_experimental_result
+
+if TYPE_CHECKING:  # pragma: no cover -- annotation only; no runtime dependency
+    from operations.trace import OperationTrace
 from materials.selection import select_candidates
 from materials.utility import evaluate_utility_set
 from materials.value import evaluate_candidate_information_values
@@ -82,6 +86,10 @@ from materials.value import evaluate_candidate_information_values
 from experiment.interface import ActionDispatcher, DispatchedMeasurement
 from experiment.policy import ExperimentPolicy
 from experiment.session import ExperimentSession
+
+#: The operation name this seam records under. One constant, one seam --
+#: there is no second execution boundary to invent (sec.1).
+DISPATCH_OPERATION = "experiment.dispatch"
 
 
 @dataclass(frozen=True)
@@ -109,6 +117,7 @@ def run_experiment_step(
     dispatcher: ActionDispatcher,
     policy: ExperimentPolicy,
     confidence: float,
+    trace: Optional["OperationTrace"] = None,
 ) -> ExperimentStepResult:
     """Deterministic given a deterministic `dispatcher`; never mutates
     `session`, `candidates`, or `policy`. `candidates` is RECEIVED, not
@@ -157,24 +166,59 @@ def run_experiment_step(
             f"so every candidate optimize_candidates can select also has a campaign entry to execute against"
         )
 
-    dispatched = dispatcher.dispatch(chosen_candidate)
+    occurrence = None
+    if trace is not None:
+        occurrence = trace.invoke(DISPATCH_OPERATION, input_ref=chosen_candidate.id)
+        trace.started(occurrence)
+    try:
+        dispatched = dispatcher.dispatch(chosen_candidate)
+    except Exception as exc:
+        # RECORD the failure; never HANDLE it. The caller receives exc
+        # exactly as before -- see this module's docstring.
+        if trace is not None:
+            trace.failed(occurrence, failure_type=type(exc).__name__, detail=str(exc)[:200])
+        raise
 
-    record = make_record(
-        document_id=session.document_id, locator=dispatched.record_locator, raw_content=dispatched.record_raw_content,
-    )
-    admitted_record = admit_record(session.pool, record)
-    if isinstance(admitted_record, list):
-        raise ValueError(f"dispatched measurement's Record was rejected by admit_record: {admitted_record!r}")
-    session.pool.put_record(record)
+    # The dispatch RETURNED, so the operation succeeded -- but the value it
+    # produced must still get past the downstream boundaries below. Both
+    # outcomes are recorded from the one place, so no occurrence is ever
+    # left dangling in STARTED: SUCCEEDED always fires, and REJECTED
+    # follows it whenever a boundary refuses what dispatch produced.
+    # NOTE ON TIMING: SUCCEEDED is RECORDED here, after the outcome is
+    # known, so its `at` is later than the instant dispatch returned. The
+    # transition is real; only the recording moment is deferred, which is
+    # what lets it carry the resulting evidence id (sec.6).
+    try:
+        record = make_record(
+            document_id=session.document_id, locator=dispatched.record_locator,
+            raw_content=dispatched.record_raw_content,
+        )
+        admitted_record = admit_record(session.pool, record)
+        if isinstance(admitted_record, list):
+            raise ValueError(
+                f"dispatched measurement's Record was rejected by admit_record: {admitted_record!r}")
+        session.pool.put_record(record)
 
-    result = make_experimental_result(
-        campaign, entry, content=dispatched.content, record_id=record.id,
-        extracted_at=dispatched.extracted_at, extraction_method=dispatched.extraction_method,
-    )
-    admitted = admit_experimental_result(session.pool, result, confidence=confidence)
-    if isinstance(admitted, list):
-        raise ValueError(f"ExperimentalResult was rejected by admit_experimental_result: {admitted!r}")
-    observation, _relationship = admitted
+        result = make_experimental_result(
+            campaign, entry, content=dispatched.content, record_id=record.id,
+            extracted_at=dispatched.extracted_at, extraction_method=dispatched.extraction_method,
+        )
+        admitted = admit_experimental_result(session.pool, result, confidence=confidence)
+        if isinstance(admitted, list):
+            raise ValueError(
+                f"ExperimentalResult was rejected by admit_experimental_result: {admitted!r}")
+        observation, _relationship = admitted
+    except Exception as exc:
+        if trace is not None:
+            trace.succeeded(occurrence)
+            trace.rejected(occurrence, failure_code=type(exc).__name__, detail=str(exc)[:200])
+        raise
+
+    if trace is not None:
+        # sec.6's one-directional link: the OCCURRENCE points at the evidence.
+        # No inverse edge is added, and no evidence object learns that an
+        # operation exists.
+        trace.succeeded(occurrence, output_ref=observation.id)
 
     new_state = update(session.state, chosen_candidate, result, observation)
     assessment = assess(chosen_prediction, result, observation)

@@ -327,9 +327,14 @@ def test_nothing_in_production_asks_any_of_the_five_questions():
 
 
 def test_phase_123_designed_nothing():
+    """`OperationTrace` is excluded from this sweep: Phase 124 built it as
+    an INSTRUMENT that imposes no equivalence relation, and Phase 125
+    attached it. That is not the identity this phase declined to choose --
+    the locks in tests/test_operations_trace.py assert that no
+    same_operation, equivalent, deduplicate or merge function exists."""
     forbidden = {"ExecutionRecord", "OperationRecord", "OperationEvent",
                  "ProvenanceEvent", "OperationLedger", "ExecutionJournal",
-                 "AttemptRecord", "OperationTrace"}
+                 "AttemptRecord"}
     hits = []
     for package in ("evidence", "retrieval", "materials", "experiment",
                     "workbench", "scout"):

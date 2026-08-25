@@ -342,15 +342,22 @@ def test_the_result_takes_its_linkage_from_the_campaign_entry_not_the_dispatch()
     assert "dispatch_id" not in fields
 
 
-def test_run_experiment_step_calls_dispatch_as_a_plain_method(scenario):
-    """So worlds B and C leave no trace: not calling it records nothing,
-    and an exception propagates out with nothing written."""
+def test_dispatch_is_now_observed_but_its_failure_is_still_not_handled(scenario):
+    """WHEN THIS AUDIT RAN, `dispatch` was a bare call: worlds B and C left
+    no trace, and an exception propagated with nothing written. Phase 125
+    attached an OPTIONAL observer. The exception behaviour is unchanged --
+    the trace RECORDS the failure and re-raises; it does not handle it."""
     from experiment.step import run_experiment_step
     source = inspect.getsource(run_experiment_step)
     assert "dispatched = dispatcher.dispatch(chosen_candidate)" in source
-    # no try/except around it, and no failure object anywhere
+
     tree = ast.parse(source.lstrip())
-    assert not any(isinstance(n, ast.Try) for n in ast.walk(tree))
+    handlers = [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]
+    assert len(handlers) == 2      # dispatch itself, and everything downstream
+    # EVERY handler ends in a bare `raise` -- nothing is ever swallowed
+    for handler in handlers:
+        assert isinstance(handler.body[-1], ast.Raise)
+        assert handler.body[-1].exc is None
     # dispatch-specific tokens only -- `o.status == SELECTED` is the
     # optimization status, a legitimate and unrelated use.
     for absent in ("DispatchFailure", "dispatch_failed", "dispatch_status",

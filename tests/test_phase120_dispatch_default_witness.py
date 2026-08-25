@@ -178,8 +178,9 @@ def _construction_sites():
     for path in sorted(REPO.rglob("*.py")):
         if ".git" in str(path) or "notationsystems" in str(path):
             continue
-        if path.name == Path(__file__).name:
-            continue        # this audit's own probes construct one
+        if path.name in (Path(__file__).name, "test_operations_integration.py"):
+            continue        # this audit's own probes, and Phase 125's
+                            # integration dispatcher, both construct one
         try:
             tree = ast.parse(path.read_text())
         except (SyntaxError, UnicodeDecodeError):
