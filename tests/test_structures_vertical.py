@@ -8,6 +8,8 @@ native engine runs in milliseconds.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from execution.engine import default_cli_path, run_specification
@@ -168,3 +170,121 @@ def test_unproven_kernels_are_refused_attributably(tmp_path):
     native = run_specification(spec)
     with pytest.raises(ProvedRunError, match="no built guest is registered"):
         prove_and_verify_result(native, spec, tmp_path / "p.bin", nexus_host, NEXUS_ELF)
+
+
+# -- the GROMACS bridge ------------------------------------------------------------------------------
+
+
+def _find_gmx():
+    import os
+    import pathlib
+    import shutil
+
+    candidate = os.environ.get("STE_GMX_BIN")
+    if candidate and pathlib.Path(candidate).exists():
+        return pathlib.Path(candidate)
+    for name in ("gmx_d", "gmx"):
+        found = shutil.which(name)
+        if found:
+            return pathlib.Path(found)
+    return None
+
+
+def test_gromacs_consumes_the_structure_through_the_existing_boundary():
+    """A real argon-trimer Molecule lowers to deterministic .gro bytes
+    and runs through the UNCHANGED external GROMACS workload; moving one
+    atom moves the specification identity. No claim travels from any
+    structural proof to this execution -- it is externally executed
+    computation with the stage-1 trust posture, unchanged."""
+    gmx = _find_gmx()
+    if gmx is None:
+        pytest.skip("no gmx binary (set STE_GMX_BIN); environment gap")
+    from execution.gromacs import (
+        gmx_version_line,
+        gromacs_program_descriptor,
+        run_gromacs_specification,
+    )
+    from execution.specification import ExecutionSpecification
+    from structures.gromacs_bridge import argon_topology, molecule_to_gro
+    from structures.molecule import Atom, Molecule
+
+    trimer = Molecule((Atom("Ar", 0, 0, 0), Atom("Ar", 380, 0, 0),
+                       Atom("Ar", 190, 329, 0)))
+    moved = Molecule((Atom("Ar", 0, 0, 0), Atom("Ar", 381, 0, 0),
+                      Atom("Ar", 190, 329, 0)))
+    box = (3000, 3000, 3000)
+    mdp = (b"integrator = md\nnsteps = 0\ncutoff-scheme = Verlet\n"
+           b"coulombtype = Cut-off\nvdwtype = Cut-off\n"
+           b"rlist = 1.0\nrcoulomb = 1.0\nrvdw = 1.0\n")
+    descriptor = gromacs_program_descriptor(gmx_version_line(gmx), argon_topology(3))
+
+    def spec_for(molecule):
+        return ExecutionSpecification(
+            program=descriptor, configuration=mdp,
+            input_payload=molecule_to_gro(molecule, box))
+
+    # the bridge is deterministic, and structural tamper moves the spec
+    assert molecule_to_gro(trimer, box) == molecule_to_gro(trimer, box)
+    assert spec_for(trimer).identity() != spec_for(moved).identity()
+
+    result = run_gromacs_specification(spec_for(trimer), gmx)
+    assert result.status == "completed"
+    assert result.output.startswith(b"potential_kj_per_mol ")
+
+
+# -- molecular proofs and warrant reuse --------------------------------------------------------------
+
+
+def test_water_pairwise_statement_proves_reuses_and_tamper_misses(tmp_path):
+    """The full chain on a REAL molecule with an instrumented host:
+    water's pairwise statement proves once on Nexus (through the
+    existing reproducible pairwise guest); a repeat of the identical
+    structure HITS and re-verifies without proving; a moved atom is a
+    different statement -- a cache MISS, structurally; and corrupting
+    the stored proof makes the hit FAIL verification. One structure,
+    three ledgers, none collapsed."""
+    from campaign.warrant_cache import WarrantCache, statement_key
+    from execution.proving import (
+        prove_and_verify_result,
+        verify_existing_proof,
+    )
+    from tests.test_execution_stage8_warrant_cache import _instrumented_nexus
+
+    nexus_host = default_nexus_host_path()
+    pairwise_elf = (pathlib.Path(__file__).resolve().parent.parent
+                    / "zk" / "artifacts" / "nexus-pairwise.elf")
+    if not (nexus_host.exists() and pairwise_elf.exists()):
+        pytest.skip("nexus pairwise guest not built; environment gap")
+
+    shim, log = _instrumented_nexus(tmp_path)
+    cache = WarrantCache(tmp_path / "cache")
+    spec = molecule_to_pairwise_spec(WATER)
+    native = run_specification(spec)
+
+    # manufacture once, store
+    proved = prove_and_verify_result(native, spec, tmp_path / "w.bin", shim, pairwise_elf)
+    key = statement_key("nexus", pairwise_elf, spec)
+    cache.store(key, pathlib.Path(proved.proof_path).read_bytes(), "nexus", spec.identity())
+
+    # the identical structure -> the identical statement -> HIT, re-verified
+    again = molecule_to_pairwise_spec(Molecule(WATER.atoms))
+    assert statement_key("nexus", pairwise_elf, again) == key
+    hit = cache.lookup(key)
+    fields = verify_existing_proof(run_specification(again), again,
+                                   hit.proof_path, shim, pairwise_elf)
+    assert fields["outcome"] == "verified"
+    calls = log.read_text().split()
+    assert calls.count("prove") == 1 and calls.count("verify") >= 2
+
+    # structural tamper -> different statement -> MISS (the old warrant
+    # stays valid for its own statement only)
+    moved = Molecule((WATER.atoms[0], Atom("H", 77, 0, 59), WATER.atoms[2]))
+    assert cache.lookup(
+        statement_key("nexus", pairwise_elf, molecule_to_pairwise_spec(moved))) is None
+
+    # corrupted warrant -> hit still goes to the verifier, and FAILS
+    raw = bytearray(hit.proof_path.read_bytes())
+    raw[len(raw) // 2] ^= 0xFF
+    hit.proof_path.write_bytes(bytes(raw))
+    fields = verify_existing_proof(native, spec, hit.proof_path, shim, pairwise_elf)
+    assert fields["outcome"] == "failed"
