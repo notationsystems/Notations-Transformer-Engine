@@ -63,6 +63,15 @@ RISC Zero  input_checked: false    Input is uninhabited; input_digest is host-de
 Nexus      input_checked: true     verify_expected reconstructs the full View
 ```
 
+Stage 3 realized the Nexus row -- with a nuance the recon could not
+see: the guest takes input on the PRIVATE tape (the cross-backend
+statement must not depend on a facility only one backend has), so
+Nexus's `input_checked: true` in OUR adapter comes from the same guest
+convention SP1 uses, not from its native public-input binding. And the
+confirm-style shape of its verifier added two vocabulary extensions
+(`AdapterVerdict::Decline`, `VerificationFailure::StatementMismatch`) --
+see `docs/STE_NEXUS_BACKEND.md`.
+
 `capabilities()` is trusted, not verified. It is auditable two ways: the
 entry point confines any over-claim to one declared place and refuses
 results that exceed it; and a conformance suite can falsify a claimed

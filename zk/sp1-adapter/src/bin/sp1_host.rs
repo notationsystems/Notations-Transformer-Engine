@@ -79,7 +79,7 @@ fn prove(args: &[String]) -> Result<(), String> {
     std::fs::write(proof_out, &proof_bytes).map_err(|e| format!("writing proof: {e}"))?;
 
     let mut out = String::new();
-    out.push_str("sp1-host-result v1\n");
+    out.push_str("ste-host-result v1\n");
     out.push_str("command prove\n");
     out.push_str(&format!(
         "backend {} {}\n",
@@ -144,7 +144,7 @@ fn verify(args: &[String]) -> Result<(), String> {
     let result = backend.verify(&artifact, &expectation);
 
     let mut out = String::new();
-    out.push_str("sp1-host-result v1\n");
+    out.push_str("ste-host-result v1\n");
     out.push_str("command verify\n");
     match &result {
         VerificationResult::Verified {

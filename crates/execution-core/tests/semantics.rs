@@ -585,3 +585,80 @@ fn verified_execution_exists_only_for_verified_results() {
     assert_eq!(VerifiedExecution::from_result(&failed), None);
     assert_eq!(VerifiedExecution::from_result(&unsupported), None);
 }
+
+#[test]
+fn a_confirm_style_backend_declines_partial_statements_as_unsupported() {
+    // Stage 3: a backend whose verifier can only CONFIRM a total
+    // statement (Nexus's verify_expected reconstructs the whole
+    // execution view) declines an expectation that omits dimensions it
+    // must reconstruct -- and the sealed entry point surfaces that as
+    // Unsupported, never as a weaker Verified.
+    struct ConfirmOnly(BackendId);
+    impl ProofBackend for ConfirmOnly {
+        fn backend(&self) -> &BackendId {
+            &self.0
+        }
+        fn capabilities(&self) -> VerificationCoverage {
+            VerificationCoverage::COMPLETE
+        }
+        fn verify_supported(&self, _a: &ProofArtifact, e: &Expectation) -> AdapterVerdict {
+            let mut missing = alloc_missing(e);
+            if !missing.is_empty() {
+                return AdapterVerdict::Decline {
+                    missing: core::mem::take(&mut missing),
+                };
+            }
+            AdapterVerdict::Accept {
+                coverage: VerificationCoverage::COMPLETE,
+            }
+        }
+    }
+    fn alloc_missing(e: &Expectation) -> Vec<RequiredCheck> {
+        let mut missing = vec![];
+        if e.input().is_none() {
+            missing.push(RequiredCheck::Input);
+        }
+        if e.output().is_none() {
+            missing.push(RequiredCheck::Output);
+        }
+        if e.exit_code().is_none() {
+            missing.push(RequiredCheck::ExitCode);
+        }
+        missing
+    }
+
+    let id = BackendId::new("scripted-nexus", "0.3.6");
+    let backend = ConfirmOnly(id.clone());
+    let artifact = ProofArtifact::new(id, vec![1]);
+
+    // A partial statement: unanswerable by this backend, visibly so.
+    let partial = Expectation::of_program(ProgramIdentity::of(b"p"));
+    match backend.verify(&artifact, &partial) {
+        VerificationResult::Unsupported {
+            missing,
+            expectation,
+            ..
+        } => {
+            assert_eq!(
+                missing,
+                vec![
+                    RequiredCheck::Input,
+                    RequiredCheck::Output,
+                    RequiredCheck::ExitCode
+                ]
+            );
+            assert_eq!(expectation, partial);
+        }
+        other => panic!("a partial statement produced {other:?}"),
+    }
+
+    // A total statement: answerable.
+    let total = Expectation::of_program(ProgramIdentity::of(b"p"))
+        .with_input(InputIdentity::of(b"i"))
+        .with_output(OutputIdentity::of(b"o"))
+        .with_exit_code(0);
+    assert!(matches!(
+        backend.verify(&artifact, &total),
+        VerificationResult::Verified { .. }
+    ));
+}

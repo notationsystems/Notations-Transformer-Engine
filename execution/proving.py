@@ -10,6 +10,13 @@ The flow, per specification, with every arrow independently checked:
                                     ProofBackend::verify entry point)
         -> ProvedRun               (exists ONLY if everything agreed)
 
+Stage 3: `prove_and_verify` is BACKEND-NEUTRAL at this layer -- pass the
+SP1 host+guest paths (the defaults) or the Nexus ones
+(`default_nexus_host_path` / `default_nexus_guest_elf_path`); both hosts
+speak the identical `ste-host-result v1` line protocol, and every check
+below applies unchanged. The substrate-independence demonstration
+extends to this process boundary.
+
 HARD FAILURE, BY CONSTRUCTION (requirement 8): there is no
 `verified: bool` anywhere in this module. A mismatch between the guest's
 committed input/output commitments and this layer's own recomputation, a
@@ -55,10 +62,23 @@ def default_host_path() -> pathlib.Path:
 
 
 def default_guest_elf_path() -> pathlib.Path:
-    """Where the succinct toolchain builds the guest ELF."""
+    """Where the succinct toolchain builds the SP1 guest ELF."""
     return (
         _REPO / "zk" / "guest-pairwise" / "target"
         / "riscv64im-succinct-zkvm-elf" / "release" / "ste-guest-pairwise"
+    )
+
+
+def default_nexus_host_path() -> pathlib.Path:
+    """Where the nexus workspace builds the nexus-host binary."""
+    return _REPO / "zk" / "nexus" / "target" / "release" / "nexus-host"
+
+
+def default_nexus_guest_elf_path() -> pathlib.Path:
+    """Where the pinned nightly builds the Nexus guest ELF."""
+    return (
+        _REPO / "zk" / "guest-pairwise-nexus" / "target"
+        / "riscv32im-unknown-none-elf" / "release" / "ste-guest-pairwise-nexus"
     )
 
 
@@ -78,8 +98,8 @@ class ProvedRun:
 
 def _parse(stdout: str) -> dict:
     lines = stdout.splitlines()
-    if not lines or lines[0] != "sp1-host-result v1":
-        raise ProvedRunError(f"unrecognised sp1-host output: {lines[:1]!r}")
+    if not lines or lines[0] != "ste-host-result v1":
+        raise ProvedRunError(f"unrecognised host output: {lines[:1]!r}")
     fields = {}
     for line in lines[1:]:
         key, _, value = line.partition(" ")
@@ -91,7 +111,7 @@ def _run_host(host: pathlib.Path, args: list[str], timeout: int) -> dict:
     proc = subprocess.run([str(host), *args], capture_output=True, timeout=timeout)
     if proc.returncode != 0:
         raise ProvedRunError(
-            f"sp1-host exited {proc.returncode}: {proc.stderr.decode(errors='replace')[-400:]}"
+            f"host exited {proc.returncode}: {proc.stderr.decode(errors='replace')[-400:]}"
         )
     return _parse(proc.stdout.decode())
 

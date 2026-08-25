@@ -285,6 +285,21 @@ pub enum VerificationFailure {
     },
     /// The proof bytes could not be interpreted by this backend.
     Malformed,
+    /// The proof does not prove the claimed statement, and this backend
+    /// cannot attribute the mismatch to a single dimension.
+    ///
+    /// Added by Stage 3, from reading the Nexus verifier's source: a
+    /// CONFIRM-style verifier (`verify_expected` reconstructs the whole
+    /// expected execution view and checks the proof against it in one
+    /// aggregate act) answers "is THIS TOTAL statement proven?" with one
+    /// bit. When the answer is no, it cannot say whether input, output
+    /// or exit code was the wrong part -- unlike an EXTRACT-style
+    /// verifier (SP1), which reads the committed statement out of the
+    /// proof and can name the mismatched dimension. Reporting a
+    /// specific `InputMismatch` a confirm-style backend cannot actually
+    /// attribute would be manufacturing precision; this variant is the
+    /// honest alternative.
+    StatementMismatch,
     /// The adapter's reported coverage broke its own contract: it
     /// claimed a check outside its declared capabilities, or accepted
     /// while covering less than the expectation required.
@@ -326,6 +341,21 @@ pub enum AdapterVerdict {
         coverage: VerificationCoverage,
         /// Why it rejected.
         failure: VerificationFailure,
+    },
+    /// The backend cannot answer THIS SHAPE of question, and did not try.
+    ///
+    /// Added by Stage 3. Capability screening handles the caller asking
+    /// MORE than a backend can check; a confirm-style backend (Nexus)
+    /// has the inverse constraint -- it can only verify a TOTAL
+    /// statement, so an expectation that OMITS input, output or exit
+    /// code leaves it nothing to reconstruct and confirm. `missing`
+    /// names the omitted-but-mandatory checks; the sealed entry point
+    /// maps this to [`VerificationResult::Unsupported`], so an
+    /// unanswerable question stays visibly unanswered instead of
+    /// becoming a weaker success.
+    Decline {
+        /// The checks the expectation omitted but this backend requires.
+        missing: Vec<RequiredCheck>,
     },
 }
 
@@ -380,7 +410,10 @@ pub enum VerificationResult {
         expectation: Expectation,
         /// What this backend can check at all.
         capabilities: VerificationCoverage,
-        /// The required checks it cannot perform.
+        /// The checks standing between the question and an answer:
+        /// required-but-uncoverable (screened by the entry point), or --
+        /// since Stage 3 -- omitted-but-mandatory for a confirm-style
+        /// backend that can only verify a total statement.
         missing: Vec<RequiredCheck>,
         /// The backend that declined.
         backend: BackendId,
@@ -481,6 +514,12 @@ pub trait ProofBackend {
                     backend: self.backend().clone(),
                 }
             }
+            AdapterVerdict::Decline { missing } => VerificationResult::Unsupported {
+                expectation: expectation.clone(),
+                capabilities,
+                missing,
+                backend: self.backend().clone(),
+            },
             AdapterVerdict::Reject { coverage, failure } => {
                 if !coverage.within(&capabilities) {
                     return VerificationResult::Failed {
