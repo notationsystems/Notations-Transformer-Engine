@@ -135,24 +135,46 @@ def prefetch_warrants(
     proof_dir: pathlib.Path,
     lanes: Optional[dict] = None,
     max_workers: Optional[int] = None,
+    worker_limits: Optional[dict] = None,
 ) -> PrefetchReport:
     """Manufacture the planned warrants concurrently. Each worker runs
     the full existing pipeline -- native execution, real proof, host
     recomputation and verification (`prove_and_verify_result`, with the
     Stage 5 registry gate) -- and stores the proof BYTES under the
     statement key. Nothing is trusted here and nothing is recorded
-    anywhere but this report."""
+    anywhere but this report.
+
+    Stage 11: `worker_limits` caps CONCURRENT MANUFACTURE per backend
+    ({lane name: max simultaneous provers}) -- the smallest memory-aware
+    control, at the boundary that already schedules work. Provers are
+    memory-bound, not CPU-bound, on this machine class (stage 9/11
+    measured ~7-9 GB peak RSS per prover against a 16 GB cgroup), so an
+    uncapped pool loses workers to the OOM killer and pays the serial
+    retry pass. The limit controls WHEN a proof is manufactured and
+    nothing else: statement, computation, proof and evidence identities,
+    and every failure semantic, are exactly as without it."""
+    import threading
+
     lanes = lanes if lanes is not None else default_lanes()
     # measured on this class of machine (stage 9): one prover uses ~1.4
     # cores, and workers == cpu_count gave the best throughput (x2.33
     # over serial on 4 cores); the default follows the machine.
     max_workers = max_workers or (os.cpu_count() or 2)
+    gates = {name: threading.Semaphore(max(1, count))
+             for name, count in (worker_limits or {}).items()}
     tasks = plan_prefetch(policy, specs, lanes)
     report = PrefetchReport(planned=len(tasks))
     proof_dir.mkdir(parents=True, exist_ok=True)
     started_all = time.monotonic()
 
     def _work(task: PrefetchTask) -> PrefetchOutcome:
+        gate = gates.get(task.lane_name)
+        if gate is not None:
+            with gate:
+                return _manufacture(task)
+        return _manufacture(task)
+
+    def _manufacture(task: PrefetchTask) -> PrefetchOutcome:
         lane = lanes[task.lane_name]
         started = time.monotonic()
         if cache.lookup(task.key) is not None:

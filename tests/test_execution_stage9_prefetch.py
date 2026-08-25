@@ -187,3 +187,48 @@ def test_prefetch_skips_unavailable_lanes_explicitly(tmp_path):
     report = prefetch_warrants(policy, [SPEC_A], cache, tmp_path, lanes=lanes)
     assert (report.planned, report.unavailable, report.proved) == (1, 1, 0)
     assert not any((tmp_path / "cache").iterdir())
+
+
+def test_worker_limits_cap_concurrent_manufacture_per_backend(tmp_path):
+    """Stage 11: `worker_limits` gates how many provers for one backend
+    run at once -- execution control only. The instrumented host logs
+    start/end stamps; with limit 2 and four eager workers, no more than
+    two prove invocations ever overlap. (The shim fails every prove --
+    the failure semantics are untouched by the gate, and the retry pass
+    runs serially by construction.)"""
+    import time as _time
+
+    log = tmp_path / "spans.log"
+    shim = tmp_path / "slow-nexus"
+    shim.write_text(
+        "#!/bin/bash\n"
+        f"if [ \"$1\" = prove ]; then\n"
+        f"  echo \"start $(date +%s.%N)\" >> {log}\n"
+        f"  sleep 0.6\n"
+        f"  echo \"end $(date +%s.%N)\" >> {log}\n"
+        f"  exit 1\nfi\nexit 1\n"
+    )
+    shim.chmod(0o755)
+    lanes = {"nexus": VerificationLane("nexus", shim)}
+    policy = VerificationPolicy(routine="nexus", independent=None, heavyweight=None)
+    specs = [
+        ExecutionSpecification(
+            HEAT_DIFFUSION_DESCRIPTOR, b"",
+            encode_heat_input(50, [0, 700_000, 1_000_000 + i, 700_000, 0, 0]))
+        for i in range(4)
+    ]
+    report = prefetch_warrants(policy, specs, WarrantCache(tmp_path / "cache"),
+                               tmp_path, lanes=lanes, max_workers=4,
+                               worker_limits={"nexus": 2})
+    assert (report.planned, report.failed) == (4, 4), "gate changes WHEN, never WHAT"
+
+    events = []
+    for line in log.read_text().splitlines():
+        kind, stamp = line.split()
+        events.append((float(stamp), 1 if kind == "start" else -1))
+    concurrent = peak = 0
+    for _, delta in sorted(events):
+        concurrent += delta
+        peak = max(peak, concurrent)
+    assert peak <= 2, f"the memory gate held: peak concurrency {peak}"
+    assert len(events) == 16, "4 concurrent attempts + 4 serial retries, all on the log"
