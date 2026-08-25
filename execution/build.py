@@ -79,6 +79,16 @@ SP1_RUSTFLAGS = (
     "--remap-path-prefix", "{CARGO_HOME}=/cargo",
     "-C", "strip=symbols",
 )
+R0_RUSTFLAGS = (
+    "-C", "passes=lower-atomic",
+    "-C", "link-arg=-Ttext=0x00200800",
+    "-C", "link-arg=--fatal-warnings",
+    "-C", "panic=abort",
+    "--cfg", 'getrandom_backend="custom"',
+    "--remap-path-prefix", "{STAGE}=/src",
+    "--remap-path-prefix", "{CARGO_HOME}=/cargo",
+    "-C", "strip=symbols",
+)
 NEXUS_RUSTFLAGS = (
     "-C", "relocation-model=pic",
     "-C", "link-arg=-T{STAGE}/Scout-Retrieval-Agent/{GUEST}/nexus-linker.x",
@@ -100,6 +110,14 @@ _BACKENDS = {
         "target": "riscv32im-unknown-none-elf",
         "toolchain": "nightly-2025-05-09",
         "fork": "nexus-zkvm",
+    },
+    # Stage 6: the third backend fit the existing model without any
+    # structural extension -- a flag set, a target, a toolchain, a fork.
+    "risc0": {
+        "rustflags": R0_RUSTFLAGS,
+        "target": "riscv32im-risc0-zkvm-elf",
+        "toolchain": "risc0",
+        "fork": "risc0-zero",
     },
 }
 
@@ -394,6 +412,7 @@ def registered_guest_builds():
         (PAIRWISE_ENERGY_DESCRIPTOR, "nexus", "zk/guest-pairwise-nexus", "nexus-pairwise"),
         (HEAT_DIFFUSION_DESCRIPTOR, "sp1", "zk/guest-heat", "sp1-heat"),
         (HEAT_DIFFUSION_DESCRIPTOR, "nexus", "zk/guest-heat-nexus", "nexus-heat"),
+        (HEAT_DIFFUSION_DESCRIPTOR, "risc0", "zk/guest-heat-risc0", "risc0-heat"),
     ]
 
 

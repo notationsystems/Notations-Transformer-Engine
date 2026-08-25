@@ -90,6 +90,16 @@ def default_nexus_heat_guest_elf_path() -> pathlib.Path:
     return _REPO / "zk" / "artifacts" / "nexus-heat.elf"
 
 
+def default_risc0_host_path() -> pathlib.Path:
+    """Where the risc0 workspace builds the risc0-host binary."""
+    return _REPO / "zk" / "risc0" / "target" / "release" / "risc0-host"
+
+
+def default_risc0_heat_guest_elf_path() -> pathlib.Path:
+    """The RISC Zero heat-diffusion guest ELF."""
+    return _REPO / "zk" / "artifacts" / "risc0-heat.elf"
+
+
 def _registry_entry(spec: ExecutionSpecification):
     """Stage 5: the guest registry is an INDEX from program identity to
     reproducible-build artifacts; the authority is
@@ -262,7 +272,11 @@ def proved_runner(
     and no way to forget to check it (requirement 8)."""
 
     def run(spec: ExecutionSpecification) -> ExecutionResult:
-        proof_out = proof_dir / f"proof-{spec.identity()[:16]}.bin"
+        # Stage 6 campaign finding: proofs from two backends for one
+        # specification collided on one filename. The artifact name now
+        # carries the guest ELF stem, which identifies the backend.
+        elf_stem = (elf_path if elf_path is not None else default_guest_elf_path()).stem
+        proof_out = proof_dir / f"proof-{spec.identity()[:16]}-{elf_stem}.bin"
         proved = prove_and_verify(spec, proof_out, host_path=host_path, elf_path=elf_path)
         return proved.execution
 

@@ -10,3 +10,5 @@ zk/nexus/target/
 zk/guest-heat/target/
 zk/guest-heat-nexus/target/
 zk/artifacts/
+zk/guest-heat-risc0/target/
+zk/risc0/target/
