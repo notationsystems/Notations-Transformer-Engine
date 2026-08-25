@@ -7,7 +7,7 @@ use execution_core::{Expectation, ProofArtifact, ProofBackend, VerificationResul
 use risc0_adapter::Risc0KernelBackend;
 
 fn from_hex(text: &str) -> Result<Vec<u8>, String> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return Err(format!("odd-length hex: {text:?}"));
     }
     (0..text.len())
