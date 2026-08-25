@@ -60,7 +60,8 @@
 use std::io::{Read, Write};
 
 use execution_core::reference::{
-    CrystalLatticeKernel, HeatDiffusionKernel, PairwiseEnergyKernel, RadiusOfGyrationKernel,
+    CrystalLatticeKernel, HardmaxAttentionKernel, HeatDiffusionKernel, PairwiseEnergyKernel,
+    RadiusOfGyrationKernel,
 };
 use execution_core::{
     commit, execute, DeterministicProgram, ExecutionOutcome, ExecutionTrace, SPECIFICATION_TAG,
@@ -126,11 +127,12 @@ fn main() {
 
     // The registry: every program this engine can run. Adding one means
     // adding it HERE, visibly -- there is no dynamic loading.
-    let registry: [&dyn DeterministicProgram; 4] = [
+    let registry: [&dyn DeterministicProgram; 5] = [
         &PairwiseEnergyKernel,
         &HeatDiffusionKernel,
         &RadiusOfGyrationKernel,
         &CrystalLatticeKernel,
+        &HardmaxAttentionKernel,
     ];
     let program = registry
         .iter()

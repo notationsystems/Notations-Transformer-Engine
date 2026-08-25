@@ -481,3 +481,104 @@ pub fn crystal_lattice(input: &[u8]) -> Result<[u8; 32], KernelFault> {
     output[16..].copy_from_slice(&mind2.to_le_bytes());
     Ok(output)
 }
+
+// ---------------------------------------------------------------------
+// Transformer kernel: integer single-head HARDMAX attention. The
+// Transformer Engine's first model computation, behind the same
+// DeterministicProgram discipline as every other kernel: integer
+// arithmetic only, faults refuse, the descriptor commits the exact
+// semantics. Hardmax (argmax attention, ties to the lowest index) is
+// chosen precisely because it is exactly representable in integers --
+// no softmax approximation whose rounding would be a hidden semantic.
+// ---------------------------------------------------------------------
+
+/// Attention kernel fault: input shape is wrong.
+pub const ATTN_FAULT_MALFORMED: u32 = 2;
+/// Attention kernel fault: dimensions out of range.
+pub const ATTN_FAULT_DIMENSIONS: u32 = 3;
+/// Attention kernel fault: a value exceeds |v| <= 2^20.
+pub const ATTN_FAULT_VALUE_BOUND: u32 = 4;
+
+const ATTN_MAX_DIM: usize = 64;
+const ATTN_MAX_TOKENS: usize = 1024;
+const ATTN_VALUE_BOUND: i32 = 1 << 20;
+
+#[inline]
+fn attn_i32(input: &[u8], at: usize) -> i32 {
+    i32::from_le_bytes([input[at], input[at + 1], input[at + 2], input[at + 3]])
+}
+
+/// Single-head integer hardmax attention, exactly per the descriptor:
+/// Q = X·Wq, K = X·Wk, V = X·Wv (i128 accumulation); S_ij = Q_i · K_j;
+/// each token attends to argmax_j S_ij (ties -> lowest j); output row i
+/// is V_attend(i) as i64. Returns the n*d*8 output bytes or the
+/// refusing fault.
+pub fn hardmax_attention(input: &[u8]) -> Result<alloc::vec::Vec<u8>, KernelFault> {
+    if input.len() < 8 {
+        return Err(KernelFault {
+            exit_code: ATTN_FAULT_MALFORMED,
+            detail: "input shorter than the 8-byte header",
+        });
+    }
+    let d = u32::from_le_bytes([input[0], input[1], input[2], input[3]]) as usize;
+    let n = u32::from_le_bytes([input[4], input[5], input[6], input[7]]) as usize;
+    if d == 0 || d > ATTN_MAX_DIM || n == 0 || n > ATTN_MAX_TOKENS {
+        return Err(KernelFault {
+            exit_code: ATTN_FAULT_DIMENSIONS,
+            detail: "d outside 1..=64 or n outside 1..=1024",
+        });
+    }
+    let expected = 8 + 4 * (n * d + 3 * d * d);
+    if input.len() != expected {
+        return Err(KernelFault {
+            exit_code: ATTN_FAULT_MALFORMED,
+            detail: "input length is not 8 + 4*(n*d + 3*d*d) bytes",
+        });
+    }
+    let x_at = 8;
+    let wq_at = x_at + 4 * n * d;
+    let wk_at = wq_at + 4 * d * d;
+    let wv_at = wk_at + 4 * d * d;
+    for offset in (8..input.len()).step_by(4) {
+        let value = attn_i32(input, offset);
+        if value.abs() > ATTN_VALUE_BOUND {
+            return Err(KernelFault {
+                exit_code: ATTN_FAULT_VALUE_BOUND,
+                detail: "a value exceeds |v| <= 2^20",
+            });
+        }
+    }
+
+    // projected rows: P[i][k] = sum_j X[i][j] * W[j][k] (i128)
+    let project = |w_at: usize, i: usize, k: usize| -> i128 {
+        let mut acc: i128 = 0;
+        for j in 0..d {
+            let x = attn_i32(input, x_at + 4 * (i * d + j)) as i128;
+            let w = attn_i32(input, w_at + 4 * (j * d + k)) as i128;
+            acc += x * w;
+        }
+        acc
+    };
+
+    let mut output = alloc::vec::Vec::with_capacity(n * d * 8);
+    for i in 0..n {
+        let q: alloc::vec::Vec<i128> = (0..d).map(|k| project(wq_at, i, k)).collect();
+        let mut best_j = 0usize;
+        let mut best_score = i128::MIN;
+        for j in 0..n {
+            let mut score: i128 = 0;
+            for (k, q_k) in q.iter().enumerate() {
+                score += q_k * project(wk_at, j, k);
+            }
+            if score > best_score {
+                best_score = score;
+                best_j = j;
+            }
+        }
+        for k in 0..d {
+            let value = project(wv_at, best_j, k);
+            output.extend_from_slice(&(value as i64).to_le_bytes());
+        }
+    }
+    Ok(output)
+}

@@ -175,3 +175,29 @@ def encode_crystal_input(lattice, sites) -> bytes:
     for fx, fy, fz in sites:
         out += struct.pack("<iii", fx, fy, fz)
     return out
+
+
+#: The transformer attention kernel -- byte-for-byte the Rust constant,
+#: like the others; the engine round-trip pins the agreement.
+HARDMAX_ATTENTION_DESCRIPTOR = (
+    b"scout.native.attention-kernel.v1\n"
+    b"input: [d u32 LE][n u32 LE][n*d i32 LE X][d*d i32 Wq][d*d Wk][d*d Wv]\n"
+    b"bounds: 1<=d<=64; 1<=n<=1024; every value |v|<=2^20\n"
+    b"Q=X.Wq K=X.Wk V=X.Wv (i128 accumulation); S_ij = Q_i . K_j\n"
+    b"attend(i) = argmax_j S_ij, ties -> lowest j (hardmax); out_i = V_attend(i)\n"
+    b"output: n*d i64 LE; exit 0\n"
+    b"faults: 2=malformed, 3=dimensions, 4=value bound"
+)
+
+
+def encode_attention_input(d, tokens, wq, wk, wv) -> bytes:
+    """The attention kernel's canonical input encoding -- mirrors
+    `execution_native::reference::encode_attention_input`. `tokens` is
+    n rows of d ints; the weight matrices are d rows of d ints."""
+    import struct
+
+    out = struct.pack("<II", d, len(tokens))
+    for row in list(tokens) + list(wq) + list(wk) + list(wv):
+        for value in row:
+            out += struct.pack("<i", value)
+    return out

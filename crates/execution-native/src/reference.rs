@@ -522,3 +522,127 @@ mod structural_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// Transformer kernel (fifth reference workload): integer single-head
+// hardmax attention -- the Transformer Engine's model computation,
+// behind the same contract and caveats as every other kernel.
+// ---------------------------------------------------------------------
+
+/// The canonical descriptor [`HardmaxAttentionKernel`] is identified
+/// by. Hardmax is exact in integers; which token wins a tie is part of
+/// the committed semantics (lowest index), so two implementations
+/// cannot honestly disagree about it.
+pub const HARDMAX_ATTENTION_DESCRIPTOR: &[u8] = concat!(
+    "scout.native.attention-kernel.v1\n",
+    "input: [d u32 LE][n u32 LE][n*d i32 LE X][d*d i32 Wq][d*d Wk][d*d Wv]\n",
+    "bounds: 1<=d<=64; 1<=n<=1024; every value |v|<=2^20\n",
+    "Q=X.Wq K=X.Wk V=X.Wv (i128 accumulation); S_ij = Q_i . K_j\n",
+    "attend(i) = argmax_j S_ij, ties -> lowest j (hardmax); out_i = V_attend(i)\n",
+    "output: n*d i64 LE; exit 0\n",
+    "faults: 2=malformed, 3=dimensions, 4=value bound",
+)
+.as_bytes();
+
+/// The transformer attention workload.
+pub struct HardmaxAttentionKernel;
+
+impl DeterministicProgram for HardmaxAttentionKernel {
+    fn canonical_bytes(&self) -> &[u8] {
+        HARDMAX_ATTENTION_DESCRIPTOR
+    }
+
+    fn run(&self, input: &[u8]) -> Result<NativeCompletion, NativeFault> {
+        match execution_kernel::hardmax_attention(input) {
+            Ok(output) => Ok(NativeCompletion {
+                output,
+                exit_code: 0,
+            }),
+            Err(fault) => Err(NativeFault {
+                exit_code: fault.exit_code,
+                detail: fault.detail.to_string(),
+            }),
+        }
+    }
+}
+
+/// Encode an attention input: token matrix X (n rows of d values) and
+/// the three d*d projection matrices, row-major.
+pub fn encode_attention_input(
+    d: u32,
+    tokens: &[Vec<i32>],
+    wq: &[Vec<i32>],
+    wk: &[Vec<i32>],
+    wv: &[Vec<i32>],
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&d.to_le_bytes());
+    bytes.extend_from_slice(&(tokens.len() as u32).to_le_bytes());
+    for row in tokens.iter().chain(wq).chain(wk).chain(wv) {
+        for value in row {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    fn identity(d: usize) -> Vec<Vec<i32>> {
+        (0..d)
+            .map(|i| (0..d).map(|j| i32::from(i == j)).collect())
+            .collect()
+    }
+
+    #[test]
+    fn identity_weights_attend_to_the_largest_token() {
+        // with identity projections, S_ij = X_i . X_j; every token
+        // attends to the largest-norm token and outputs ITS features.
+        let kernel = HardmaxAttentionKernel;
+        let tokens = vec![vec![1, 0], vec![10, 0], vec![3, 4]];
+        let eye = identity(2);
+        let out = kernel
+            .run(&encode_attention_input(2, &tokens, &eye, &eye, &eye))
+            .unwrap();
+        let values: Vec<i64> = out
+            .output
+            .chunks_exact(8)
+            .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(
+            values,
+            vec![10, 0, 10, 0, 10, 0],
+            "every token attends to token 2 (token 3: S=30 beats self 25)"
+        );
+    }
+
+    #[test]
+    fn deterministic_and_weight_sensitive() {
+        let kernel = HardmaxAttentionKernel;
+        let tokens = vec![vec![1, 2], vec![3, 4]];
+        let eye = identity(2);
+        let mut wv = identity(2);
+        let input_a = encode_attention_input(2, &tokens, &eye, &eye, &wv);
+        assert_eq!(kernel.run(&input_a), kernel.run(&input_a));
+        wv[0][0] = 2; // a changed weight is a changed computation
+        let input_b = encode_attention_input(2, &tokens, &eye, &eye, &wv);
+        assert_ne!(
+            kernel.run(&input_a).unwrap().output,
+            kernel.run(&input_b).unwrap().output
+        );
+    }
+
+    #[test]
+    fn faults_are_the_descriptor_codes() {
+        let kernel = HardmaxAttentionKernel;
+        assert_eq!(kernel.run(&[1, 2, 3]).unwrap_err().exit_code, 2);
+        let eye = identity(2);
+        let bad_dims = encode_attention_input(0, &[], &eye, &eye, &eye);
+        assert_eq!(kernel.run(&bad_dims).unwrap_err().exit_code, 3);
+        let big = vec![vec![1 << 21, 0], vec![0, 1]];
+        let bound = encode_attention_input(2, &big, &eye, &eye, &eye);
+        assert_eq!(kernel.run(&bound).unwrap_err().exit_code, 4);
+    }
+}
