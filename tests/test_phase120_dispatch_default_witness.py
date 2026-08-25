@@ -196,17 +196,41 @@ def _construction_sites():
 # -- 1. the exhaustive construction audit -------------------------------------------------------------
 
 
-def test_exactly_one_construction_site_exists_and_it_is_a_test_fixture():
+def test_every_construction_site_is_enumerated_and_declares():
+    """AMENDED (STE stage 1). Phase 120's lock said "exactly one site,
+    and it is a test fixture" -- a snapshot of a world in which no
+    production dispatcher existed. The INVARIANT it protected is that
+    every construction DECLARES extraction_method (no construction may
+    lean on a default, because the default was the lie). The STE
+    execution vertical added the first production constructor,
+    `execution/dispatcher.py`, which declares -- so the lock now states
+    the invariant and enumerates the sites, instead of freezing the
+    census at one."""
     sites = _construction_sites()
-    assert len(sites) == 1
-    path, _, declares = sites[0]
-    assert path == "tests/test_experiment_step.py"
-    assert declares is True           # it now DECLARES; the default is gone
+    assert {(path, declares) for path, _, declares in sites} == {
+        ("tests/test_experiment_step.py", True),
+        ("execution/dispatcher.py", True),
+    }, f"unexpected DispatchedMeasurement construction census: {sites}"
 
 
-def test_no_production_module_ever_constructs_one():
-    production = [s for s in _construction_sites() if not s[0].startswith("tests/")]
-    assert production == []
+def test_production_constructions_declare_a_simulation_prefix():
+    """The one production constructor reports a COMPUTATION, and its
+    declaration must say so: of the epistemic classifier's prefixes,
+    only `simulation:` asserts no external-world event (Phase 120's own
+    finding). A production site declaring `measurement:` or falling
+    through to extracted would be claiming a world event no computation
+    can witness."""
+    source = (REPO / "execution" / "dispatcher.py").read_text()
+    tree = ast.parse(source)
+    declared = [
+        keyword.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "DispatchedMeasurement"
+        for keyword in node.keywords
+        if keyword.arg == "extraction_method" and isinstance(keyword.value, ast.Constant)
+    ]
+    assert declared == ["simulation:deterministic_native_execution"]
 
 
 def test_the_sole_constructor_documents_itself_as_scripted_and_not_a_measurement():

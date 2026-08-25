@@ -63,6 +63,18 @@ pub const OUTPUT_TAG: &str = "scout.execution.output.v1";
 pub const PROOF_TAG: &str = "scout.execution.proof.v1";
 /// Domain tag for the content-addressed computation digest.
 pub const COMPUTATION_TAG: &str = "scout.execution.computation.v1";
+/// Domain tag for a specification digest: (program bytes, configuration
+/// bytes, input bytes) -- the request to execute, before any run.
+///
+/// The Phase 128 review REJECTED a specification identity for lack of a
+/// consumer. The consumer then arrived (recorded here so the reversal is
+/// explicit, not silent): the cross-process execution boundary. When
+/// Python asks the execution engine, in another process, to run a
+/// specification, the result must name which request it answers -- the
+/// same detachable-warrant hazard probe 1 found in verification results,
+/// one seam over. The digest exists for that echo; a specification TYPE
+/// still has no consumer and still does not exist.
+pub const SPECIFICATION_TAG: &str = "scout.execution.specification.v1";
 
 macro_rules! identity {
     ($name:ident, $tag:ident, $doc:expr) => {

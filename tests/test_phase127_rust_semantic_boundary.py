@@ -47,6 +47,7 @@ SUBSTRATE_CRATES = (
     "execution-model",
     "execution-trace",
     "execution-native",       # added Phase 129: the native backend + engine
+    "execution-cli",          # added STE stage 1: the cross-process boundary binary
     "execution-verification",
     "execution-core",
 )

@@ -51,12 +51,20 @@ use crate::{DeterministicProgram, NativeCompletion, NativeFault};
 /// compute different things cannot honestly share it -- and so a future
 /// guest implementation of the SAME semantics inside a zkVM can carry
 /// the SAME descriptor and therefore the same `ProgramIdentity`.
-pub const PAIRWISE_ENERGY_DESCRIPTOR: &[u8] = b"scout.native.pairwise-energy-kernel.v1\n\
-      input: N*12 bytes of (x,y,z) as i32 LE; |coord| <= 2^20\n\
-      for i<j: r2=(dx^2+dy^2+dz^2) as i128; r2==0 faults;\n\
-      e = 2^80/r2^2 - 2^40/r2 (integer division, truncation toward zero)\n\
-      output: sum(e) as i128 LE (16 bytes); exit 0\n\
-      faults: 2=malformed length, 3=coincident particles, 4=coordinate bound";
+pub const PAIRWISE_ENERGY_DESCRIPTOR: &[u8] = concat!(
+    "scout.native.pairwise-energy-kernel.v1
+",
+    "input: N*12 bytes of (x,y,z) as i32 LE; |coord| <= 2^20
+",
+    "for i<j: r2=(dx^2+dy^2+dz^2) as i128; r2==0 faults;
+",
+    "e = 2^80/r2^2 - 2^40/r2 (integer division, truncation toward zero)
+",
+    "output: sum(e) as i128 LE (16 bytes); exit 0
+",
+    "faults: 2=malformed length, 3=coincident particles, 4=coordinate bound",
+)
+.as_bytes();
 
 /// Coordinate bound: |c| <= 2^20 keeps every intermediate inside i128
 /// with margin (r2 <= 3 * 2^42, r2^2 <= ~2^86).

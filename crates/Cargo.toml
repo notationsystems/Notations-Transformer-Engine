@@ -25,6 +25,7 @@ members = [
     "execution-model",
     "execution-trace",
     "execution-native",
+    "execution-cli",
     "execution-verification",
     "execution-core",
 ]

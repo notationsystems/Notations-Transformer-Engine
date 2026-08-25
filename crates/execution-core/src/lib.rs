@@ -46,6 +46,7 @@ pub use execution_model::{
     AttachProofError, BackendId, BackendKind, ComputationIdentity, ExecutionOccurrence,
     ExecutionOutcome, InputIdentity, OutputIdentity, ProgramIdentity, ProofArtifact, ProofIdentity,
     COMPUTATION_TAG, INPUT_COMMITMENT_INVARIANT, INPUT_TAG, OUTPUT_TAG, PROGRAM_TAG, PROOF_TAG,
+    SPECIFICATION_TAG,
 };
 pub use execution_native::{
     execute, reference, DeterministicProgram, NativeCompletion, NativeExecution, NativeFault,
