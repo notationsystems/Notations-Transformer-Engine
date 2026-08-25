@@ -34,12 +34,13 @@ impl ProofBackend for ScriptedBackend {
 
     fn verify_supported(
         &self,
-        artifact: &ProofArtifact,
+        _artifact: &ProofArtifact,
         expectation: &Expectation,
-    ) -> VerificationResult {
+    ) -> AdapterVerdict {
         // A real backend checks the proof here. This one reports exactly
         // the coverage the expectation required and nothing more, which
-        // is what an honest backend does.
+        // is what an honest backend does. Since Phase 128 an adapter
+        // reports a VERDICT; the sealed entry point assembles the result.
         let required = expectation.required_checks();
         let coverage = VerificationCoverage {
             program_checked: required.contains(&RequiredCheck::Program),
@@ -48,15 +49,10 @@ impl ProofBackend for ScriptedBackend {
             exit_code_checked: required.contains(&RequiredCheck::ExitCode),
         };
         match &self.outcome {
-            ScriptedOutcome::Accept => VerificationResult::Verified {
-                coverage,
-                proof: artifact.identity(),
-                backend: self.id.clone(),
-            },
-            ScriptedOutcome::Reject(failure) => VerificationResult::Failed {
+            ScriptedOutcome::Accept => AdapterVerdict::Accept { coverage },
+            ScriptedOutcome::Reject(failure) => AdapterVerdict::Reject {
                 coverage,
                 failure: failure.clone(),
-                backend: self.id.clone(),
             },
         }
     }
@@ -389,6 +385,7 @@ fn an_unsupported_expectation_cannot_become_success() {
             capabilities,
             missing,
             backend: reported,
+            ..
         } => {
             assert_eq!(missing, vec![RequiredCheck::Input]);
             assert_eq!(capabilities, SP1_SHAPED);
@@ -485,17 +482,21 @@ fn the_three_results_are_mutually_distinguishable() {
     // for a success or a success for a failure.
     let coverage = VerificationCoverage::NONE;
     let backend = BackendId::new("scripted", "1.0.0");
+    let expectation = Expectation::of_program(ProgramIdentity::of(b"p"));
     let verified = VerificationResult::Verified {
+        expectation: expectation.clone(),
         coverage,
         proof: ProofArtifact::new(backend.clone(), vec![]).identity(),
         backend: backend.clone(),
     };
     let failed = VerificationResult::Failed {
+        expectation: expectation.clone(),
         coverage,
         failure: VerificationFailure::InvalidProof,
         backend: backend.clone(),
     };
     let unsupported = VerificationResult::Unsupported {
+        expectation,
         capabilities: coverage,
         missing: vec![RequiredCheck::Input],
         backend,

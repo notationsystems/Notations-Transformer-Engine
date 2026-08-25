@@ -276,6 +276,35 @@ impl ProofIdentity {
     }
 }
 
+/// The content-addressed identity of WHAT WAS COMPUTED: program, input,
+/// output and exit code, committed under [`COMPUTATION_TAG`].
+///
+/// Two occurrences of the same computation share this value while
+/// remaining two distinct occurrences -- Phase 122's two-ledger rule
+/// made structural. It is a newtype over [`Commitment`] (added in Phase
+/// 129, at the Phase 128 review's direction) so a computation digest
+/// cannot be passed where a proof or evidence digest is expected: the
+/// domain tag already separates the DIGESTS, and the newtype separates
+/// the TYPES.
+///
+/// What it does NOT establish: that the computation models anything,
+/// that its input was measured, or that it happened more than zero
+/// times -- occurrence counting is the trace's job, never this value's.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct ComputationIdentity(Commitment);
+
+impl ComputationIdentity {
+    /// The underlying commitment.
+    pub const fn commitment(&self) -> &Commitment {
+        &self.0
+    }
+
+    /// Lowercase hex.
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+}
+
 /// Refusal reasons for [`ExecutionOccurrence::attach_proof`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AttachProofError {
@@ -431,9 +460,9 @@ impl ExecutionOccurrence {
     /// output is not known. An unknown output is not the empty output,
     /// and it is not a zero. Returning `Some` of some placeholder here
     /// would be the exact substitution this architecture forbids.
-    pub fn computation_identity(&self) -> Option<Commitment> {
+    pub fn computation_identity(&self) -> Option<ComputationIdentity> {
         match &self.outcome {
-            ExecutionOutcome::Completed { output, exit_code } => Some(commit(
+            ExecutionOutcome::Completed { output, exit_code } => Some(ComputationIdentity(commit(
                 COMPUTATION_TAG,
                 &[
                     self.program.commitment().as_bytes(),
@@ -441,7 +470,7 @@ impl ExecutionOccurrence {
                     output.commitment().as_bytes(),
                     &canonical_u32(*exit_code),
                 ],
-            )),
+            ))),
             _ => None,
         }
     }

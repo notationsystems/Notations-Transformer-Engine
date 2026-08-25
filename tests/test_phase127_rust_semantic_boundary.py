@@ -46,6 +46,7 @@ SUBSTRATE_CRATES = (
     "execution-commitment",
     "execution-model",
     "execution-trace",
+    "execution-native",       # added Phase 129: the native backend + engine
     "execution-verification",
     "execution-core",
 )
@@ -63,7 +64,10 @@ def _strip_rust_noise(source: str) -> str:
     guarded, so signatures are what survives this."""
     source = re.sub(r"/\*.*?\*/", " ", source, flags=re.DOTALL)
     source = re.sub(r"//[^\n]*", " ", source)
-    source = re.sub(r'"(?:[^"\\]|\\.)*"', '""', source)
+    # An escape may be backslash-newline (a multi-line literal with
+    # continuations), so the escape class must span lines: `.` alone
+    # missed it and let literal contents leak into the "code" text.
+    source = re.sub(r'"(?:[^"\\]|\\[\s\S])*"', '""', source)
     return source
 
 
@@ -149,7 +153,15 @@ def test_no_verification_function_returns_bare_result_unit():
 
 def test_the_proof_backend_entry_point_returns_a_verification_result():
     """Stated positively, so the guard fails if the trait is gutted
-    rather than only if it is replaced."""
+    rather than only if it is replaced.
+
+    Since Phase 129 (per the Phase 128 review), `verify_supported`
+    returns an AdapterVerdict rather than a VerificationResult: probe 1
+    showed an adapter that constructs the final result can detach the
+    warrant from its statement, and probe 2 showed it can inflate
+    coverage. Result assembly is the sealed entry point's job now, so
+    the adapter-facing method returning `VerificationResult` again would
+    reopen both holes."""
     source = _strip_rust_noise(
         (CRATES / "execution-verification" / "src" / "lib.rs").read_text()
     )
@@ -157,8 +169,9 @@ def test_the_proof_backend_entry_point_returns_a_verification_result():
     assert returns.get("verify") == "VerificationResult", (
         f"ProofBackend::verify returns {returns.get('verify')!r}, not VerificationResult"
     )
-    assert returns.get("verify_supported") == "VerificationResult", (
-        "the backend-implemented check must also return a VerificationResult"
+    assert returns.get("verify_supported") == "AdapterVerdict", (
+        "the backend-implemented check must return an AdapterVerdict -- the sealed "
+        "entry point, not the adapter, assembles the VerificationResult"
     )
 
 
@@ -311,7 +324,9 @@ def test_no_python_verification_package_reappeared():
 # ---------------------------------------------------------------------
 
 def test_no_backend_adapter_crates_exist_yet():
-    """Phase 127's hard stop. An adapter crate appearing here means the
+    """The hard stop, updated by Phase 129: `execution-native` is the one
+    deliberate addition (a backend that proves nothing and says so). An
+    sp1/nexus/risc0 adapter crate appearing here still means the
     boundary was crossed without the phase that was supposed to cross
     it."""
     present = {p.name for p in CRATES.iterdir() if p.is_dir() and p.name != "target"}

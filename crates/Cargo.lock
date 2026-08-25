@@ -15,6 +15,7 @@ version = "0.1.0"
 dependencies = [
  "execution-commitment",
  "execution-model",
+ "execution-native",
  "execution-serialization",
  "execution-trace",
  "execution-verification",
@@ -26,6 +27,14 @@ version = "0.1.0"
 dependencies = [
  "execution-commitment",
  "execution-serialization",
+]
+
+[[package]]
+name = "execution-native"
+version = "0.1.0"
+dependencies = [
+ "execution-model",
+ "execution-trace",
 ]
 
 [[package]]

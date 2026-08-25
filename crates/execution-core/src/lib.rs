@@ -14,6 +14,9 @@
 //!         v
 //! execution-trace           ExecutionTrace: mints occurrence numbers
 //!         v
+//! execution-native          native backend: DeterministicProgram,
+//!                           execute(), the reference workload
+//!         v
 //! execution-verification    Expectation / VerificationCoverage
 //!                           VerificationResult / ProofBackend
 //! ```
@@ -40,13 +43,16 @@
 
 pub use execution_commitment::{commit, sha256, Commitment};
 pub use execution_model::{
-    AttachProofError, BackendId, BackendKind, ExecutionOccurrence, ExecutionOutcome, InputIdentity,
-    OutputIdentity, ProgramIdentity, ProofArtifact, ProofIdentity, COMPUTATION_TAG,
-    INPUT_COMMITMENT_INVARIANT, INPUT_TAG, OUTPUT_TAG, PROGRAM_TAG, PROOF_TAG,
+    AttachProofError, BackendId, BackendKind, ComputationIdentity, ExecutionOccurrence,
+    ExecutionOutcome, InputIdentity, OutputIdentity, ProgramIdentity, ProofArtifact, ProofIdentity,
+    COMPUTATION_TAG, INPUT_COMMITMENT_INVARIANT, INPUT_TAG, OUTPUT_TAG, PROGRAM_TAG, PROOF_TAG,
+};
+pub use execution_native::{
+    execute, reference, DeterministicProgram, NativeCompletion, NativeExecution, NativeFault,
 };
 pub use execution_serialization::{canonical, canonical_u32};
 pub use execution_trace::{ExecutionTrace, TraceError};
 pub use execution_verification::{
-    Expectation, ProofBackend, RequiredCheck, VerificationCoverage, VerificationFailure,
-    VerificationResult,
+    AdapterVerdict, Expectation, ProofBackend, RequiredCheck, VerificationCoverage,
+    VerificationFailure, VerificationResult,
 };

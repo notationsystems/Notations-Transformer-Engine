@@ -2,12 +2,8 @@
 //!
 //! # Why verification is not Boolean
 //!
-//! This is the design consequence Phase 126 was run to find, and it is
-//! the reason this crate exists in Rust rather than as a Python
-//! interface.
-//!
-//! Phase 126 §6 established that the three substrates do not agree about
-//! what a proof covers:
+//! Phase 126 §6 established that the three zkVM substrates do not agree
+//! about what a proof covers:
 //!
 //! ```text
 //! SP1        does not commit to its input at all. SP1Stdin is never
@@ -21,32 +17,47 @@
 //!            whole execution View, input memory included.
 //! ```
 //!
-//! Now consider the obvious interface:
+//! Given `fn verify(proof, expectation) -> bool`, an SP1 backend returns
+//! `true` having checked program and output only; a Nexus backend
+//! returns the identical `true` having also checked the input. The
+//! caller cannot tell them apart and is entitled to believe the stronger
+//! claim in both cases -- Phase 111's failure mode (an unwarranted claim
+//! entering through a gate that looks like it checked) reintroduced by
+//! the abstraction itself. `Result<(), Error>` carries the same single
+//! bit and fails identically.
 //!
-//! ```text
-//! fn verify(proof, expectation) -> bool
-//! ```
+//! # The two Phase 128 repairs
 //!
-//! Given the same expectation carrying program, input and output, an SP1
-//! backend returns `true` having checked program and output only; a
-//! Nexus backend returns the identical `true` having also checked the
-//! input. **The caller cannot tell them apart, and is entitled to
-//! believe the stronger claim in both cases.**
+//! The Phase 128 adversarial review ran two probes against the Phase 127
+//! version of this module and both drew blood:
 //!
-//! That is Phase 111's failure mode -- an unwarranted claim entering
-//! through a gate that looks like it checked -- reintroduced *by the
-//! abstraction itself*. `Result<(), Error>` fails identically: it carries
-//! exactly one bit of the same information.
+//! **The detachable warrant.** `Verified { coverage, proof, backend }`
+//! did not name the expectation it satisfied. Verifying one artifact
+//! against program A and against program B produced IDENTICAL result
+//! objects: the warrant floated free of its proposition, and a later
+//! reader could attach it to a claim it never checked. Phase 111 one
+//! level up -- Phase 127 kept HOW MUCH was checked and discarded WHAT
+//! was checked. Repair: every [`VerificationResult`] variant embeds the
+//! [`Expectation`] it answered, and the sealed entry point embeds it, so
+//! an adapter cannot mis-attach it.
 //!
-//! So this crate holds two rules and everything else follows from them:
+//! **Coverage inflation.** The Phase 127 entry point screened
+//! capabilities BEFORE dispatch but returned the adapter's claimed
+//! coverage verbatim -- an adapter whose own `capabilities()` said
+//! `input_checked: false` answered `Verified` with `input_checked: true`
+//! and it passed through. Repair: adapters no longer construct
+//! [`VerificationResult`] at all. They return the narrower
+//! [`AdapterVerdict`], and [`ProofBackend::verify`] assembles the result
+//! itself: the proof identity is computed from the artifact actually
+//! examined, the expectation is embedded verbatim, and claimed coverage
+//! outside `capabilities()` or below the expectation's requirements is
+//! refused as [`VerificationFailure::AdapterContractViolation`].
 //!
-//! 1. A result always reports [`VerificationCoverage`] -- what was
-//!    actually checked -- never a bare verdict.
-//! 2. A backend is never asked an expectation it cannot cover.
-//!    [`ProofBackend::verify`] screens against
-//!    [`ProofBackend::capabilities`] first and returns
-//!    [`VerificationResult::Unsupported`], so an uncheckable requirement
-//!    cannot become a success by omission.
+//! What remains trusted -- and is stated as trusted rather than
+//! disguised as verified -- is the adapter's word that its coverage
+//! reflects what its backend's verifier actually enforced. That is the
+//! trusted adapter boundary (`docs/ZKVM_ADAPTER_BOUNDARY.md`); it is
+//! auditable by tamper-vector conformance tests, not provable from here.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -77,12 +88,16 @@ pub enum RequiredCheck {
     ExitCode,
 }
 
-/// What a caller requires of a verification.
+/// What a caller requires of a verification -- the STATEMENT to check.
 ///
 /// The program is always required: a proof about an unspecified program
 /// is not a claim about anything. Everything else is opt-in, and opting
 /// in is what makes a backend that cannot deliver return
 /// [`VerificationResult::Unsupported`] instead of a success.
+///
+/// Since Phase 128 this type is also the payload of every
+/// [`VerificationResult`]: a result names the statement it answered, so
+/// it can never again be read as answering a different one.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Expectation {
     program: ProgramIdentity,
@@ -167,15 +182,9 @@ impl Expectation {
 /// bool`, because either would restore exactly the collapse this type
 /// exists to prevent.
 ///
-/// A coverage of
-///
-/// ```text
-/// { program: true, input: false, output: true, exit_code: true }
-/// ```
-///
-/// is a real and useful result. It is NOT complete verification, and it
-/// must never be presented as such: it is consistent with the execution
-/// having run on an input nobody checked.
+/// In a [`VerificationResult::Failed`], coverage means EXAMINED against
+/// the expectation -- the failure cause names what mismatched. In a
+/// [`VerificationResult::Verified`], examined and matched coincide.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VerificationCoverage {
     /// The proved execution was checked to be of the expected program.
@@ -218,6 +227,16 @@ impl VerificationCoverage {
             RequiredCheck::Output => self.output_checked,
             RequiredCheck::ExitCode => self.exit_code_checked,
         }
+    }
+
+    /// Whether every check this coverage claims is also claimed by
+    /// `limit`. Used by the sealed entry point to refuse an adapter
+    /// whose reported coverage exceeds its own declared capabilities.
+    pub const fn within(&self, limit: &Self) -> bool {
+        (!self.program_checked || limit.program_checked)
+            && (!self.input_checked || limit.input_checked)
+            && (!self.output_checked || limit.output_checked)
+            && (!self.exit_code_checked || limit.exit_code_checked)
     }
 
     /// Which of `expectation`'s required checks this coverage does NOT
@@ -266,14 +285,58 @@ pub enum VerificationFailure {
     },
     /// The proof bytes could not be interpreted by this backend.
     Malformed,
+    /// The adapter's reported coverage broke its own contract: it
+    /// claimed a check outside its declared capabilities, or accepted
+    /// while covering less than the expectation required.
+    ///
+    /// Added by Phase 128, whose second probe demonstrated exactly this
+    /// inflation passing through the Phase 127 entry point unexamined.
+    /// The substrate cannot distinguish adapter dishonesty from an
+    /// adapter bug, so it refuses both identically rather than
+    /// forwarding either as a success.
+    AdapterContractViolation {
+        /// The coverage the adapter claimed.
+        claimed: VerificationCoverage,
+        /// The capabilities the adapter itself declared.
+        capabilities: VerificationCoverage,
+    },
+}
+
+/// What an adapter reports back from its backend-specific check.
+///
+/// Deliberately NOT a [`VerificationResult`]. Phase 128's first probe
+/// showed that letting adapters construct the final result lets them
+/// omit or mis-attach the statement it answers; its second probe showed
+/// they can inflate coverage. So the adapter reports only what its
+/// backend concluded, and the sealed entry point assembles the result --
+/// embedding the expectation verbatim and computing the proof identity
+/// from the artifact actually examined. Structurally, an adapter can no
+/// longer detach a warrant from its claim or name a different proof.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AdapterVerdict {
+    /// The backend's verifier accepted, having examined `coverage`.
+    Accept {
+        /// What the backend actually checked.
+        coverage: VerificationCoverage,
+    },
+    /// The backend's verifier rejected (or could not interpret the
+    /// artifact), having examined `coverage` before stopping.
+    Reject {
+        /// What was examined before the failure was reached.
+        coverage: VerificationCoverage,
+        /// Why it rejected.
+        failure: VerificationFailure,
+    },
 }
 
 /// The outcome of asking a backend to verify a proof against an
 /// expectation.
 ///
-/// Every variant carries coverage. Even a failure says what was
-/// examined, because "it failed" and "it failed the one thing we could
-/// check" are different facts.
+/// Every variant names the [`Expectation`] it answered and carries
+/// coverage. A result is therefore self-describing: separated from its
+/// call site -- stored, logged, forwarded -- it still says exactly which
+/// statement it warrants, which Phase 128 proved the Phase 127 shape did
+/// not.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum VerificationResult {
     /// The proof verified, and covered everything the expectation
@@ -285,16 +348,21 @@ pub enum VerificationResult {
     /// gets a `Verified` whose `input_checked` is false, and that is
     /// correct and must stay visible.
     Verified {
+        /// The statement this result answers.
+        expectation: Expectation,
         /// What was actually checked.
         coverage: VerificationCoverage,
-        /// The proof that was checked.
+        /// The proof that was checked, identified from the artifact the
+        /// entry point actually examined.
         proof: ProofIdentity,
         /// The backend that checked it, and at what version.
         backend: BackendId,
     },
     /// The proof did not verify.
     Failed {
-        /// What was checked before the failure was reached.
+        /// The statement this result answers.
+        expectation: Expectation,
+        /// What was examined before the failure was reached.
         coverage: VerificationCoverage,
         /// Why it failed.
         failure: VerificationFailure,
@@ -304,9 +372,12 @@ pub enum VerificationResult {
     /// The backend cannot check what was required, and did not try.
     ///
     /// This is the variant that stops an uncheckable requirement from
-    /// silently becoming a success. An SP1 backend asked to confirm an
-    /// input lands here -- not in `Verified` with `input_checked: false`.
+    /// silently becoming a success. An SP1-shaped backend asked to
+    /// confirm an input lands here -- not in `Verified` with
+    /// `input_checked: false`.
     Unsupported {
+        /// The statement that was asked.
+        expectation: Expectation,
         /// What this backend can check at all.
         capabilities: VerificationCoverage,
         /// The required checks it cannot perform.
@@ -318,10 +389,14 @@ pub enum VerificationResult {
 
 /// A proving backend that can check a proof against an expectation.
 ///
-/// Phase 128's SP1 and Nexus adapters implement exactly this and nothing
-/// more. Note what is NOT in it: no serialization, no program-commitment
-/// accessor, no proving. Phase 126 §10 found those cannot be shared, so
-/// they are not in the shared trait.
+/// Adapters implement [`backend`](ProofBackend::backend),
+/// [`capabilities`](ProofBackend::capabilities) and
+/// [`verify_supported`](ProofBackend::verify_supported), and nothing
+/// more. Note what is NOT here: no serialization, no program-commitment
+/// accessor, no proving, and -- since Phase 128 -- no authority to
+/// construct the final [`VerificationResult`]. Phase 126 §10 found the
+/// former cannot be shared; Phase 128 found the latter cannot be
+/// entrusted.
 pub trait ProofBackend {
     /// This backend's name and version.
     fn backend(&self) -> &BackendId;
@@ -338,39 +413,93 @@ pub trait ProofBackend {
     /// Nexus      input_checked: true    (verify_expected binds the input)
     /// ```
     ///
-    /// A backend that reports a capability it does not have has
-    /// fabricated a warrant, and no amount of downstream typing can
-    /// recover from that.
+    /// This declaration is TRUSTED, not verified -- but it is no longer
+    /// unaccountable: the entry point refuses any result whose claimed
+    /// coverage exceeds it, so an over-claim here is at least confined
+    /// to what was declared in one auditable place.
     fn capabilities(&self) -> VerificationCoverage;
 
     /// The backend-specific check. Implementors write THIS.
     ///
-    /// It is called only for expectations this backend's
+    /// Called only for expectations this backend's declared
     /// [`capabilities`](ProofBackend::capabilities) already cover, so an
     /// implementation never has to decide what to do about a requirement
-    /// it cannot meet -- it will not be asked.
+    /// it cannot meet -- it will not be asked. It reports an
+    /// [`AdapterVerdict`], never a [`VerificationResult`]: assembly of
+    /// the result is the sealed entry point's job.
     fn verify_supported(
         &self,
         artifact: &ProofArtifact,
         expectation: &Expectation,
-    ) -> VerificationResult;
+    ) -> AdapterVerdict;
 
     /// The entry point. Callers call THIS.
     ///
-    /// Screens the expectation against declared capabilities before the
-    /// backend sees it. This is why "unsupported expectations cannot
-    /// silently become success" is a structural property here rather
-    /// than a convention every adapter must remember.
+    /// Three structural guarantees, none of which depend on the adapter
+    /// behaving:
+    ///
+    /// 1. An expectation the declared capabilities cannot cover never
+    ///    reaches the adapter and returns
+    ///    [`VerificationResult::Unsupported`] -- an uncheckable
+    ///    requirement cannot become a success by omission.
+    /// 2. The result embeds the expectation VERBATIM and identifies the
+    ///    proof from the artifact actually examined -- the warrant
+    ///    cannot detach from its claim (Phase 128, probe 1).
+    /// 3. Claimed coverage outside the declared capabilities, or an
+    ///    acceptance covering less than the expectation requires, is
+    ///    refused as
+    ///    [`VerificationFailure::AdapterContractViolation`] -- coverage
+    ///    cannot inflate (Phase 128, probe 2).
     fn verify(&self, artifact: &ProofArtifact, expectation: &Expectation) -> VerificationResult {
         let capabilities = self.capabilities();
         let missing = capabilities.missing(expectation);
         if !missing.is_empty() {
             return VerificationResult::Unsupported {
+                expectation: expectation.clone(),
                 capabilities,
                 missing,
                 backend: self.backend().clone(),
             };
         }
-        self.verify_supported(artifact, expectation)
+        match self.verify_supported(artifact, expectation) {
+            AdapterVerdict::Accept { coverage } => {
+                if !coverage.within(&capabilities) || !coverage.missing(expectation).is_empty() {
+                    return VerificationResult::Failed {
+                        expectation: expectation.clone(),
+                        coverage: VerificationCoverage::NONE,
+                        failure: VerificationFailure::AdapterContractViolation {
+                            claimed: coverage,
+                            capabilities,
+                        },
+                        backend: self.backend().clone(),
+                    };
+                }
+                VerificationResult::Verified {
+                    expectation: expectation.clone(),
+                    coverage,
+                    proof: artifact.identity(),
+                    backend: self.backend().clone(),
+                }
+            }
+            AdapterVerdict::Reject { coverage, failure } => {
+                if !coverage.within(&capabilities) {
+                    return VerificationResult::Failed {
+                        expectation: expectation.clone(),
+                        coverage: VerificationCoverage::NONE,
+                        failure: VerificationFailure::AdapterContractViolation {
+                            claimed: coverage,
+                            capabilities,
+                        },
+                        backend: self.backend().clone(),
+                    };
+                }
+                VerificationResult::Failed {
+                    expectation: expectation.clone(),
+                    coverage,
+                    failure,
+                    backend: self.backend().clone(),
+                }
+            }
+        }
     }
 }

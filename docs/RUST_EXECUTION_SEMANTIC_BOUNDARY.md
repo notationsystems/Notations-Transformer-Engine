@@ -1,5 +1,16 @@
 # Phase 127 -- The Rust Execution Semantic Boundary
 
+> **Revised by Phases 128-129.** The Phase 128 adversarial review found
+> two holes in the interface described in §5/§9 of this document -- a
+> `Verified` result that did not name the statement it satisfied, and
+> adapter-reported coverage passing through the entry point unvalidated.
+> Both are repaired: adapters now return an `AdapterVerdict` and the
+> sealed entry point assembles every `VerificationResult` with its
+> `Expectation` embedded. The current interface is documented in
+> `docs/RUST_EXECUTION_ARCHITECTURE.md` and
+> `docs/ZKVM_ADAPTER_BOUNDARY.md`; this document remains the Phase 127
+> record.
+
 The smallest compilable Rust substrate that SP1 and Nexus can both
 attach to **without either backend's semantics being forced into our
 canonical model.**

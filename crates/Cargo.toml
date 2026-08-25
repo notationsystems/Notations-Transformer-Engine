@@ -24,6 +24,7 @@ members = [
     "execution-commitment",
     "execution-model",
     "execution-trace",
+    "execution-native",
     "execution-verification",
     "execution-core",
 ]
