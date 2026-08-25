@@ -1,0 +1,51 @@
+# Zero-implementation generality probe: falsify substrate generality by
+# observation PROPERTIES, not named fields. No ingest path, no
+# extension-tree entry, no code. Re-run whenever a core invariant
+# changes.
+purpose: falsify substrate generality
+status: paper_only
+extends: core@0.1
+
+observation_properties:
+  - non_reproducible          # the observed event cannot be re-run
+  - revocable_record          # the source may compel removal
+  - cohort_identity           # the subject is a population, not an object
+  - uncontrolled_conditions   # conditions are recorded, not set
+
+gate: re-run whenever a core invariant changes
+
+criterion:
+  pass: zero core invariants require modification; qualification via
+        per-vertical admissibility classes is permitted
+  fail: any core invariant requires modification to admit these
+        properties
+  on_fail: the invariant was domain-specific and was misfiled as core
+
+# -- evaluation against core@0.1, 2026-08-25 --------------------------
+evaluation:
+  non_reproducible:
+    finding: reproducibility is ALREADY per-vertical here, not a
+      substrate invariant -- the molecular/crystal vertical declares
+      admissibility_class reproducible_on_demand while the substrate
+      only requires execution_recorded (computation identity + trace
+      occurrence). singular_observation (pilot batch, consumed sample)
+      is representable without bending core.
+    bend: none
+  revocable_record:
+    finding: BENDS. evidence_append_only holds with no tombstone
+      semantics -- payload retirement with retained id/provenance edges,
+      and defeasance propagation to canonical claims, do not exist in
+      this pool. A revocation-compelling source cannot be honestly
+      onboarded today.
+    bend: recorded in architecture/invariants.yaml (evidence_append_only
+      limitation); fixing it is a core version increment, not a patch
+  cohort_identity:
+    finding: untested -- no cohort-subject vertical exists; Referent
+      natural_key + kind could carry it, but nothing exercises it.
+    bend: unknown (recorded, not guessed)
+  uncontrolled_conditions:
+    finding: untested at substrate level; the domain vertical's
+      no_context_free_property machinery (materials/quantity.py) makes
+      recorded-not-set conditions REPRESENTABLE, but no such ingest
+      exists.
+    bend: unknown (recorded, not guessed)

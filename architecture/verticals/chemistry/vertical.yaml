@@ -1,0 +1,98 @@
+# Vertical contract: CHEMISTRY. The existing molecular/crystal work IS
+# this vertical's first slice -- inspected, not duplicated. Written
+# retroactively against the already-wired slice; the conformance gate
+# (architecture/conformance.py) exists so every FUTURE wiring passes it
+# first.
+extends: core@0.1
+
+vertical: chemistry
+
+# -- INSPECTION RESULT (2026-08-25): which candidate chemistry concepts
+#    already exist generically, before anything new was created --------
+concept_reconciliation:
+  Molecule:         structures/molecule.py (content-addressed, cartesian-pm)
+  Material:         evidence Referent kind "formulation" + materials/ machinery
+  Property:         observation content {property, value, unit} (open mapping)
+  Measurement:      NOT minted anywhere -- no instrument path exists;
+                    the class exists (evidence/classes.py), unminted
+  Simulation:       ExecutionSpecification + "simulation:*" dispatch
+  Process:          evidence Referent kind "process"
+  LiteratureSource: evidence Source/Document/Record (scout ingest)
+  Dataset:          EvidencePool contents (no separate type needed yet)
+  Instrument:       "ABSENT (instrument_adapters empty below -- deliberate)"
+  Reaction:         ABSENT (no representation; future frontier, not forced)
+  Polymer:          distribution identity (structures/substance.py) -- no
+                    point identity permitted
+  Sample:           ABSENT as a type; discriminator variables carry
+                    sample context until a workload demands more
+  Batch:            distribution identity (structures/substance.py)
+
+extensions:
+  - structures/molecule.py
+  - structures/crystal.py
+  - structures/substance.py        # identity policies + distributions
+  - structures/lowering.py
+  - structures/gromacs_bridge.py
+  - structures/quantity.py          # typed quantities, property context
+  - structures/method_blocks.py     # computed method blocks
+
+observation_types:
+  - {property: pair_energy, class: computed, via: "simulation:*"}
+  - {property: radius_of_gyration, class: computed, via: "simulation:*"}
+  - {property: lattice_volume, class: computed, via: "simulation:*"}
+  - {property: gmx_potential, class: computed, via: "simulation:*"}
+  # No measured observation type: nothing in this vertical is an
+  # instrument. COMPUTATION != MEASUREMENT.
+
+admissibility_class: reproducible_on_demand
+admissibility_classes_available:
+  reproducible_on_demand: [synthesis, characterization, simulation]
+  singular_observation: [pilot/plant batch, scale-up run, consumed sample]
+
+instrument_adapters: []   # GROMACS is a computation engine, not an
+                          # instrument; declaring it one would be the
+                          # computed->measured promotion this
+                          # architecture forbids
+
+retraction_policy: none   # append-only pool without tombstones (core
+                          # limitation recorded in invariants.yaml);
+                          # this vertical's evidence is reproducible on
+                          # demand, so retraction pressure is low
+
+identity:
+  computational: content-addressed structure identities
+    (ste.structure.molecule.v1 / ste.structure.crystal.v1)
+  substance: structures/substance.py -- declared, versioned resolution
+    policy over {tautomer, stereo, salt_solvate, isotope}; merges on
+    substance identity fail closed on policy mismatch
+    (assert_identity_policy)
+  distributions: polymer/formulation/batch require their field sets; a
+    structure string alone is inadmissible
+    (assert_distribution_identity)
+
+contradiction_discriminators:
+  - identity policy
+  - purity
+  - batch/lot
+  - solvent
+  - concentration
+  - temperature
+  - pressure
+  - atmosphere
+  - rate
+  - thermal history
+  - instrument
+  - method
+  - calibration
+  - sample preparation
+  - laboratory
+  - statistical treatment
+  - reported vs corrected values
+
+method_blocks:
+  quantum: [method, functional, basis_set, solvation_model, convergence]
+  md: [force_field, force_field_version, ensemble, timestep,
+       equilibration, sampling_time, thermostat, barostat]
+  ml: [model_id, snapshot, training_evidence_classes, applicability_domain]
+  note: qualified interpretation of execution_recorded -- narrower for
+        canonical assertion in this vertical, core semantics unchanged

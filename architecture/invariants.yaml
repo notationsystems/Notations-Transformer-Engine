@@ -1,0 +1,193 @@
+# The core invariant registry -- bound to THIS repository's actual
+# state (inspected 2026-08-25), never to an aspirational one. Every
+# `status: enforced` entry names executable enforcement that exists;
+# every gap is stated, not defaulted.
+core:
+  name: core
+  version: "0.1"
+
+# ---------------------------------------------------------------------
+# The substrate control loop -- ACQUISITION-FIRST. A loop, not a stack:
+# the control graph binds to these transitions (edges), each with real
+# input/output types and an error surface, not to the boxes.
+# ---------------------------------------------------------------------
+control_loop:
+  edges:
+    - from: acquisition
+      to: evidence
+      via: [adapters/*.py -> scout/pipeline.py (documents/records),
+            execution/dispatcher.py -> materials/results.py (computed results)]
+      error_surface: AdmissionError (refusal, nothing written)
+      note: class assigned here, immutably (evidence/classes.py)
+    - from: evidence
+      to: observation
+      via: [evidence.admission.admit_observation -> EvidencePool.put_observation]
+      error_surface: AdmissionError
+    - from: observation
+      to: trust
+      via: [retrieval/engine.py (DeterministicRetrievalEngine), materials/value.py]
+      error_surface: typed refusals in the retrieval/value layers
+    - from: trust
+      to: canonical_state
+      via: [core/canonical (defeasible state; content-addressed VersionId)]
+      error_surface: core.canonical.validation
+    - from: canonical_state
+      to: retrieval_execution
+      via: [materials/iteration.reevaluate_program -> experiment session ->
+            execution.dispatcher.SpecificationDispatcher]
+      error_surface: refusal semantics (unrunnable/halted/rejected)
+    - from: retrieval_execution
+      to: validation
+      via: [execution verification (ProofBackend, VerifiedExecution),
+            experiment/step semantic gate]
+      error_surface: VerificationFailure / REJECTED occurrences
+    - from: validation
+      to: derived_state
+      via: [evidence.types.DerivedValue + DerivedGrounding, materials model state]
+      error_surface: AdmissionError (grounding must resolve)
+    - from: derived_state
+      to: acquisition
+      rule: THE RETURN EDGE -- derived state re-enters ONLY through
+            acquisition and admission; no direct write into evidence or
+            canonical state exists
+      status: enforced
+      enforcement:
+        locks: tests/test_architecture_sync.py   # minting/write seam ratchet
+        failure_mode: fail_closed
+
+invariants:
+  # -- epistemic boundary (see architecture/evidence_class.yaml for the
+  #    six evidence-classing invariants; registered there, counted here)
+  - id: evidence_classing_set
+    see: architecture/evidence_class.yaml
+    status: registered
+
+  - id: core_schema_closed
+    rule: verticals cannot widen core evidence schemas; extension happens
+          in vertical modules (structures/, materials/) against the open
+          content mapping, never by adding fields to core types
+    status: enforced
+    enforcement:
+      validator: frozen dataclasses + content-addressed identities
+                 (a widened type is a different identity) + the vertical
+                 conformance gate (architecture/conformance.py)
+      failure_mode: fail_closed
+
+  - id: metric_before_optimization
+    rule: optimization requires declared decision criteria; no metric,
+          no optimization target
+    status: enforced
+    enforcement:
+      validator: materials.iteration.reevaluate_program requires explicit
+                 criteria (make_criterion) before any candidate ranking
+      locks: existing materials test suite
+      failure_mode: fail_closed
+
+  - id: provenance_total
+    rule: every observation names its records, every derived value its
+          grounding; admission refuses references that do not resolve
+    status: enforced
+    enforcement:
+      validator: evidence.admission (referential checks on admit_*)
+      locks: existing evidence admission test suite
+      failure_mode: fail_closed
+
+  - id: evidence_append_only
+    rule: nothing is ever deleted; ids are content-addressed
+    status: enforced
+    limitation: TOMBSTONE SEMANTICS ARE ABSENT -- payload retirement with
+                retained identity/provenance edges, and defeasance
+                propagation to downstream canonical claims, are NOT
+                implemented in this pool. Recorded by the generality
+                probe (revocable_record); implementing it is a core
+                change requiring a version increment, not a quiet patch.
+    enforcement:
+      validator: EvidencePool exposes no delete/mutate primitive
+      failure_mode: structural
+
+  # -- agent/process boundary (these bind the DEVELOPMENT process, not
+  #    repository runtime; the runtime contains no hosted model bindings
+  #    and no multi-agent doctrine files -- see model_binding.yaml)
+  - id: no_vendor_in_doctrine
+    status: process
+    note: no doctrine files exist in this repository
+  - id: cross_vendor_validation
+    status: process_unresolved
+    note: see model_binding.yaml builder_check_lineage -- single-binding
+          authorship is the current fact; cross-vendor review is a
+          flagged, undecided process decision
+  - id: no_self_validation
+    status: process
+    note: artifact lineage inside the runtime IS checked (stage-5
+          registry gate, host recomputation); check-AUTHORSHIP lineage
+          is the model_binding.yaml record
+  - id: agent_concurrence_is_not_corroboration
+    status: process
+    note: runtime analog enforced -- multiple proof backends over one
+          computation are independent WARRANTS of one statement, never
+          independent evidence (campaign metadata stays out of evidence
+          identity; locked by stage 7/8 tests)
+  - id: snapshot_drift_detected
+    status: superseded
+    superseded_by: model_binding.yaml snapshot_verification (split into
+                   pin_accepted / behavioral_canary / attested_identity)
+
+  # -- doctrine generation (doctrine is a projection, never a source) --
+  - id: doctrine_source_is_canonical
+    rule: doctrine derives only from the canonical YAML sources
+    status: enforced
+    enforcement: {validator: architecture.doctrine_generator,
+                  locks: tests/test_architecture_sync.py,
+                  failure_mode: fail_closed}
+  - id: doctrine_regeneration_is_deterministic
+    rule: generation is a pure function of the canonical file contents
+    status: enforced
+    enforcement: {locks: tests/test_architecture_sync.py, failure_mode: fail_closed}
+  - id: generated_doctrine_matches_source
+    rule: regenerating and diffing against the committed projection is
+          the gate; a non-zero diff fails closed (this also makes manual
+          edits to generated doctrine fail)
+    status: enforced
+    enforcement: {validator: architecture.conformance.check_doctrine_current,
+                  locks: tests/test_architecture_sync.py,
+                  failure_mode: fail_closed}
+    note: no CI workflow infrastructure exists in this repository; the
+          test suite is the gate and any future CI calls the same check
+  - id: doctrine_budget_enforced
+    rule: generated doctrine is capped; overflow fails closed and directs
+          structural material into schemas/enforcement
+    status: enforced
+    enforcement: {validator: architecture.doctrine_generator.DOCTRINE_BUDGET_CHARS,
+                  failure_mode: fail_closed}
+  - id: no_reproducible_agent_execution_mitigated
+    rule: every hosted agent execution retains the complete audit record
+          (binding, snapshot identity where available, adapter version,
+          doctrine hash, effective prompt, input/output fingerprints,
+          timestamp, lineage); auditability != re-executability, and the
+          distinction is stated
+    status: boundary_implemented
+    enforcement: {validator: architecture.retention.AgentExecutionRecord,
+                  locks: tests/test_architecture_sync.py,
+                  failure_mode: fail_closed}
+    note: no live agent-execution path exists in this repository; the
+          record is the mandatory boundary such a path must construct
+  - id: quarantine_not_discard
+    rule: rejected ingest candidates are retained with failing invariant
+          ids, queryable and repairable; repair re-enters through normal
+          ingest; rejection rate per invariant per run is a metric;
+          there is NO force path
+    status: enforced
+    enforcement: {validator: evidence.quarantine.Quarantine,
+                  locks: tests/test_architecture_sync.py,
+                  failure_mode: fail_closed}
+
+  - id: builder_check_lineage_recorded
+    rule: every enforcement validator records its authoring binding; a
+          validator authored by a binding sharing a vendor with the
+          proposing lineage it constrains requires an explicit review
+          record
+    status: recorded_unresolved
+    enforcement:
+      record: architecture/model_binding.yaml (authorship recorded)
+      unresolved: whether review must be cross-vendor (process decision,
+                  flagged, not defaulted)
