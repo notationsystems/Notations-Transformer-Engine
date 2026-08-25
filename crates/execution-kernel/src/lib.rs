@@ -205,3 +205,279 @@ pub fn heat_diffusion(input: &[u8]) -> Result<alloc::vec::Vec<u8>, KernelFault> 
     }
     Ok(output)
 }
+
+// ---------------------------------------------------------------------
+// Structural kernels (molecular/crystal vertical): a mass-weighted
+// molecular descriptor and a periodic lattice kernel. Same discipline
+// as the first two kernels -- integer arithmetic only, faults refuse
+// rather than repair, and the descriptor commits the exact semantics.
+//
+// The radius-of-gyration kernel exists for a discovered epistemic
+// reason, not convenience: the pairwise kernel consumes COORDINATES
+// only, so a proof of it binds coordinates and nothing else -- changing
+// an atom's ELEMENT cannot move that input commitment. Here the mass
+// (the element's computational shadow) is part of the consumed bytes,
+// so element identity participates in the commitment chain.
+// ---------------------------------------------------------------------
+
+/// Rg kernel fault: input length is not a multiple of 16.
+pub const RG_FAULT_MALFORMED: u32 = 2;
+/// Rg kernel fault: zero atoms (no center of mass exists).
+pub const RG_FAULT_NO_ATOMS: u32 = 3;
+/// Rg kernel fault: a coordinate exceeds |c| <= 2^20.
+pub const RG_FAULT_COORDINATE_BOUND: u32 = 4;
+/// Rg kernel fault: a mass is outside 1..=2^20.
+pub const RG_FAULT_MASS_BOUND: u32 = 5;
+
+const RG_COORDINATE_BOUND: i32 = 1 << 20;
+const RG_MASS_BOUND: u32 = 1 << 20;
+
+#[inline]
+fn rg_atom(input: &[u8], index: usize) -> (u32, i32, i32, i32) {
+    let at = index * 16;
+    let u = |o: usize| {
+        u32::from_le_bytes([
+            input[at + o],
+            input[at + o + 1],
+            input[at + o + 2],
+            input[at + o + 3],
+        ])
+    };
+    let i = |o: usize| {
+        i32::from_le_bytes([
+            input[at + o],
+            input[at + o + 1],
+            input[at + o + 2],
+            input[at + o + 3],
+        ])
+    };
+    (u(0), i(4), i(8), i(12))
+}
+
+/// Mass-weighted squared radius of gyration, exactly per the
+/// descriptor: com = sum(m*c)/sum(m) per axis, rg2 =
+/// sum(m*|r-com|^2)/sum(m), all i128 with truncation toward zero.
+/// Returns the 16 output bytes (rg2 as i128 LE) or the refusing fault.
+pub fn radius_of_gyration(input: &[u8]) -> Result<[u8; 16], KernelFault> {
+    if !input.len().is_multiple_of(16) {
+        return Err(KernelFault {
+            exit_code: RG_FAULT_MALFORMED,
+            detail: "input length is not a multiple of 16",
+        });
+    }
+    let count = input.len() / 16;
+    if count == 0 {
+        return Err(KernelFault {
+            exit_code: RG_FAULT_NO_ATOMS,
+            detail: "zero atoms: no center of mass exists",
+        });
+    }
+    for index in 0..count {
+        let (m, x, y, z) = rg_atom(input, index);
+        if x.abs() > RG_COORDINATE_BOUND
+            || y.abs() > RG_COORDINATE_BOUND
+            || z.abs() > RG_COORDINATE_BOUND
+        {
+            return Err(KernelFault {
+                exit_code: RG_FAULT_COORDINATE_BOUND,
+                detail: "a coordinate exceeds |c| <= 2^20",
+            });
+        }
+        if m == 0 || m > RG_MASS_BOUND {
+            return Err(KernelFault {
+                exit_code: RG_FAULT_MASS_BOUND,
+                detail: "a mass is outside 1..=2^20",
+            });
+        }
+    }
+
+    let (mut total, mut sx, mut sy, mut sz) = (0i128, 0i128, 0i128, 0i128);
+    for index in 0..count {
+        let (m, x, y, z) = rg_atom(input, index);
+        let m = m as i128;
+        total += m;
+        sx += m * x as i128;
+        sy += m * y as i128;
+        sz += m * z as i128;
+    }
+    let (cx, cy, cz) = (sx / total, sy / total, sz / total);
+
+    let mut weighted = 0i128;
+    for index in 0..count {
+        let (m, x, y, z) = rg_atom(input, index);
+        let (dx, dy, dz) = (x as i128 - cx, y as i128 - cy, z as i128 - cz);
+        weighted += m as i128 * (dx * dx + dy * dy + dz * dz);
+    }
+    Ok((weighted / total).to_le_bytes())
+}
+
+/// Crystal kernel fault: input shape is wrong (not 76 + 12n bytes).
+pub const CRYSTAL_FAULT_MALFORMED: u32 = 2;
+/// Crystal kernel fault: zero atoms or more than 1024.
+pub const CRYSTAL_FAULT_ATOM_COUNT: u32 = 3;
+/// Crystal kernel fault: a lattice component exceeds |L| <= 2^30.
+pub const CRYSTAL_FAULT_LATTICE_BOUND: u32 = 4;
+/// Crystal kernel fault: a fractional coordinate is outside 0..1000000.
+pub const CRYSTAL_FAULT_FRACTION_BOUND: u32 = 5;
+/// Crystal kernel fault: the lattice is degenerate (det == 0).
+pub const CRYSTAL_FAULT_DEGENERATE: u32 = 6;
+/// Crystal kernel fault: two atoms (or periodic images) coincide.
+pub const CRYSTAL_FAULT_COINCIDENT: u32 = 7;
+
+const CRYSTAL_LATTICE_BOUND: i64 = 1 << 30;
+const CRYSTAL_MAX_ATOMS: usize = 1024;
+const CRYSTAL_FRACTION_DENOM: i128 = 1_000_000;
+
+#[inline]
+fn crystal_i64(input: &[u8], at: usize) -> i64 {
+    i64::from_le_bytes([
+        input[at],
+        input[at + 1],
+        input[at + 2],
+        input[at + 3],
+        input[at + 4],
+        input[at + 5],
+        input[at + 6],
+        input[at + 7],
+    ])
+}
+
+#[inline]
+fn crystal_frac(input: &[u8], index: usize) -> (i32, i32, i32) {
+    let at = 76 + index * 12;
+    let i = |o: usize| {
+        i32::from_le_bytes([
+            input[at + o],
+            input[at + o + 1],
+            input[at + o + 2],
+            input[at + o + 3],
+        ])
+    };
+    (i(0), i(4), i(8))
+}
+
+/// Periodic lattice kernel, exactly per the descriptor: |det(L)| plus
+/// the minimum squared distance between distinct atom sites over the
+/// 27 neighbour images {-1,0,1}^3 (an atom's own periodic copies
+/// included). Returns 32 output bytes ([volume i128 LE][mind2 i128 LE])
+/// or the refusing fault. Periodicity is SEMANTIC here -- a molecule
+/// has no images; this kernel's nearest neighbour may be a copy of the
+/// same atom one cell over.
+pub fn crystal_lattice(input: &[u8]) -> Result<[u8; 32], KernelFault> {
+    if input.len() < 76 || !(input.len() - 76).is_multiple_of(12) {
+        return Err(KernelFault {
+            exit_code: CRYSTAL_FAULT_MALFORMED,
+            detail: "input length is not 76 + 12*n bytes",
+        });
+    }
+    let count = u32::from_le_bytes([input[72], input[73], input[74], input[75]]) as usize;
+    if input.len() != 76 + 12 * count {
+        return Err(KernelFault {
+            exit_code: CRYSTAL_FAULT_MALFORMED,
+            detail: "atom count disagrees with input length",
+        });
+    }
+    if count == 0 || count > CRYSTAL_MAX_ATOMS {
+        return Err(KernelFault {
+            exit_code: CRYSTAL_FAULT_ATOM_COUNT,
+            detail: "atom count is outside 1..=1024",
+        });
+    }
+    let mut lattice = [[0i64; 3]; 3];
+    for (row, lattice_row) in lattice.iter_mut().enumerate() {
+        for (col, component) in lattice_row.iter_mut().enumerate() {
+            let value = crystal_i64(input, (row * 3 + col) * 8);
+            if value.abs() > CRYSTAL_LATTICE_BOUND {
+                return Err(KernelFault {
+                    exit_code: CRYSTAL_FAULT_LATTICE_BOUND,
+                    detail: "a lattice component exceeds |L| <= 2^30",
+                });
+            }
+            *component = value;
+        }
+    }
+    for index in 0..count {
+        let (fx, fy, fz) = crystal_frac(input, index);
+        for f in [fx, fy, fz] {
+            if !(0..CRYSTAL_FRACTION_DENOM as i32).contains(&f) {
+                return Err(KernelFault {
+                    exit_code: CRYSTAL_FAULT_FRACTION_BOUND,
+                    detail: "a fractional coordinate is outside 0..1000000",
+                });
+            }
+        }
+    }
+
+    let a = [
+        lattice[0][0] as i128,
+        lattice[0][1] as i128,
+        lattice[0][2] as i128,
+    ];
+    let b = [
+        lattice[1][0] as i128,
+        lattice[1][1] as i128,
+        lattice[1][2] as i128,
+    ];
+    let c = [
+        lattice[2][0] as i128,
+        lattice[2][1] as i128,
+        lattice[2][2] as i128,
+    ];
+    let det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    if det == 0 {
+        return Err(KernelFault {
+            exit_code: CRYSTAL_FAULT_DEGENERATE,
+            detail: "the lattice is degenerate (det == 0)",
+        });
+    }
+    let volume = det.abs();
+
+    let cart = |index: usize| -> [i128; 3] {
+        let (fx, fy, fz) = crystal_frac(input, index);
+        let mut out = [0i128; 3];
+        for (axis, slot) in out.iter_mut().enumerate() {
+            *slot = (fx as i128 * a[axis] + fy as i128 * b[axis] + fz as i128 * c[axis])
+                / CRYSTAL_FRACTION_DENOM;
+        }
+        out
+    };
+
+    let mut mind2: Option<i128> = None;
+    for i in 0..count {
+        let ri = cart(i);
+        for j in i..count {
+            let rj = cart(j);
+            for sx in -1i128..=1 {
+                for sy in -1i128..=1 {
+                    for sz in -1i128..=1 {
+                        if i == j && sx == 0 && sy == 0 && sz == 0 {
+                            continue;
+                        }
+                        let mut d2 = 0i128;
+                        for axis in 0..3 {
+                            let shift = sx * a[axis] + sy * b[axis] + sz * c[axis];
+                            let d = ri[axis] - rj[axis] + shift;
+                            d2 += d * d;
+                        }
+                        if d2 == 0 {
+                            return Err(KernelFault {
+                                exit_code: CRYSTAL_FAULT_COINCIDENT,
+                                detail: "two atom sites (or periodic images) coincide",
+                            });
+                        }
+                        if mind2.is_none_or(|m| d2 < m) {
+                            mind2 = Some(d2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mind2 = mind2.expect("count >= 1 guarantees at least the self-image distances");
+
+    let mut output = [0u8; 32];
+    output[..16].copy_from_slice(&volume.to_le_bytes());
+    output[16..].copy_from_slice(&mind2.to_le_bytes());
+    Ok(output)
+}

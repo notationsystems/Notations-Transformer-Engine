@@ -114,3 +114,64 @@ def encode_positions(positions: list[tuple[int, int, int]]) -> bytes:
     import struct
 
     return b"".join(struct.pack("<iii", x, y, z) for (x, y, z) in positions)
+
+
+# ---------------------------------------------------------------------
+# Structural kernels (molecular/crystal vertical) -- byte-for-byte the
+# Rust constants in `execution_native::reference`, like the two above;
+# the engine round-trip pins the agreement.
+# ---------------------------------------------------------------------
+
+#: The mass-weighted radius-of-gyration kernel. The mass field is the
+#: point: it puts the element's computational shadow into the CONSUMED
+#: bytes, so changing an atom's element moves the input commitment --
+#: which the coordinate-only pairwise kernel structurally cannot do.
+RADIUS_OF_GYRATION_DESCRIPTOR = (
+    b"scout.native.radius-of-gyration-kernel.v1\n"
+    b"input: N*16 bytes of (mass u32 LE, x,y,z i32 LE); N>=1; |coord|<=2^20; 1<=mass<=2^20\n"
+    b"com = sum(m*c)/sum(m) per axis; rg2 = sum(m*|r-com|^2)/sum(m)\n"
+    b"(all i128, integer division truncating toward zero; coordinate checked before mass)\n"
+    b"output: rg2 as i128 LE (16 bytes); exit 0\n"
+    b"faults: 2=malformed length, 3=no atoms, 4=coordinate bound, 5=mass bound"
+)
+
+#: The periodic-lattice kernel. Periodicity is semantic: nearest
+#: neighbours include an atom's own images over the committed shift set.
+CRYSTAL_LATTICE_DESCRIPTOR = (
+    b"scout.native.crystal-lattice-kernel.v1\n"
+    b"input: [9 x i64 LE lattice rows a,b,c in pm][n u32 LE][n*12 bytes (fx,fy,fz) i32 LE millionths]\n"
+    b"bounds: |L|<=2^30; 1<=n<=1024; 0<=f<1000000; cart(f) = (fx*a+fy*b+fz*c)/1000000 per axis\n"
+    b"volume = |det(L)|; mind2 = min over sites i<=j and shifts s in {-1,0,1}^3 (i==j excludes s=0)\n"
+    b"of |cart_i - cart_j + s*L|^2 (all i128, truncation toward zero; zero distance faults)\n"
+    b"output: [volume i128 LE][mind2 i128 LE] (32 bytes); exit 0\n"
+    b"faults: 2=malformed, 3=atom count, 4=lattice bound, 5=fraction bound, 6=degenerate, 7=coincident"
+)
+
+
+def encode_rg_input(atoms: list[tuple[int, int, int, int]]) -> bytes:
+    """The Rg kernel's canonical input encoding -- mirrors
+    `execution_native::reference::encode_rg_input`; atoms are
+    (mass, x, y, z)."""
+    import struct
+
+    out = b""
+    for mass, x, y, z in atoms:
+        out += struct.pack("<Iiii", mass, x, y, z)
+    return out
+
+
+def encode_crystal_input(lattice, sites) -> bytes:
+    """The crystal kernel's canonical input encoding -- mirrors
+    `execution_native::reference::encode_crystal_input`; `lattice` is
+    three (x, y, z) integer rows in pm, `sites` are (fx, fy, fz) in
+    millionths."""
+    import struct
+
+    out = b""
+    for row in lattice:
+        for component in row:
+            out += struct.pack("<q", component)
+    out += struct.pack("<I", len(sites))
+    for fx, fy, fz in sites:
+        out += struct.pack("<iii", fx, fy, fz)
+    return out

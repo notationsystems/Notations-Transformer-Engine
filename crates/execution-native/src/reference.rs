@@ -289,3 +289,236 @@ mod heat_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// Structural kernels (molecular/crystal vertical): the third and fourth
+// reference workloads. Same contract and caveats as the first two --
+// deterministic integer semantics committed by the descriptor, faults
+// refuse rather than repair, and no claim about any physical material.
+// ---------------------------------------------------------------------
+
+/// The canonical descriptor [`RadiusOfGyrationKernel`] is identified by.
+/// The mass field is the point of this kernel: it makes the element's
+/// computational shadow part of the CONSUMED bytes, so a changed atom
+/// type moves the input commitment (the pairwise kernel, consuming
+/// coordinates only, cannot bind element identity).
+pub const RADIUS_OF_GYRATION_DESCRIPTOR: &[u8] = concat!(
+    "scout.native.radius-of-gyration-kernel.v1\n",
+    "input: N*16 bytes of (mass u32 LE, x,y,z i32 LE); N>=1; |coord|<=2^20; 1<=mass<=2^20\n",
+    "com = sum(m*c)/sum(m) per axis; rg2 = sum(m*|r-com|^2)/sum(m)\n",
+    "(all i128, integer division truncating toward zero; coordinate checked before mass)\n",
+    "output: rg2 as i128 LE (16 bytes); exit 0\n",
+    "faults: 2=malformed length, 3=no atoms, 4=coordinate bound, 5=mass bound",
+)
+.as_bytes();
+
+/// The mass-weighted radius-of-gyration workload.
+pub struct RadiusOfGyrationKernel;
+
+impl DeterministicProgram for RadiusOfGyrationKernel {
+    fn canonical_bytes(&self) -> &[u8] {
+        RADIUS_OF_GYRATION_DESCRIPTOR
+    }
+
+    fn run(&self, input: &[u8]) -> Result<NativeCompletion, NativeFault> {
+        match execution_kernel::radius_of_gyration(input) {
+            Ok(output) => Ok(NativeCompletion {
+                output: output.to_vec(),
+                exit_code: 0,
+            }),
+            Err(fault) => Err(NativeFault {
+                exit_code: fault.exit_code,
+                detail: fault.detail.to_string(),
+            }),
+        }
+    }
+}
+
+/// Encode (mass, x, y, z) atoms into the Rg kernel's canonical input.
+pub fn encode_rg_input(atoms: &[(u32, i32, i32, i32)]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(atoms.len() * 16);
+    for (m, x, y, z) in atoms {
+        bytes.extend_from_slice(&m.to_le_bytes());
+        bytes.extend_from_slice(&x.to_le_bytes());
+        bytes.extend_from_slice(&y.to_le_bytes());
+        bytes.extend_from_slice(&z.to_le_bytes());
+    }
+    bytes
+}
+
+/// The canonical descriptor [`CrystalLatticeKernel`] is identified by.
+/// Periodicity is SEMANTIC here: nearest neighbours include an atom's
+/// own images over the committed {-1,0,1}^3 shift set, which is why a
+/// crystal cannot honestly be run as "a molecule with extra fields".
+pub const CRYSTAL_LATTICE_DESCRIPTOR: &[u8] = concat!(
+    "scout.native.crystal-lattice-kernel.v1\n",
+    "input: [9 x i64 LE lattice rows a,b,c in pm][n u32 LE][n*12 bytes (fx,fy,fz) i32 LE millionths]\n",
+    "bounds: |L|<=2^30; 1<=n<=1024; 0<=f<1000000; cart(f) = (fx*a+fy*b+fz*c)/1000000 per axis\n",
+    "volume = |det(L)|; mind2 = min over sites i<=j and shifts s in {-1,0,1}^3 (i==j excludes s=0)\n",
+    "of |cart_i - cart_j + s*L|^2 (all i128, truncation toward zero; zero distance faults)\n",
+    "output: [volume i128 LE][mind2 i128 LE] (32 bytes); exit 0\n",
+    "faults: 2=malformed, 3=atom count, 4=lattice bound, 5=fraction bound, 6=degenerate, 7=coincident",
+)
+.as_bytes();
+
+/// The periodic-lattice workload.
+pub struct CrystalLatticeKernel;
+
+impl DeterministicProgram for CrystalLatticeKernel {
+    fn canonical_bytes(&self) -> &[u8] {
+        CRYSTAL_LATTICE_DESCRIPTOR
+    }
+
+    fn run(&self, input: &[u8]) -> Result<NativeCompletion, NativeFault> {
+        match execution_kernel::crystal_lattice(input) {
+            Ok(output) => Ok(NativeCompletion {
+                output: output.to_vec(),
+                exit_code: 0,
+            }),
+            Err(fault) => Err(NativeFault {
+                exit_code: fault.exit_code,
+                detail: fault.detail.to_string(),
+            }),
+        }
+    }
+}
+
+/// Encode a lattice (three row vectors, pm) and fractional sites
+/// (millionths) into the crystal kernel's canonical input.
+pub fn encode_crystal_input(lattice: &[[i64; 3]; 3], sites: &[(i32, i32, i32)]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(76 + sites.len() * 12);
+    for row in lattice {
+        for component in row {
+            bytes.extend_from_slice(&component.to_le_bytes());
+        }
+    }
+    bytes.extend_from_slice(&(sites.len() as u32).to_le_bytes());
+    for (fx, fy, fz) in sites {
+        bytes.extend_from_slice(&fx.to_le_bytes());
+        bytes.extend_from_slice(&fy.to_le_bytes());
+        bytes.extend_from_slice(&fz.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod structural_tests {
+    use super::*;
+
+    #[test]
+    fn rg_is_deterministic_and_mass_sensitive() {
+        // the water-shaped case: same coordinates, one mass changed
+        // (O -> S, say) => different rg2. THIS is what the pairwise
+        // kernel cannot see.
+        let water = encode_rg_input(&[(16, 0, 0, 0), (1, 757, 587, 0), (1, -757, 587, 0)]);
+        let heavier = encode_rg_input(&[(32, 0, 0, 0), (1, 757, 587, 0), (1, -757, 587, 0)]);
+        let kernel = RadiusOfGyrationKernel;
+        assert_eq!(kernel.run(&water), kernel.run(&water));
+        assert_ne!(
+            kernel.run(&water).unwrap().output,
+            kernel.run(&heavier).unwrap().output,
+            "a changed mass is a changed computation"
+        );
+    }
+
+    #[test]
+    fn rg_faults_are_the_descriptor_codes() {
+        let kernel = RadiusOfGyrationKernel;
+        assert_eq!(kernel.run(&[1, 2, 3]).unwrap_err().exit_code, 2);
+        assert_eq!(kernel.run(&[]).unwrap_err().exit_code, 3);
+        assert_eq!(
+            kernel
+                .run(&encode_rg_input(&[(1, 1 << 21, 0, 0)]))
+                .unwrap_err()
+                .exit_code,
+            4
+        );
+        assert_eq!(
+            kernel
+                .run(&encode_rg_input(&[(0, 1, 1, 1)]))
+                .unwrap_err()
+                .exit_code,
+            5
+        );
+    }
+
+    #[test]
+    fn crystal_volume_and_periodic_neighbour_are_exact_for_cubic_argon() {
+        // FCC argon, a = 526 pm scaled to a small integer test cell:
+        // cubic a=526000 pm cell with 4 sites. volume = a^3 exactly;
+        // nearest neighbour = a/sqrt(2) -- mind2 = a^2/2 up to the
+        // committed truncation.
+        let a = 526_000i64;
+        let lattice = [[a, 0, 0], [0, a, 0], [0, 0, a]];
+        let sites = [
+            (0, 0, 0),
+            (500_000, 500_000, 0),
+            (500_000, 0, 500_000),
+            (0, 500_000, 500_000),
+        ];
+        let out = CrystalLatticeKernel
+            .run(&encode_crystal_input(&lattice, &sites))
+            .unwrap();
+        let volume = i128::from_le_bytes(out.output[..16].try_into().unwrap());
+        let mind2 = i128::from_le_bytes(out.output[16..].try_into().unwrap());
+        assert_eq!(volume, (a as i128).pow(3));
+        assert_eq!(mind2, (a as i128).pow(2) / 2);
+    }
+
+    #[test]
+    fn crystal_periodicity_is_semantic_one_atom_still_has_neighbours() {
+        // a single atom's nearest neighbour is its own image one cell
+        // over -- the property a "molecule with unused fields" would not
+        // have.
+        let lattice = [[100, 0, 0], [0, 200, 0], [0, 0, 300]];
+        let out = CrystalLatticeKernel
+            .run(&encode_crystal_input(&lattice, &[(0, 0, 0)]))
+            .unwrap();
+        let mind2 = i128::from_le_bytes(out.output[16..].try_into().unwrap());
+        assert_eq!(mind2, 100 * 100, "shortest lattice vector wins");
+    }
+
+    #[test]
+    fn crystal_faults_are_the_descriptor_codes() {
+        let kernel = CrystalLatticeKernel;
+        let cube = [[1000i64, 0, 0], [0, 1000, 0], [0, 0, 1000]];
+        assert_eq!(kernel.run(&[0u8; 10]).unwrap_err().exit_code, 2);
+        assert_eq!(
+            kernel
+                .run(&encode_crystal_input(&cube, &[]))
+                .unwrap_err()
+                .exit_code,
+            3
+        );
+        let big = [[1i64 << 31, 0, 0], [0, 1000, 0], [0, 0, 1000]];
+        assert_eq!(
+            kernel
+                .run(&encode_crystal_input(&big, &[(0, 0, 0)]))
+                .unwrap_err()
+                .exit_code,
+            4
+        );
+        assert_eq!(
+            kernel
+                .run(&encode_crystal_input(&cube, &[(-1, 0, 0)]))
+                .unwrap_err()
+                .exit_code,
+            5
+        );
+        let flat = [[1000i64, 0, 0], [2000, 0, 0], [0, 0, 1000]];
+        assert_eq!(
+            kernel
+                .run(&encode_crystal_input(&flat, &[(0, 0, 0)]))
+                .unwrap_err()
+                .exit_code,
+            6
+        );
+        assert_eq!(
+            kernel
+                .run(&encode_crystal_input(&cube, &[(0, 0, 0), (0, 0, 0)]))
+                .unwrap_err()
+                .exit_code,
+            7
+        );
+    }
+}
