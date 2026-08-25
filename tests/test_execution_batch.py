@@ -147,3 +147,66 @@ def test_forward_batch_refuses_faulted_items_by_index():
 
     with pytest.raises(RuntimeError, match="batch item 0"):
         Sneaky(EYE4, MIXER, EYE4).forward_batch([good])
+
+
+# -- checker-cost phase: optimized checking, identical verification ----------------------------------
+
+
+def test_optimized_and_reference_checkers_agree_on_valid_and_tampered_corpus():
+    """The reference checker (`_check_result` with no precomputed
+    identities) and the batch path's digest-reuse checker must agree
+    EXACTLY -- acceptance for acceptance, rejection for rejection, on
+    valid blocks and on every class of tampered identity. Digest reuse
+    shares computation over byte-identical inputs; it must never share
+    a verdict."""
+    from execution.engine import EngineIdentityMismatch, _check_result, _parse_lines, _split_blocks
+    import subprocess as sp
+
+    specs = [_heat(seed) for seed in (1, 1, 2)]  # duplicates included
+    raw = b"".join(_encode_request(s) for s in specs)
+    proc = sp.run([str(default_cli_path())], input=raw, capture_output=True)
+    blocks = _split_blocks(proc.stdout.decode())
+    fields = [_parse_lines(b) for b in blocks]
+
+    # valid corpus: reference vs batch path agree field-for-field
+    reference = [_check_result(s, f) for s, f in zip(specs, fields)]
+    batch = run_specifications(specs)
+    for ref, opt in zip(reference, batch):
+        assert ref.computation_identity == opt.computation_identity
+        assert ref.output == opt.output and ref.status == opt.status
+
+    # tampered corpus: every identity field, both checkers reject
+    for key in ("spec", "program", "input", "output_id", "computation"):
+        tampered = dict(fields[0])
+        tampered[key] = "ab" * 32
+        with pytest.raises(EngineIdentityMismatch):
+            _check_result(specs[0], tampered)
+        with pytest.raises(EngineIdentityMismatch):
+            _check_result(specs[0], tampered, precomputed=(
+                specs[0].identity(), specs[0].program_identity(),
+                specs[0].input_identity()))
+    # tampered output BYTES (identity fields left alone): both reject --
+    # a flipped byte, because integer truncation can make two nearby
+    # heat inputs converge to IDENTICAL outputs (observed: seeds 1 and 2
+    # do), and swapping equal outputs would be no tamper at all
+    flipped = dict(fields[0])
+    first = "0" if flipped["output"][0] != "0" else "f"
+    flipped["output"] = first + flipped["output"][1:]
+    with pytest.raises(EngineIdentityMismatch):
+        _check_result(specs[0], flipped)
+    with pytest.raises(EngineIdentityMismatch):
+        _check_result(specs[0], flipped, precomputed=(
+            specs[0].identity(), specs[0].program_identity(),
+            specs[0].input_identity()))
+
+
+def test_digest_reuse_never_collapses_operations():
+    """[A, A, A, B]: the duplicates share digest COMPUTATION and
+    therefore computation identity (content), while remaining three
+    executed operations with distinct occurrences -- reuse of work,
+    never of operations."""
+    a, b = _heat(1), _heat(2)
+    batch = run_specifications([a, a, a, b])
+    assert len({r.computation_identity for r in batch[:3]}) == 1
+    assert [r.engine_occurrence for r in batch] == [0, 1, 2, 3]
+    assert batch[3].computation_identity != batch[0].computation_identity

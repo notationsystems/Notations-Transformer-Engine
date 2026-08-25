@@ -143,3 +143,40 @@ item that make the engine checked-not-trusted), now ~1000× the kernel
 arithmetic. Amortizing *that* honestly (without weakening the
 recompute-and-compare discipline) is the next frontier if a workload
 ever needs more than ~11 k forwards/s.
+
+## Phase 3 — Per-Item Checker Cost (profiled, optimized, stopped)
+
+The profile OVERTURNED the predicted attribution, and the measurement
+governs: at B=256 the engine subprocess side costs **~35–37 µs/item**
+(execution + result formatting + the batch process's amortized share),
+while Python-side checking costs only **16.8 µs/item** — parsing
+~3.6 µs, the five digest computations ~12.5 µs. The "0.088 ms of
+Python checking" prediction was wrong by attribution; checking was a
+third of the marginal cost, not most of it.
+
+The one provably-safe reduction: batch members share byte-identical
+program bytes (and duplicate specs share everything), yet identities
+were recomputed per item. `run_specifications` now reuses digests per
+batch, keyed by the exact input bytes — dict key equality IS the
+byte-for-byte identity proof, and the digests come from the very same
+identity functions. `_check_result` with no precomputed identities
+remains the untouched semantic reference; a corpus lock requires exact
+verdict agreement between reference and optimized paths on valid
+blocks and on every tampered identity class (spec, program, input,
+output_id, computation, flipped output bytes) — one lock construction
+defect was caught by running: two nearby heat inputs CONVERGE to
+identical outputs under integer truncation, so an output "swap" was no
+tamper; replaced with a byte flip. Duplicates still never collapse
+operations ([A,A,A,B] → one content identity, occurrences 0..3).
+
+Measured result: Python checking 16.8 → **13.5 µs/item**; end-to-end
+0.088 → **0.083 ms/forward (12,062 forwards/s, ×22.9)**. About 6% of
+the marginal cost was removable without weakening verification; the
+rest of the checker cost is SHA-256 over per-item-unique bytes — the
+price of checked-not-trusted, and it stays.
+
+**Stop condition applied**: no current workload is constrained at
+12 k forwards/s, and the remaining marginal dominator is the
+engine-side per-request work — a Rust/STE frontier (result hex
+formatting, per-request bookkeeping) to take up only if a real
+workload demands it. Recorded, not built.

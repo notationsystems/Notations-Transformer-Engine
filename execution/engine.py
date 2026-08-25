@@ -155,10 +155,36 @@ def run_specifications(
         raise EngineProtocolError(
             f"engine answered {len(blocks)} result blocks for {len(specs)} requests"
         )
+    # Per-batch digest reuse (checker-cost phase): identical BYTES have
+    # identical digests, so a digest computed once per distinct byte
+    # string may be shared across batch members -- dict key equality IS
+    # the byte-for-byte identity proof, and the digests are produced by
+    # the very same identity functions. This reuses COMPUTATION of an
+    # identity, never an identity across different bytes, and it changes
+    # no acceptance decision: `_check_result` with no precomputed
+    # identities remains the semantic reference, and the two are locked
+    # to agree (tests/test_execution_batch.py).
+    program_digests: dict = {}
+    input_digests: dict = {}
+    spec_digests: dict = {}
     results = []
     for at, (spec, block) in enumerate(zip(specs, blocks)):
+        program_key = spec.program
+        program_identity = program_digests.get(program_key)
+        if program_identity is None:
+            program_identity = program_digests[program_key] = spec.program_identity()
+        input_key = spec.input_payload
+        input_identity = input_digests.get(input_key)
+        if input_identity is None:
+            input_identity = input_digests[input_key] = spec.input_identity()
+        spec_key = (spec.program, spec.configuration, spec.input_payload)
+        spec_identity = spec_digests.get(spec_key)
+        if spec_identity is None:
+            spec_identity = spec_digests[spec_key] = spec.identity()
         try:
-            results.append(_check_result(spec, _parse_lines(block)))
+            results.append(_check_result(
+                spec, _parse_lines(block),
+                precomputed=(spec_identity, program_identity, input_identity)))
         except ExecutionRefused as refusal:
             raise ExecutionRefused(f"batch item {at}: {refusal}") from refusal
     return results
@@ -177,12 +203,23 @@ def _split_blocks(text: str) -> "list[str]":
     return ["\n".join(block) for block in blocks]
 
 
-def _check_result(spec: ExecutionSpecification, fields: dict) -> ExecutionResult:
+def _check_result(
+    spec: ExecutionSpecification,
+    fields: dict,
+    precomputed: "Optional[tuple]" = None,
+) -> ExecutionResult:
     """Check ONE result block against OUR recomputation -- the original
-    single-run logic, verbatim in behavior, shared by both paths."""
+    single-run logic, verbatim in behavior, shared by both paths.
+
+    `precomputed`, when given, carries (spec_identity, program_identity,
+    input_identity) digests ALREADY produced by the same identity
+    functions over byte-identical inputs (the batch path's per-batch
+    reuse). With `precomputed=None` this function computes everything
+    itself and is the semantic REFERENCE the optimized path is locked
+    against. Either way: recompute-and-compare, never trust."""
     # The result must name the request it answers (Phase 128 probe 1, at
     # the process seam) -- and the name must be OUR recomputation.
-    expected_spec = spec.identity()
+    expected_spec = spec.identity() if precomputed is None else precomputed[0]
     if fields.get("spec") != expected_spec:
         raise EngineIdentityMismatch(
             f"engine answered spec {fields.get('spec')!r}; this request is {expected_spec}"
@@ -194,8 +231,11 @@ def _check_result(spec: ExecutionSpecification, fields: dict) -> ExecutionResult
     if status not in ("completed", "halted"):
         raise EngineProtocolError(f"unknown status {status!r}")
 
-    program_identity = spec.program_identity()
-    input_identity = spec.input_identity()
+    if precomputed is None:
+        program_identity = spec.program_identity()
+        input_identity = spec.input_identity()
+    else:
+        _, program_identity, input_identity = precomputed
     for key, expected in (("program", program_identity), ("input", input_identity)):
         if fields.get(key) != expected:
             raise EngineIdentityMismatch(
