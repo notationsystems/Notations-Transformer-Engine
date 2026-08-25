@@ -9,6 +9,7 @@ execution-core = { path = "../../crates/execution-core" }
 sp1-sdk = { path = "../../../notationsystems/SP1-zero-knowledge-virtual-machine/crates/sdk", features = ["blocking"] }
 bincode = "1.3.3"
 anyhow = "1.0"
+sha2 = "0.10"
 
 [[bin]]
 name = "sp1-host"

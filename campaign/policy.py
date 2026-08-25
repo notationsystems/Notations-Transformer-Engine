@@ -81,6 +81,19 @@ class VerificationLane:
         artifact = self.artifact_for(spec)
         return self.host_path.exists() and artifact is not None and artifact.exists()
 
+    def verifier_artifact_for(self, spec: ExecutionSpecification) -> Optional[pathlib.Path]:
+        """Stage 10: the persisted verification artifact for this lane's
+        registered guest, when one has been exported (convention: the
+        `.vkart` sibling of the guest ELF). None simply means hits pay
+        the per-verification setup -- correctness is identical either
+        way, and a PRESENT-but-invalid artifact fails closed in the
+        host, never silently falls back."""
+        artifact = self.artifact_for(spec)
+        if artifact is None:
+            return None
+        candidate = artifact.with_name(artifact.name + ".vkart")
+        return candidate if candidate.exists() else None
+
 
 def default_lanes() -> dict:
     from execution.proving import (
@@ -236,6 +249,7 @@ def policy_runner(
                 fields = verify_existing_proof(
                     native, spec, hit.proof_path, lane.host_path,
                     lane.artifact_for(spec),
+                    verifier_artifact=lane.verifier_artifact_for(spec),
                 )
                 if fields.get("outcome") == "verified":
                     _record(spec, role, lane_name, "verified", started,

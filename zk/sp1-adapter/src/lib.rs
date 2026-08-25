@@ -49,8 +49,35 @@ use execution_core::{
     AdapterVerdict, BackendId, Expectation, ProgramIdentity, ProofArtifact, ProofBackend,
     VerificationCoverage, VerificationFailure,
 };
-use sp1_sdk::blocking::{CpuProver, ProveRequest, Prover, ProverClient};
-use sp1_sdk::{Elf, HashableKey, ProvingKey, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin};
+use sp1_sdk::blocking::{CpuProver, LightProver, ProveRequest, Prover, ProverClient};
+use sp1_sdk::{
+    Elf, HashableKey, ProvingKey, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
+    SP1VerificationError, SP1VerifyingKey,
+};
+
+/// The verifier machinery behind the backend -- either the full CPU
+/// prover node (can prove and verify) or the SDK's `LightProver`
+/// ("only executes and verifies but does not generate proofs"), which
+/// is what a persisted verification artifact reconstructs. Both verify
+/// through the SAME `verify_proof` path in the SDK; the light node
+/// simply never built the proving machinery.
+enum Sp1Client {
+    Full(CpuProver),
+    Light(LightProver),
+}
+
+impl Sp1Client {
+    fn verify(
+        &self,
+        proof: &SP1ProofWithPublicValues,
+        vk: &SP1VerifyingKey,
+    ) -> Result<(), SP1VerificationError> {
+        match self {
+            Sp1Client::Full(client) => client.verify(proof, vk, None),
+            Sp1Client::Light(client) => client.verify(proof, vk, None),
+        }
+    }
+}
 
 /// The public-values layout tag. Must match the guest's constant.
 pub const SP1_IO_CONVENTION_TAG: &[u8] = b"ste.sp1.kernel-io.v1";
@@ -102,15 +129,45 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The SP1 backend for the pairwise-energy guest.
+/// The SP1 backend for a registered guest.
+///
+/// STE stage 10: the backend can be constructed two ways --
+/// [`Sp1KernelBackend::setup`] (full proving-key generation; can prove
+/// AND verify) or [`Sp1KernelBackend::from_verification_artifact`]
+/// (verify-only, from the persisted verifying key; `prove` refuses).
+/// Both paths verify through the identical sealed `ProofBackend`
+/// machinery -- the artifact reuses verifier SETUP, never a verdict.
 pub struct Sp1KernelBackend {
-    client: CpuProver,
-    pk: SP1ProvingKey,
+    client: Sp1Client,
+    vk: SP1VerifyingKey,
+    /// Present only when constructed via `setup`; proving requires it,
+    /// verification never touches it.
+    pk: Option<SP1ProvingKey>,
     backend_id: BackendId,
     /// The descriptor-level program identity this guest is REGISTERED as
     /// implementing -- the declared binding described in the crate docs.
     program_binding: ProgramIdentity,
 }
+
+/// The persisted verification artifact's header line. The format is
+/// deliberately self-identifying and fail-closed:
+///
+/// ```text
+/// ste-sp1-verification-artifact v1
+/// backend sp1-cpu <sdk-version>
+/// program <64-hex ProgramIdentity of the registered descriptor>
+/// elf_sha256 <64-hex of the reproducible guest ELF>
+/// vkey_hash <SP1 bytes32 commitment of the verifying key>
+/// payload <byte length of the bincode SP1VerifyingKey>
+/// <raw payload bytes>
+/// ```
+///
+/// Loading re-derives `vkey_hash` from the deserialized key and refuses
+/// on ANY disagreement (header vs payload, backend version vs the
+/// running client, program binding vs the caller's descriptor). The
+/// artifact carries verifier MACHINERY -- there is no field in it that
+/// could hold a verdict.
+pub const SP1_VERIFICATION_ARTIFACT_HEADER: &str = "ste-sp1-verification-artifact v1";
 
 impl Sp1KernelBackend {
     /// Set up the CPU prover for `elf_bytes`, registering the binding to
@@ -120,30 +177,138 @@ impl Sp1KernelBackend {
         let pk = client.setup(Elf::from(elf_bytes))?;
         let backend_id = BackendId::new("sp1-cpu", client.version());
         Ok(Self {
-            client,
-            pk,
+            vk: pk.verifying_key().clone(),
+            pk: Some(pk),
+            client: Sp1Client::Full(client),
             backend_id,
             program_binding,
         })
+    }
+
+    /// Serialize this backend's verification artifact: the header
+    /// described at [`SP1_VERIFICATION_ARTIFACT_HEADER`] plus the
+    /// bincode `SP1VerifyingKey`. `elf_sha256_hex` records which
+    /// reproducible guest build the key was derived from.
+    pub fn export_verification_artifact(&self, elf_sha256_hex: &str) -> anyhow::Result<Vec<u8>> {
+        let payload = bincode::serialize(&self.vk)?;
+        let mut out = format!(
+            "{}\nbackend {} {}\nprogram {}\nelf_sha256 {}\nvkey_hash {}\npayload {}\n",
+            SP1_VERIFICATION_ARTIFACT_HEADER,
+            self.backend_id.name,
+            self.backend_id.version,
+            self.program_binding.to_hex(),
+            elf_sha256_hex,
+            self.vkey_hash(),
+            payload.len(),
+        )
+        .into_bytes();
+        out.extend_from_slice(&payload);
+        Ok(out)
+    }
+
+    /// Construct a VERIFY-ONLY backend from a persisted verification
+    /// artifact. Fail-closed on every mismatch: malformed header, wrong
+    /// backend name, SDK version disagreement, payload length or
+    /// deserialization failure, a `vkey_hash` that does not re-derive
+    /// from the payload, or a program binding that disagrees with
+    /// `expected_binding` (the descriptor the caller registered).
+    pub fn from_verification_artifact(
+        artifact: &[u8],
+        expected_binding: ProgramIdentity,
+    ) -> anyhow::Result<(Self, String)> {
+        let header_end = artifact
+            .windows(9)
+            .position(|w| w == b"\npayload ")
+            .ok_or_else(|| anyhow::anyhow!("artifact: missing payload marker"))?;
+        let header = std::str::from_utf8(&artifact[..header_end])
+            .map_err(|_| anyhow::anyhow!("artifact: header is not UTF-8"))?;
+        let rest = &artifact[header_end + 1..];
+        let line_end = rest
+            .iter()
+            .position(|&b| b == b'\n')
+            .ok_or_else(|| anyhow::anyhow!("artifact: unterminated payload line"))?;
+        let payload_line = std::str::from_utf8(&rest[..line_end]).unwrap_or("");
+        let declared_len: usize = payload_line
+            .strip_prefix("payload ")
+            .and_then(|n| n.parse().ok())
+            .ok_or_else(|| anyhow::anyhow!("artifact: bad payload length line"))?;
+        let payload = &rest[line_end + 1..];
+        if payload.len() != declared_len {
+            anyhow::bail!(
+                "artifact: payload is {} bytes, header declares {}",
+                payload.len(),
+                declared_len
+            );
+        }
+
+        let mut fields = std::collections::HashMap::new();
+        let mut lines = header.lines();
+        if lines.next() != Some(SP1_VERIFICATION_ARTIFACT_HEADER) {
+            anyhow::bail!("artifact: not an {SP1_VERIFICATION_ARTIFACT_HEADER}");
+        }
+        for line in lines {
+            if let Some((key, value)) = line.split_once(' ') {
+                fields.insert(key.to_string(), value.to_string());
+            }
+        }
+
+        let client = LightProver::new();
+        let backend_id = BackendId::new("sp1-cpu", client.version());
+        let declared_backend = fields.get("backend").cloned().unwrap_or_default();
+        let expected_backend = format!("{} {}", backend_id.name, backend_id.version);
+        if declared_backend != expected_backend {
+            anyhow::bail!(
+                "artifact: built for backend {declared_backend:?}, this verifier is {expected_backend:?}"
+            );
+        }
+        if fields.get("program").map(String::as_str) != Some(&expected_binding.to_hex()[..]) {
+            anyhow::bail!("artifact: program binding disagrees with the registered descriptor");
+        }
+
+        let vk: SP1VerifyingKey = bincode::deserialize(payload)
+            .map_err(|e| anyhow::anyhow!("artifact: verifying key does not deserialize: {e}"))?;
+        let rederived = vk.vk.bytes32();
+        if fields.get("vkey_hash") != Some(&rederived) {
+            anyhow::bail!("artifact: vkey_hash does not re-derive from the payload");
+        }
+        let elf_sha = fields
+            .get("elf_sha256")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("artifact: missing elf_sha256"))?;
+
+        Ok((
+            Self {
+                client: Sp1Client::Light(client),
+                vk,
+                pk: None,
+                backend_id,
+                program_binding: expected_binding,
+            },
+            elf_sha,
+        ))
     }
 
     /// The verifying-key hash (`bytes32`) -- SP1's native program
     /// commitment for the guest ELF, reported BESIDE our identity and
     /// never as it.
     pub fn vkey_hash(&self) -> String {
-        self.pk.verifying_key().vk.bytes32()
+        self.vk.vk.bytes32()
     }
 
     /// Execute + prove (core mode) the guest over `input`, then verify
     /// the fresh proof immediately. Returns the serialized proof bundle
-    /// and the statement the guest committed.
+    /// and the statement the guest committed. Refuses on a verify-only
+    /// backend: a verification artifact can never manufacture a proof.
     pub fn prove(&self, input: &[u8]) -> anyhow::Result<(Vec<u8>, CommittedStatement)> {
+        let (Sp1Client::Full(client), Some(pk)) = (&self.client, self.pk.as_ref()) else {
+            anyhow::bail!("this backend was built from a verification artifact; it cannot prove");
+        };
         let mut stdin = SP1Stdin::new();
         stdin.write_vec(input.to_vec());
-        let proof = self.client.prove(&self.pk, stdin).core().run()?;
+        let proof = client.prove(pk, stdin).core().run()?;
         // Verify immediately: a proof this adapter cannot verify is not
         // handed to anyone.
-        self.client.verify(&proof, self.pk.verifying_key(), None)?;
+        self.client.verify(&proof, &self.vk)?;
         let statement = parse_committed_statement(proof.public_values.as_slice())
             .ok_or_else(|| anyhow::anyhow!("guest committed an unparseable statement"))?;
         Ok((bincode::serialize(&proof)?, statement))
@@ -182,7 +347,7 @@ impl ProofBackend for Sp1KernelBackend {
 
         // The cryptographic check: the SDK's real verifier, which also
         // hard-fails on version mismatch (Phase 126 §8).
-        if let Err(error) = self.client.verify(&proof, self.pk.verifying_key(), None) {
+        if let Err(error) = self.client.verify(&proof, &self.vk) {
             let text = format!("{error:?}");
             let failure = if text.contains("VersionMismatch") {
                 VerificationFailure::VersionMismatch {

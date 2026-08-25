@@ -311,11 +311,22 @@ def verify_existing_proof(
     proof_path: pathlib.Path,
     host: pathlib.Path,
     elf: pathlib.Path,
+    verifier_artifact: "pathlib.Path | None" = None,
 ) -> dict:
     """Stage 8: verify an EXISTING proof artifact against the statement
     of an already-executed native result -- no proving anywhere in this
     path. This is what makes a warrant cache safe: a cache hit is bytes,
     and THIS is the gate those bytes must still pass.
+
+    Stage 10: with `verifier_artifact`, the host reconstructs its
+    verifier from the persisted verification artifact (`verify-vk`)
+    instead of regenerating the proving key -- the SETUP is reused, the
+    verification is exactly as fresh (identical sealed path, identical
+    outcome fields). The stage-5 registry gate still runs against `elf`,
+    and the artifact's recorded elf_sha256 must MATCH that registered
+    artifact -- a verifier artifact for any other build fails closed.
+    There is no fallback: a rejected verification artifact is a hard
+    error, never a silent detour through the slow path.
 
     Returns the host's parsed verify fields ({'outcome': 'verified'|
     'failed', 'failure': ..., 'proof_identity': ...}). Raises only for
@@ -331,14 +342,59 @@ def verify_existing_proof(
     with tempfile.TemporaryDirectory() as tmp:
         descriptor_file = pathlib.Path(tmp) / "descriptor.bin"
         descriptor_file.write_bytes(spec.program)
+        if verifier_artifact is not None:
+            command = [str(host), "verify-vk", str(verifier_artifact)]
+        else:
+            command = [str(host), "verify", str(elf)]
         proc = subprocess.run(
-            [str(host), "verify", str(elf), str(descriptor_file), str(proof_path),
-             "registered", spec.input_payload.hex(), (native.output or b"").hex(),
-             str(native.exit_code)],
+            command
+            + [str(descriptor_file), str(proof_path),
+               "registered", spec.input_payload.hex(), (native.output or b"").hex(),
+               str(native.exit_code)],
             capture_output=True, timeout=600,
         )
         if proc.returncode != 0:
             raise ProvedRunError(
                 f"verifier process failed: {proc.stderr.decode(errors='replace')[-300:]}"
+            )
+        fields = _parse(proc.stdout.decode())
+        if verifier_artifact is not None:
+            import hashlib
+
+            recorded = fields.get("artifact_elf_sha256")
+            actual = hashlib.sha256(elf.read_bytes()).hexdigest()
+            if recorded != actual:
+                raise ProvedRunError(
+                    f"verification artifact {verifier_artifact} was derived from ELF "
+                    f"{recorded}, but the registered artifact is {actual}; refusing"
+                )
+        return fields
+
+
+def export_verification_artifact(
+    spec: ExecutionSpecification,
+    host: pathlib.Path,
+    elf: pathlib.Path,
+    artifact_out: pathlib.Path,
+) -> dict:
+    """Stage 10: derive and persist the reusable verification artifact
+    for `elf` (the one place the expensive verifier setup runs for a
+    guest whose warrants will be re-verified many times). The stage-5
+    gate applies: only the REGISTERED reproducible artifact can have a
+    verification artifact exported. Returns the host's report fields
+    (vkey_hash, elf_sha256, artifact_bytes)."""
+    if not host.exists() or not elf.exists():
+        raise ProvingUnavailable(f"host {host} or guest artifact {elf} not built")
+    _require_registered_artifact(spec, elf)
+    with tempfile.TemporaryDirectory() as tmp:
+        descriptor_file = pathlib.Path(tmp) / "descriptor.bin"
+        descriptor_file.write_bytes(spec.program)
+        proc = subprocess.run(
+            [str(host), "export-vk", str(elf), str(descriptor_file), str(artifact_out)],
+            capture_output=True, timeout=1200,
+        )
+        if proc.returncode != 0:
+            raise ProvedRunError(
+                f"export failed: {proc.stderr.decode(errors='replace')[-300:]}"
             )
         return _parse(proc.stdout.decode())

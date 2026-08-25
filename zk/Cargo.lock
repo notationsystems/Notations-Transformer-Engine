@@ -3821,6 +3821,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "execution-core",
+ "sha2",
  "sp1-sdk",
 ]
 

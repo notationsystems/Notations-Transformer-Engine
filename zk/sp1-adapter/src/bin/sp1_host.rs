@@ -51,8 +51,18 @@ fn run(args: &[String]) -> Result<(), String> {
     match command {
         "prove" => prove(args),
         "verify" => verify(args),
+        "export-vk" => export_vk(args),
+        "verify-vk" => verify_vk(args),
         other => Err(format!("unknown command {other:?}")),
     }
+}
+
+/// Component timing on STDERR only -- measurement, never protocol.
+fn timed<T>(label: &str, work: impl FnOnce() -> T) -> T {
+    let started = std::time::Instant::now();
+    let value = work();
+    eprintln!("timing {label}_ms {}", started.elapsed().as_millis());
+    value
 }
 
 fn setup(elf_path: &str, program_id_hex: &str) -> Result<Sp1KernelBackend, String> {
@@ -104,6 +114,83 @@ fn prove(args: &[String]) -> Result<(), String> {
     std::io::stdout().flush().map_err(|e| e.to_string())
 }
 
+/// STE stage 10: derive and persist the reusable verification artifact
+/// -- the serialized verifying key with its self-identifying header.
+/// This is the ONE place the expensive `client.setup` runs for a guest
+/// whose warrants will be re-verified many times.
+fn export_vk(args: &[String]) -> Result<(), String> {
+    let [_, _, elf_path, descriptor_path, artifact_out] = args else {
+        return Err("usage: export-vk <elf> <descriptor-file> <artifact-out>".into());
+    };
+    let backend = timed("setup", || setup(elf_path, descriptor_path))?;
+    let elf = std::fs::read(elf_path).map_err(|e| format!("reading {elf_path}: {e}"))?;
+    let elf_sha = {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&elf);
+        format!("{:x}", hasher.finalize())
+    };
+    let artifact = backend
+        .export_verification_artifact(&elf_sha)
+        .map_err(|e| format!("export: {e:?}"))?;
+    std::fs::write(artifact_out, &artifact).map_err(|e| format!("writing artifact: {e}"))?;
+
+    let mut out = String::new();
+    out.push_str("ste-host-result v1\n");
+    out.push_str("command export-vk\n");
+    out.push_str(&format!(
+        "backend {} {}\n",
+        backend.backend().name,
+        backend.backend().version
+    ));
+    out.push_str(&format!("vkey_hash {}\n", backend.vkey_hash()));
+    out.push_str(&format!("elf_sha256 {elf_sha}\n"));
+    out.push_str(&format!("artifact_bytes {}\n", artifact.len()));
+    print!("{out}");
+    std::io::stdout().flush().map_err(|e| e.to_string())
+}
+
+/// STE stage 10: verify a proof through a persisted verification
+/// artifact -- verifier SETUP is reused; the verification itself is as
+/// fresh as ever (the identical sealed `ProofBackend::verify` path).
+/// A malformed, mismatched, or corrupted artifact is a hard error
+/// (exit nonzero): no answer exists, which is not the same as
+/// `outcome failed`.
+fn verify_vk(args: &[String]) -> Result<(), String> {
+    let [_, _, artifact_path, descriptor_path, proof_in, expect_program, expect_input, expect_output, expect_exit] =
+        args
+    else {
+        return Err(
+            "usage: verify-vk <artifact> <descriptor-file> <proof-in> <expect-program-hex> \
+             <expect-input-hex> <expect-output-hex> <expect-exit>"
+                .into(),
+        );
+    };
+    let artifact_bytes =
+        std::fs::read(artifact_path).map_err(|e| format!("reading artifact: {e}"))?;
+    let descriptor =
+        std::fs::read(descriptor_path).map_err(|e| format!("reading descriptor: {e}"))?;
+    let binding = execution_core::ProgramIdentity::of(&descriptor);
+    let (backend, elf_sha) = timed("artifact_load", || {
+        Sp1KernelBackend::from_verification_artifact(&artifact_bytes, binding)
+    })
+    .map_err(|e| format!("verification artifact rejected: {e}"))?;
+    let extra = format!(
+        "artifact_elf_sha256 {elf_sha}\nvkey_hash {}\n",
+        backend.vkey_hash()
+    );
+    verify_with_backend(
+        backend,
+        descriptor_path,
+        proof_in,
+        expect_program,
+        expect_input,
+        expect_output,
+        expect_exit,
+        &extra,
+    )
+}
+
 fn verify(args: &[String]) -> Result<(), String> {
     let [_, _, elf_path, descriptor_path, proof_in, expect_program, expect_input, expect_output, expect_exit] =
         args
@@ -114,7 +201,30 @@ fn verify(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     };
-    let backend = setup(elf_path, descriptor_path)?;
+    let backend = timed("setup", || setup(elf_path, descriptor_path))?;
+    verify_with_backend(
+        backend,
+        descriptor_path,
+        proof_in,
+        expect_program,
+        expect_input,
+        expect_output,
+        expect_exit,
+        "",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_with_backend(
+    backend: Sp1KernelBackend,
+    descriptor_path: &str,
+    proof_in: &str,
+    expect_program: &str,
+    expect_input: &str,
+    expect_output: &str,
+    expect_exit: &str,
+    extra_report: &str,
+) -> Result<(), String> {
     let proof_bytes = std::fs::read(proof_in).map_err(|e| format!("reading proof: {e}"))?;
     let artifact = ProofArtifact::new(backend.backend().clone(), proof_bytes);
 
@@ -126,9 +236,9 @@ fn verify(args: &[String]) -> Result<(), String> {
     // as hex bytes.
     let program = execution_core::ProgramIdentity::of(
         &std::fs::read(if expect_program == "registered" {
-            descriptor_path.clone()
+            descriptor_path
         } else {
-            expect_program.clone()
+            expect_program
         })
         .map_err(|e| format!("reading program preimage: {e}"))?,
     );
@@ -141,11 +251,12 @@ fn verify(args: &[String]) -> Result<(), String> {
         .with_output(execution_core::OutputIdentity::of(&output_bytes))
         .with_exit_code(exit);
 
-    let result = backend.verify(&artifact, &expectation);
+    let result = timed("verify", || backend.verify(&artifact, &expectation));
 
     let mut out = String::new();
     out.push_str("ste-host-result v1\n");
     out.push_str("command verify\n");
+    out.push_str(extra_report);
     match &result {
         VerificationResult::Verified {
             coverage,
