@@ -114,22 +114,72 @@ def _parse_lines(text: str) -> dict:
 def run_specification(
     spec: ExecutionSpecification, cli_path: Optional[pathlib.Path] = None
 ) -> ExecutionResult:
-    """Execute `spec` in a fresh engine process and check everything it says."""
+    """Execute `spec` in a fresh engine process and check everything it
+    says. A batch of one: the wire format and semantics are byte-for-byte
+    the original single-request contract."""
+    return run_specifications([spec], cli_path=cli_path)[0]
+
+
+def run_specifications(
+    specs: "list[ExecutionSpecification]",
+    cli_path: Optional[pathlib.Path] = None,
+) -> "list[ExecutionResult]":
+    """The batched forward of the SAME contract: B independent requests,
+    one engine process, B result blocks in request order, each checked
+    exactly as a single run is checked. The batch amortizes process
+    startup; it changes no computation: every constituent keeps its own
+    specification, program, input, output and computation identity, and
+    the engine's occurrence numbers record execution order within the
+    process. An unrunnable item raises `ExecutionRefused` naming its
+    index -- refusal semantics are per-item and deterministic; a HALTED
+    item is an ordinary per-item result, exactly as in a single run."""
+    if not specs:
+        raise ValueError("an empty batch is refused; there is nothing to execute")
     path = cli_path if cli_path is not None else default_cli_path()
     if not path.exists():
         raise EngineProtocolError(
             f"execution engine binary not found at {path}; build it with "
             f"`cargo build --release -p execution-cli` in crates/"
         )
+    request = b"".join(_encode_request(spec) for spec in specs)
     proc = subprocess.run(
-        [str(path)], input=_encode_request(spec), capture_output=True, timeout=60
+        [str(path)], input=request, capture_output=True,
+        timeout=60 + 5 * len(specs),
     )
     if proc.returncode != 0:
         raise EngineProtocolError(
             f"engine exited {proc.returncode}: {proc.stderr.decode(errors='replace')!r}"
         )
-    fields = _parse_lines(proc.stdout.decode())
+    blocks = _split_blocks(proc.stdout.decode())
+    if len(blocks) != len(specs):
+        raise EngineProtocolError(
+            f"engine answered {len(blocks)} result blocks for {len(specs)} requests"
+        )
+    results = []
+    for at, (spec, block) in enumerate(zip(specs, blocks)):
+        try:
+            results.append(_check_result(spec, _parse_lines(block)))
+        except ExecutionRefused as refusal:
+            raise ExecutionRefused(f"batch item {at}: {refusal}") from refusal
+    return results
 
+
+def _split_blocks(text: str) -> "list[str]":
+    header = "ste-execution-result v1"
+    blocks: "list[list[str]]" = []
+    for line in text.splitlines():
+        if line == header:
+            blocks.append([line])
+        elif blocks:
+            blocks[-1].append(line)
+        elif line:
+            raise EngineProtocolError(f"output before the first result header: {line!r}")
+    return ["\n".join(block) for block in blocks]
+
+
+def _check_result(spec: ExecutionSpecification, fields: dict) -> ExecutionResult:
+    """Check ONE result block against OUR recomputation -- the original
+    single-run logic, verbatim in behavior, shared by both paths."""
     # The result must name the request it answers (Phase 128 probe 1, at
     # the process seam) -- and the name must be OUR recomputation.
     expected_spec = spec.identity()

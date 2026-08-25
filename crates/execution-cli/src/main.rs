@@ -4,17 +4,28 @@
 //! layer and the Rust execution substrate -- no FFI, no bindings, no
 //! shared memory. Python writes an execution request to stdin, this
 //! process runs it against the built-in program registry, and writes a
-//! line-oriented result to stdout. One request per process: state
-//! cannot leak between executions because the process that ran one is
-//! gone.
+//! line-oriented result to stdout. One request STREAM per process:
+//! state cannot leak between streams because the process that ran one
+//! is gone; within a stream, requests share one trace deliberately and
+//! the occurrence numbers are the record of that sharing.
 //!
 //! # Request format (stdin, binary)
 //!
-//! Three length-prefixed fields, each `u64 LE length` + raw bytes:
+//! ONE OR MORE requests, each three length-prefixed fields
+//! (`u64 LE length` + raw bytes):
 //!
 //! ```text
-//! [program descriptor][configuration][input]
+//! [program descriptor][configuration][input]   (repeated B >= 1 times)
 //! ```
+//!
+//! The batch extension (Transformer phase 2) amortizes process startup
+//! over independent computations WITHOUT a second protocol: a single
+//! request is exactly the old wire format, and every request in a batch
+//! is answered by its own complete result block, in request order. The
+//! whole stream is parsed BEFORE anything executes -- a truncated or
+//! trailing-garbage stream is a protocol error and NOTHING runs. All
+//! requests share one process-local trace, so occurrence numbers count
+//! executed requests in order (unrunnable requests mint none).
 //!
 //! # Result format (stdout, lines)
 //!
@@ -23,7 +34,7 @@
 //! spec <64 hex>          commitment over (program, configuration, input)
 //! program <64 hex>
 //! input <64 hex>
-//! occurrence <u64>       process-local: a fresh trace per process, so 0
+//! occurrence <u64>       process-local: counts executed requests in order
 //! status completed|halted|unrunnable
 //! exit_code <u32>                        (completed | halted)
 //! output <hex of output bytes>           (completed only; empty output = empty hex)
@@ -99,27 +110,47 @@ fn main() {
         std::process::exit(2);
     }
     let mut cursor = raw.as_slice();
-    let parsed = (|| -> Result<RequestFields, String> {
-        let program = read_field(&mut cursor)?;
-        let configuration = read_field(&mut cursor)?;
-        let input = read_field(&mut cursor)?;
-        if !cursor.is_empty() {
-            return Err(format!(
-                "{} trailing bytes after the three fields",
-                cursor.len()
-            ));
+    let parsed = (|| -> Result<Vec<RequestFields>, String> {
+        let mut requests = Vec::new();
+        loop {
+            let program = read_field(&mut cursor)?;
+            let configuration = read_field(&mut cursor)?;
+            let input = read_field(&mut cursor)?;
+            requests.push((program, configuration, input));
+            if cursor.is_empty() {
+                break;
+            }
         }
-        Ok((program, configuration, input))
+        Ok(requests)
     })();
-    let (program_bytes, configuration, input) = match parsed {
-        Ok(fields) => fields,
+    let requests = match parsed {
+        Ok(requests) => requests,
         Err(error) => {
             eprintln!("protocol error: {error}");
             std::process::exit(2);
         }
     };
 
-    let spec = commit(SPECIFICATION_TAG, &[&program_bytes, &configuration, &input]);
+    // One trace for the whole batch: occurrences count executed
+    // requests, in order, within this one process.
+    let mut trace = ExecutionTrace::new();
+    let mut out = String::new();
+    for (program_bytes, configuration, input) in requests {
+        out.push_str(&answer(&mut trace, &program_bytes, &configuration, &input));
+    }
+    print!("{out}");
+    std::io::stdout().flush().expect("flush stdout");
+}
+
+/// Answer ONE request: the pre-batch body, verbatim in behavior --
+/// every echoed identity remains recomputable by the caller.
+fn answer(
+    trace: &mut ExecutionTrace,
+    program_bytes: &[u8],
+    configuration: &[u8],
+    input: &[u8],
+) -> String {
+    let spec = commit(SPECIFICATION_TAG, &[program_bytes, configuration, input]);
 
     let mut out = String::new();
     out.push_str("ste-execution-result v1\n");
@@ -136,25 +167,22 @@ fn main() {
     ];
     let program = registry
         .iter()
-        .find(|p| p.canonical_bytes() == program_bytes.as_slice());
+        .find(|p| p.canonical_bytes() == program_bytes);
 
     let Some(program) = program else {
         out.push_str("status unrunnable\n");
         out.push_str("detail unknown program descriptor\n");
-        print!("{out}");
-        return;
+        return out;
     };
     if !configuration.is_empty() {
         out.push_str("status unrunnable\n");
         out.push_str(
             "detail this program accepts no configuration; refusing rather than ignoring it\n",
         );
-        print!("{out}");
-        return;
+        return out;
     }
 
-    let mut trace = ExecutionTrace::new();
-    let run = execute(&mut trace, *program, &input);
+    let run = execute(trace, *program, input);
     let occurrence = trace
         .get(run.occurrence)
         .expect("occurrence minted by this trace");
@@ -184,6 +212,5 @@ fn main() {
         ),
     }
 
-    print!("{out}");
-    std::io::stdout().flush().expect("flush stdout");
+    out
 }

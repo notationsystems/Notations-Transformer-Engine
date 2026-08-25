@@ -96,3 +96,50 @@ write path, ratcheted), explicit uncertainty, kernel fault refusals.
 convention. **EXTERNALLY UNVERIFIABLE**: nothing new — the kernel is
 native and deterministic; hosted-model claims remain governed by
 `model_binding.yaml`.
+
+## Phase 2 — The Batched Forward Execution Contract (measured)
+
+The 2.11 ms boundary cost is amortized by the smallest possible seam:
+the engine's wire format became a SEQUENCE of the existing request
+(`[program][configuration][input]` repeated B ≥ 1 times) answered by B
+complete result blocks in request order — the same protocol, not a
+second one. The whole stream is parsed before anything executes
+(truncated stream → exit 2, nothing runs); requests share ONE
+process-local trace, so occurrence numbers record execution order;
+every constituent keeps its own engine-minted specification, program,
+input, output, and computation identity — a batch has no identity of
+its own beyond the process that ran it, and nothing collapsed.
+`run_specifications` checks every block with the identical recompute-
+and-compare logic (`_check_result`, shared with the single path, which
+is now literally a batch of one and byte-identical on the wire).
+`AttentionModel.forward_batch` gives the Transformer the same contract:
+per-item halts are attributable at the execution layer and refuse by
+index at the model layer — a fault is never a prediction.
+
+| B | ms/forward | forwards/s |
+|---|---|---|
+| 1 | 1.895 | 528 |
+| 2 | 1.039 | 963 |
+| 4 | 0.565 | 1,769 |
+| 8 | 0.356 | 2,811 |
+| 16 | 0.214 | 4,665 |
+| 64 | 0.104 | 9,601 |
+| 256 | **0.088** | **11,335** |
+
+**Outcome A — strong amortization**: ×8.8 at B=16, **×21.5 at B=256**.
+The measured boundary cost (1.807 ms, 95% of a single forward)
+amortizes away; batched[i] == single(input[i]) exactly at every tested
+size, and duplicates inside one batch share a computation identity
+while keeping distinct occurrences — content collapses, operations
+never do. Verification/proof boundary: unchanged and untouched — the
+attention program has no registered guest, and each constituent
+computation is exactly the shape the existing proof machinery already
+addresses per-statement; nothing batch-proof-shaped was built.
+
+**The next measured constraint**: the per-item marginal cost of
+**0.088 ms** — dominated by per-item Python-side work (result-block
+parsing, hex decoding, and the four SHA-256 identity recomputations per
+item that make the engine checked-not-trusted), now ~1000× the kernel
+arithmetic. Amortizing *that* honestly (without weakening the
+recompute-and-compare discipline) is the next frontier if a workload
+ever needs more than ~11 k forwards/s.

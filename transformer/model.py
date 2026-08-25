@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from execution.commitments import commit_hex
-from execution.engine import ExecutionResult, run_specification
+from execution.engine import ExecutionResult, run_specification, run_specifications
 from execution.specification import (
     HARDMAX_ATTENTION_DESCRIPTOR,
     ExecutionSpecification,
@@ -88,6 +88,39 @@ class AttentionModel:
         execution raises -- a fault is a refusal, never a prediction."""
         spec = self.forward_spec(representation)
         result: ExecutionResult = run_specification(spec)
+        return self._prediction_from(representation, spec, result)
+
+    def forward_batch(self, representations) -> "tuple[Prediction, ...]":
+        """B independent forwards through ONE engine process -- the
+        batched execution contract. Each representation lowers to its
+        own specification; the engine answers B blocks in request order;
+        every constituent keeps its own spec/computation identity and
+        occurrence. Semantics per item are IDENTICAL to `forward` --
+        including refusal: any halted item raises, naming its index (a
+        fault is never a prediction), after the whole batch's results
+        are attributable."""
+        representations = tuple(representations)
+        if not representations:
+            raise ValueError("an empty batch is refused")
+        specs = [self.forward_spec(rep) for rep in representations]
+        results = run_specifications(specs)
+        for at, result in enumerate(results):
+            if result.status != "completed":
+                raise RuntimeError(
+                    f"batch item {at}: model computation halted "
+                    f"(exit {result.exit_code}); no prediction exists"
+                )
+        return tuple(
+            self._prediction_from(rep, spec, result)
+            for rep, spec, result in zip(representations, specs, results)
+        )
+
+    def _prediction_from(
+        self,
+        representation: TransformerRepresentation,
+        spec: ExecutionSpecification,
+        result: ExecutionResult,
+    ) -> Prediction:
         if result.status != "completed":
             raise RuntimeError(
                 f"model computation halted (exit {result.exit_code}); "
