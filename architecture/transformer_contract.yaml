@@ -63,3 +63,15 @@ invariants:
     status: enforced
     enforcement: {locks: tests/test_transformer_engine.py,
                   failure_mode: fail_closed}
+
+frontier:
+  engine_per_request_cost:
+    status: deferred
+    measured: ~35-37 us/item engine-side at B=256; 12,062 forwards/s
+    gate: no actual workload requires more throughput (inspected
+      2026-08-25 -- campaigns execute tens of points; only benchmarks
+      consume the batch path at scale)
+    plan_of_record: component-by-component Rust per-request profile
+      first; measurement picks the target; all protocol/execution/
+      identity/failure/verification semantics preserved; benchmark
+      before and after; stop if not meaningful for the real workload

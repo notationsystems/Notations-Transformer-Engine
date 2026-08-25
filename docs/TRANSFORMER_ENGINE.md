@@ -180,3 +180,26 @@ price of checked-not-trusted, and it stays.
 engine-side per-request work — a Rust/STE frontier (result hex
 formatting, per-request bookkeeping) to take up only if a real
 workload demands it. Recorded, not built.
+
+## Phase 4 — Rust Engine Per-Request Cost: DEFERRED (gate applied)
+
+INSPECTED 2026-08-25: the only consumers of the batched forward path
+are the benchmark/profile scripts and `AttentionModel.forward_batch`
+itself; the real scientific campaigns in this repository execute tens
+of points per run. **No actual workload demonstrates that 12,062
+forwards/s is insufficient**, so per the phase gate no implementation
+change was made and no speculative profiling harness was built.
+
+The frontier is recorded, not abandoned. When a real workload is
+throughput-constrained, the plan of record is: profile the Rust
+engine's per-request path component-by-component (request parsing /
+deserialization / reconstruction / execution bookkeeping / result
+construction / hex encoding / block formatting / stdout write) and let
+the measurement — not the hex-encoding hypothesis — pick the target,
+under the standing invariant: same protocol, execution, identity,
+failure, and verification semantics (parse-all-before-execute,
+per-item fault attribution, deterministic ordering, all five
+constituent identities, caller-side recompute-and-compare, no trusted
+engine digests), with lower measured engine-side overhead. Benchmark
+before and after; stop if the improvement is not meaningful for the
+real workload.
