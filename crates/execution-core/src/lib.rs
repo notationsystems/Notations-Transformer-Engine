@@ -55,5 +55,5 @@ pub use execution_serialization::{canonical, canonical_u32};
 pub use execution_trace::{ExecutionTrace, TraceError};
 pub use execution_verification::{
     AdapterVerdict, Expectation, ProofBackend, RequiredCheck, VerificationCoverage,
-    VerificationFailure, VerificationResult,
+    VerificationFailure, VerificationResult, VerifiedExecution,
 };

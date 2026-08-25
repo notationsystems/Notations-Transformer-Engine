@@ -541,3 +541,47 @@ fn the_rust_commitment_agrees_with_the_repositorys_python_primitive() {
         "86a35cb4e4a48a18646c34a9986f3fcf85eb3bbaa3089809904844c12d38cff1"
     );
 }
+
+#[test]
+fn verified_execution_exists_only_for_verified_results() {
+    // Requirement 8's type-level half: "verified = false" is
+    // unrepresentable. From a Failed or Unsupported result there is
+    // NOTHING -- no object with a flag to ignore, no weaker success to
+    // quietly accept.
+    let backend = BackendId::new("scripted", "1.0.0");
+    let expectation = Expectation::of_program(ProgramIdentity::of(b"p"));
+    let coverage = VerificationCoverage {
+        program_checked: true,
+        input_checked: false,
+        output_checked: false,
+        exit_code_checked: false,
+    };
+
+    let verified = VerificationResult::Verified {
+        expectation: expectation.clone(),
+        coverage,
+        proof: ProofArtifact::new(backend.clone(), vec![1]).identity(),
+        backend: backend.clone(),
+    };
+    let failed = VerificationResult::Failed {
+        expectation: expectation.clone(),
+        coverage,
+        failure: VerificationFailure::InvalidProof,
+        backend: backend.clone(),
+    };
+    let unsupported = VerificationResult::Unsupported {
+        expectation: expectation.clone(),
+        capabilities: coverage,
+        missing: vec![RequiredCheck::Input],
+        backend,
+    };
+
+    let value = VerifiedExecution::from_result(&verified).expect("Verified yields the object");
+    assert_eq!(
+        value.expectation(),
+        &expectation,
+        "it carries its statement"
+    );
+    assert_eq!(VerifiedExecution::from_result(&failed), None);
+    assert_eq!(VerifiedExecution::from_result(&unsupported), None);
+}

@@ -503,3 +503,78 @@ pub trait ProofBackend {
         }
     }
 }
+
+/// A verification that SUCCEEDED, as a value: the statement, what was
+/// checked, which proof, which backend.
+///
+/// # A computational object, never an Evidence object
+///
+/// `VerifiedExecution` lives and dies on the execution side of the
+/// architecture. It is not admissible to any pool, carries no scientific
+/// claim, and -- stated as many times as it takes -- DOES NOT establish
+/// that any input was physically measured: a fabricated value is
+/// computed, and proved, faithfully (Phase 111b, unchanged by
+/// cryptography).
+///
+/// # Why it can only be built from a result
+///
+/// The sole constructor takes a [`VerificationResult`] and yields `Some`
+/// exactly for [`VerificationResult::Verified`]. `Failed` is `None`.
+/// `Unsupported` is `None`. There is no field-wise constructor, so
+/// "verified = false" is UNREPRESENTABLE here -- the type either exists,
+/// carrying its statement, or there is nothing. A caller who wants to
+/// gate work on verification holds an `Option<VerifiedExecution>` whose
+/// `None` arm cannot be quietly treated as a weaker success.
+///
+/// (A caller determined to lie can still hand-build a fake `Verified`
+/// result and wrap it; the sealed entry point is the honest path, and
+/// this type makes the honest path the easy one, not the only
+/// conceivable one.)
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct VerifiedExecution {
+    expectation: Expectation,
+    coverage: VerificationCoverage,
+    proof: ProofIdentity,
+    backend: BackendId,
+}
+
+impl VerifiedExecution {
+    /// `Some` if and only if `result` is [`VerificationResult::Verified`].
+    pub fn from_result(result: &VerificationResult) -> Option<Self> {
+        match result {
+            VerificationResult::Verified {
+                expectation,
+                coverage,
+                proof,
+                backend,
+            } => Some(Self {
+                expectation: expectation.clone(),
+                coverage: *coverage,
+                proof: *proof,
+                backend: backend.clone(),
+            }),
+            VerificationResult::Failed { .. } | VerificationResult::Unsupported { .. } => None,
+        }
+    }
+
+    /// The statement that was verified.
+    pub const fn expectation(&self) -> &Expectation {
+        &self.expectation
+    }
+
+    /// What was actually checked -- complete with respect to what was
+    /// ASKED, and still not necessarily [`VerificationCoverage::COMPLETE`].
+    pub const fn coverage(&self) -> &VerificationCoverage {
+        &self.coverage
+    }
+
+    /// The proof that was checked.
+    pub const fn proof(&self) -> &ProofIdentity {
+        &self.proof
+    }
+
+    /// The backend that checked it, and at what version.
+    pub const fn backend(&self) -> &BackendId {
+        &self.backend
+    }
+}

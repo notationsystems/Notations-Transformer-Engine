@@ -66,12 +66,6 @@ pub const PAIRWISE_ENERGY_DESCRIPTOR: &[u8] = concat!(
 )
 .as_bytes();
 
-/// Coordinate bound: |c| <= 2^20 keeps every intermediate inside i128
-/// with margin (r2 <= 3 * 2^42, r2^2 <= ~2^86).
-const COORDINATE_BOUND: i32 = 1 << 20;
-const REPULSIVE_NUMERATOR: i128 = 1 << 80;
-const ATTRACTIVE_NUMERATOR: i128 = 1 << 40;
-
 /// The reference workload. See the module documentation for exactly
 /// what it computes and exactly what it does not claim.
 pub struct PairwiseEnergyKernel;
@@ -82,53 +76,21 @@ impl DeterministicProgram for PairwiseEnergyKernel {
     }
 
     fn run(&self, input: &[u8]) -> Result<NativeCompletion, NativeFault> {
-        if !input.len().is_multiple_of(12) {
-            return Err(NativeFault {
-                exit_code: 2,
-                detail: format!("input length {} is not a multiple of 12", input.len()),
-            });
+        // STE stage 2: the math moved to `execution-kernel` (no_std,
+        // allocation-free) so the SP1 guest runs the SAME implementation
+        // this backend does -- one function, two substrates. Behavior,
+        // fault codes, check order and output bytes are unchanged, so
+        // every identity is unchanged.
+        match execution_kernel::pairwise_energy(input) {
+            Ok(output) => Ok(NativeCompletion {
+                output: output.to_vec(),
+                exit_code: 0,
+            }),
+            Err(fault) => Err(NativeFault {
+                exit_code: fault.exit_code,
+                detail: fault.detail.to_string(),
+            }),
         }
-        let mut particles: Vec<(i32, i32, i32)> = Vec::with_capacity(input.len() / 12);
-        for chunk in input.chunks_exact(12) {
-            let x = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            let y = i32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-            let z = i32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
-            if x.abs() > COORDINATE_BOUND
-                || y.abs() > COORDINATE_BOUND
-                || z.abs() > COORDINATE_BOUND
-            {
-                return Err(NativeFault {
-                    exit_code: 4,
-                    detail: format!("coordinate ({x},{y},{z}) exceeds |c| <= 2^20"),
-                });
-            }
-            particles.push((x, y, z));
-        }
-
-        let mut energy: i128 = 0;
-        for i in 0..particles.len() {
-            for j in (i + 1)..particles.len() {
-                let (xi, yi, zi) = particles[i];
-                let (xj, yj, zj) = particles[j];
-                let dx = (xi as i128) - (xj as i128);
-                let dy = (yi as i128) - (yj as i128);
-                let dz = (zi as i128) - (zj as i128);
-                let r2 = dx * dx + dy * dy + dz * dz;
-                if r2 == 0 {
-                    // An undefined term is refused, never zeroed.
-                    return Err(NativeFault {
-                        exit_code: 3,
-                        detail: format!("particles {i} and {j} are coincident"),
-                    });
-                }
-                energy += REPULSIVE_NUMERATOR / (r2 * r2) - ATTRACTIVE_NUMERATOR / r2;
-            }
-        }
-
-        Ok(NativeCompletion {
-            output: energy.to_le_bytes().to_vec(),
-            exit_code: 0,
-        })
     }
 }
 

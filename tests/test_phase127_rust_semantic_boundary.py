@@ -44,6 +44,7 @@ CRATES = REPO / "crates"
 SUBSTRATE_CRATES = (
     "execution-serialization",
     "execution-commitment",
+    "execution-kernel",       # added STE stage 2: the workload math, no_std, shared with the SP1 guest
     "execution-model",
     "execution-trace",
     "execution-native",       # added Phase 129: the native backend + engine

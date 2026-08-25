@@ -99,10 +99,15 @@ layout must also domain-separate the committed input digest from
 ordinary output, or a hostile guest program could emit output that
 merely *looks* like an input commitment.
 
-Phase 129 represents links 1-2 and 6's comparison target
-(`InputIdentity`, `INPUT_COMMITMENT_INVARIANT`). Links 4-5 are guest
-code that does not exist yet. No backend may claim `input_checked` until
-they do.
+Phase 129 represented links 1-2 and 6's comparison target
+(`InputIdentity`, `INPUT_COMMITMENT_INVARIANT`). **STE stage 2 closed
+links 4-5**: `zk/guest-pairwise` reads its input, computes the canonical
+commitment in-circuit with the same `no_std` `execution-commitment`
+crate the host uses, and commits it in its public values under the
+`ste.sp1.pairwise-io.v1` layout tag; the SP1 adapter performs link 6's
+comparison inside the sealed entry point. `docs/
+STE_VERIFICATION_SUBSTRATE.md` records exactly what that does and does
+not establish.
 
 ## What stays out of the common layer
 

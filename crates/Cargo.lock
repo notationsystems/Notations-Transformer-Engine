@@ -29,6 +29,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "execution-kernel"
+version = "0.1.0"
+
+[[package]]
 name = "execution-model"
 version = "0.1.0"
 dependencies = [
@@ -40,6 +44,7 @@ dependencies = [
 name = "execution-native"
 version = "0.1.0"
 dependencies = [
+ "execution-kernel",
  "execution-model",
  "execution-trace",
 ]
