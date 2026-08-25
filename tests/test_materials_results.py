@@ -98,15 +98,15 @@ def test_1_2_result_construction_deterministic_and_identity_stable():
     a = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 84, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     b = make_experimental_result(
         campaign, entry, content={"unit": "MPa", "property": "tensile_strength", "value": 84},  # different key order
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     c = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 90, "unit": "MPa"},  # different value
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     assert a.id == b.id
     assert a.id != c.id
 
@@ -120,7 +120,7 @@ def test_3_result_to_observation_mapping_is_correct():
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 84, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     outcome = admit_experimental_result(pool, result, confidence=1.0)
     assert not isinstance(outcome, list)
     observation, relationship = outcome
@@ -139,7 +139,7 @@ def test_4_admission_uses_existing_pool_api():
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 84, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     fingerprint_before = pool.fingerprint()
     outcome = admit_experimental_result(pool, result, confidence=1.0)
     observation, relationship = outcome
@@ -160,7 +160,7 @@ def test_5_6_new_evidence_retrievable_and_seen_by_analyze():
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 84, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     outcome = admit_experimental_result(pool, result, confidence=1.0)
     observation, _ = outcome
 
@@ -181,7 +181,7 @@ def test_7_campaign_and_design_not_mutated():
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": 84, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     before_campaign = repr(campaign)
     admit_experimental_result(pool, result, confidence=1.0)
     assert repr(campaign) == before_campaign

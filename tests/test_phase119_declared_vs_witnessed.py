@@ -418,12 +418,13 @@ def test_no_candidate_witness_is_produced_independently_of_the_caller():
 # -- 11/12. nothing was repaired, and the suggestion is withdrawn ------------------------------------------
 
 
-def test_the_default_stands_unrepaired_pending_an_explicit_decision():
-    """FINDING A is a defect on its own grounds (unknown stays unknown);
-    FINDING B is unresolvable internally. Repairing A does not touch B,
-    and B's failure is not a reason to leave A. Nothing is changed here."""
+def test_finding_a_was_repaired_and_finding_b_was_not():
+    """FINDING A repaired: `extraction_method` is required, so the
+    architecture no longer converts a caller's silence into a positive
+    assertion about an external event. FINDING B untouched: everything
+    above still holds -- a declaration is not a witness."""
     assert inspect.signature(make_experimental_result).parameters[
-        "extraction_method"].default == MEASUREMENT
+        "extraction_method"].default is inspect.Parameter.empty
 
 
 def test_phase_119_added_no_witness_machinery():
@@ -469,9 +470,6 @@ def test_exactly_one_production_default_asserts_a_world_event():
                         continue
                     assertive.append((str(path.relative_to(REPO)), fn.name, arg.arg, rendered))
 
-    by_default = {rendered for _, _, _, rendered in assertive}
-    assert "'measurement:campaign_execution'" in by_default
-
     # theme.py holds only presentation geometry and colour
     non_theme = [row for row in assertive if not row[0].startswith("workbench/theme")]
     assert sorted(non_theme) == [
@@ -479,11 +477,11 @@ def test_exactly_one_production_default_asserts_a_world_event():
          "EMPTY_MODEL_STATE"),
         ("materials/results.py", "admit_experimental_result", "relationship_type",
          "'tested_during'"),
-        ("materials/results.py", "make_experimental_result", "extraction_method",
-         "'measurement:campaign_execution'"),
         ("retrieval/result.py", "make_retrieval_result", "ordering", "'sorted_by_id'"),
     ], non_theme
-    # EMPTY_MODEL_STATE asserts emptiness -- the unknown-stays-unknown rule
-    # applied correctly. `sorted_by_id` describes what the function does.
-    # `tested_during` labels the edge it constructs. Only
-    # `measurement:campaign_execution` asserts an event in the world.
+    # THE REGRESSION LOCK, in its strongest form. EMPTY_MODEL_STATE asserts
+    # emptiness -- unknown stays unknown, correctly. `sorted_by_id`
+    # describes what the function does. `tested_during` labels the edge it
+    # constructs. NOT ONE non-inert default in production now asserts that
+    # an event occurred in the external world. Adding one would fail here.
+    assert "'measurement:campaign_execution'" not in {r for _, _, _, r in assertive}

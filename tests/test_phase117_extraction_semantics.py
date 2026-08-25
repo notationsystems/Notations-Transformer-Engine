@@ -259,8 +259,12 @@ def test_every_construction_site_passes_a_caller_supplied_value_through():
     assert sorted(set(sites)) == [
         "evidence/types.py", "experiment/step.py", "materials/results.py",
         "scout/extraction.py", "scout/pipeline.py",
+        "workbench/interaction.py", "workbench/investigation.py",
     ]
-    # None derives the value; each forwards what it was given.
+    # None derives the value; each forwards what it was given. The two
+    # workbench sites joined this list when the `make_experimental_result`
+    # default was removed -- they now STATE the claim the constructor
+    # used to invent for them.
 
 
 def test_only_three_modules_consume_it_at_all():

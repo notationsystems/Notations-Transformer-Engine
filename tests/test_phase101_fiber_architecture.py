@@ -130,7 +130,7 @@ class _Programme:
         entry = next(e for e in self.campaign.entries if e.candidate_id == candidate.id)
         result = make_experimental_result(
             self.campaign, entry, content=content,
-            record_id=record.id, extracted_at=self.clock())
+            record_id=record.id, extracted_at=self.clock(), extraction_method="measurement:campaign_execution")
         observation, _ = admit_experimental_result(self.pool, result, confidence=1.0)
         prediction = self.session.predict(candidate)
         assessment, self.session = self.session.observe(

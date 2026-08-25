@@ -104,7 +104,7 @@ def make_experimental_result(
     content: Mapping[str, object],
     record_id: str,
     extracted_at: str,
-    extraction_method: str = "measurement:campaign_execution",
+    extraction_method: str,
 ) -> ExperimentalResult:
     """The only supported way to construct an ExperimentalResult --
     mirrors every `make_*` factory in `evidence/types.py`: `id` is
@@ -113,7 +113,25 @@ def make_experimental_result(
     that identify provenance (`campaign.id`, `entry.candidate_id`,
     `entry.formulation`, `entry.property`,
     `campaign.process_natural_key`) -- neither object itself is stored,
-    so this result stays a small, self-contained value."""
+    so this result stays a small, self-contained value.
+
+    `extraction_method` is REQUIRED, with no default. It previously
+    defaulted to `"measurement:campaign_execution"`, which made this the
+    only factory in production that converted a caller's SILENCE into a
+    positive assertion that a measurement occurred in the external world
+    (Phase 118/119; the exhaustive default sweep is locked in
+    `tests/test_phase119_declared_vs_witnessed.py`). Every other default
+    in this codebase either preserves uncertainty
+    (`make_experiment_session(initial_state=EMPTY_MODEL_STATE)`), or
+    describes what the function itself does (`ordering="sorted_by_id"`),
+    or is presentation geometry. A caller must now state what happened.
+
+    This does NOT establish that the declared event occurred. Phase 119
+    demonstrates that a genuine measurement, a fabricated value, a
+    simulation and a hand-typed number collapse to one identical
+    `Observation` whenever the caller declares the same method. Requiring
+    the declaration removes the architecture's own unsolicited claim; it
+    does not, and cannot, supply a witness."""
     if not content:
         raise ValueError("ExperimentalResult.content must not be empty")
     if content.get("property") != entry.property:

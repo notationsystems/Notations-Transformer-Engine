@@ -814,6 +814,7 @@ class WorkbenchState:
         result = make_experimental_result(
             self.campaign, entry, content=_observation_content(candidate, value, resolved_unit),
             record_id=record.id, extracted_at=self.clock(),
+            extraction_method="measurement:campaign_execution",
         )
         admitted_result = admit_experimental_result(self.pool, result, confidence=1.0)
         if isinstance(admitted_result, list):

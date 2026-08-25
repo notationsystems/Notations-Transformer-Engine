@@ -186,6 +186,7 @@ def _observe(
     result = make_experimental_result(
         campaign, entry, content={"property": candidate.property, "value": value, "unit": UNIT},
         record_id=record.id, extracted_at=clock(),
+        extraction_method="measurement:campaign_execution",
     )
     admitted = admit_experimental_result(session.pool, result, confidence=1.0)
     if isinstance(admitted, list):

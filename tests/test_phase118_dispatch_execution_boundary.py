@@ -245,7 +245,7 @@ def _admit_value(state, entry, value, method=None, content=None):
     kwargs = dict(content=payload, record_id=record.id, extracted_at=TIMESTAMP)
     if method is not None:
         kwargs["extraction_method"] = method
-    result = make_experimental_result(state.campaign, entry, **kwargs)
+    result = make_experimental_result(state.campaign, entry, **kwargs, extraction_method="measurement:campaign_execution")
     return result, admit_experimental_result(state.pool, result, confidence=1.0)
 
 
@@ -285,14 +285,17 @@ def test_no_action_dispatcher_implementation_exists_to_have_been_called():
 # -- 3. the default exists twice -------------------------------------------------------------------------
 
 
-def test_the_measurement_claim_has_two_independent_defaults():
+def test_the_second_of_the_two_defaults_has_since_been_removed():
+    """WHEN THIS AUDIT RAN there were two independent defaults asserting
+    the measurement claim, and the second let the dispatcher be bypassed
+    while the claim still appeared. That one is now REQUIRED (see the
+    Phase 119 amendment); `DispatchedMeasurement`'s default remains, and
+    is defensible, since a dispatcher is meant to measure."""
     dispatched_default = [f for f in dataclasses.fields(DispatchedMeasurement)
                           if f.name == "extraction_method"][0].default
-    factory_default = inspect.signature(make_experimental_result).parameters[
-        "extraction_method"].default
-    assert dispatched_default == factory_default == DEFAULT_METHOD
-    # The second is the one that matters: it lets the dispatcher be bypassed
-    # while the claim still appears.
+    assert dispatched_default == DEFAULT_METHOD
+    factory = inspect.signature(make_experimental_result).parameters["extraction_method"]
+    assert factory.default is inspect.Parameter.empty
 
 
 def test_this_is_the_only_default_in_production_that_asserts_a_claim():
@@ -425,7 +428,7 @@ def test_a_genuine_and_a_fabricated_result_with_equal_content_are_one_object(sce
     fabricated = make_experimental_result(
         state.campaign, entry,
         content={"property": "tensile_strength", "value": 90.0, "unit": "MPa"},
-        record_id=genuine.record_id, extracted_at=TIMESTAMP)
+        record_id=genuine.record_id, extracted_at=TIMESTAMP, extraction_method="measurement:campaign_execution")
     assert genuine.id == fabricated.id
 
 
@@ -474,7 +477,14 @@ def test_phase_118_added_no_execution_machinery():
     assert hits == [], hits
 
 
-def test_the_default_is_still_in_place_unrepaired():
-    """This audit reports; it does not fix. The default stands."""
+def test_the_finding_was_acted_on_and_the_rest_was_not():
+    """THE REGRESSION LOCK. `extraction_method` is required, so a caller's
+    silence can never again become a measurement claim. Everything else
+    this audit found -- worlds B and C unrepresentable, world D
+    indistinguishable -- is UNCHANGED and unrepaired, by design."""
     assert inspect.signature(make_experimental_result).parameters[
-        "extraction_method"].default == DEFAULT_METHOD
+        "extraction_method"].default is inspect.Parameter.empty
+
+    with pytest.raises(TypeError):
+        make_experimental_result(campaign=None, entry=None, content={"x": 1},
+                                 record_id="r", extracted_at=TIMESTAMP)

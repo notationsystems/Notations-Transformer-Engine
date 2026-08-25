@@ -97,7 +97,7 @@ def _admit_result(pool, doc, campaign, entry, locator, value):
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": value, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     observation, _ = admit_experimental_result(pool, result, confidence=1.0)
     return result, observation
 
@@ -178,7 +178,7 @@ def test_7_uncertainty_changes_only_when_warranted():
     result3 = make_experimental_result(
         campaign, hardness_entry, content={"property": "hardness", "value": 55, "unit": "Shore D"},
         record_id=rec.id, extracted_at="2026-08-23T03:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     obs3, _ = admit_experimental_result(pool, result3, confidence=1.0)
     state3 = update(state2, hardness_candidate, result3, obs3)
 
@@ -333,7 +333,7 @@ def test_11_context_separation_end_to_end():
     result_25c = make_experimental_result(
         campaign, entry_25c, content={"property": "tensile_strength", "value": 82, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     obs_25c, _ = admit_experimental_result(pool, result_25c, confidence=1.0)
 
     state1 = update(EMPTY_MODEL_STATE, candidate_25c, result_25c, obs_25c)
@@ -361,7 +361,7 @@ def test_12_update_rejects_mismatched_candidate():
     result_25c = make_experimental_result(
         campaign, entry_25c, content={"property": "tensile_strength", "value": 82, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-23T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     obs_25c, _ = admit_experimental_result(pool, result_25c, confidence=1.0)
 
     # result_25c.candidate_id names candidate_25c -- passing candidate_100c

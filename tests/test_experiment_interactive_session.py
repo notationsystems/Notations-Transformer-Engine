@@ -86,7 +86,7 @@ def _real_experiment(session, campaign, entry, locator, value):
     result = make_experimental_result(
         campaign, entry, content={"property": "tensile_strength", "value": value, "unit": "MPa"},
         record_id=rec.id, extracted_at="2026-08-24T02:00:00Z",
-    )
+    extraction_method="measurement:campaign_execution")
     observation, _relationship = admit_experimental_result(session.pool, result, confidence=1.0)
     return result, observation
 
