@@ -1,1 +1,0 @@
-{"rustc":10290361797189307529,"features":"[\"std\"]","declared_features":"[\"default\", \"std\"]","target":18268926395062335457,"profile":9336706378672418649,"path":1734939901878355442,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/std-shims-30f7d35093ad359c/dep-lib-std_shims","checksum":false}}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}
