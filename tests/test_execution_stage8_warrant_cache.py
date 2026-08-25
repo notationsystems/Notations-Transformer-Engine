@@ -61,13 +61,20 @@ def _peak(candidate, result):
     return {"property": candidate.property, "value": max(finals), "unit": "fixed_point_mk"}
 
 
-def _campaign(runner, n_points=1):
+BAD_SPEC = ExecutionSpecification(HEAT_DIFFUSION_DESCRIPTOR, b"", b"bad")
+
+
+def _campaign(runner, n_points=1, prepend_failure=False):
     pool, doc = make_campaign_pool(["rod-A"])
     trace = OperationTrace()
-    report = run_campaign(pool, doc.id, trace, [
+    points = [
         CampaignPoint("rod-A", "peak_temperature", SPEC_A, _peak, runner=runner)
         for _ in range(n_points)
-    ])
+    ]
+    if prepend_failure:
+        points.insert(0, CampaignPoint(
+            "rod-A", "peak_temperature", BAD_SPEC, _peak, runner=runner))
+    report = run_campaign(pool, doc.id, trace, points)
     return pool, trace, report
 
 
@@ -156,30 +163,80 @@ def test_cache_stores_bytes_content_addressed_and_isolates_backends(tmp_path):
         "a nexus warrant can never be RETRIEVED for a risc0 request")
 
 
+def test_backend_isolation_all_pairs_and_filename_blindness(tmp_path):
+    """Every backend pair is key-isolated -- over one shared ELF (only
+    the backend name differs) and over the real per-backend artifacts
+    (both differ). And the key sees BYTES, never filenames: the same
+    artifact under any name keys identically; different bytes under the
+    same name key differently."""
+    sp1_elf = REPO / "zk" / "artifacts" / "sp1-heat.elf"
+    for elf in (NEXUS_ELF, RISC0_ELF, sp1_elf):
+        if not elf.exists():
+            pytest.skip("registry artifacts not built; environment gap")
+
+    # same ELF, three backend names -> three keys
+    same_elf = {b: statement_key(b, NEXUS_ELF, SPEC_A)
+                for b in ("nexus", "risc0", "sp1")}
+    assert len(set(same_elf.values())) == 3
+
+    # the real (backend, artifact) statements -> three keys
+    real = {
+        statement_key("nexus", NEXUS_ELF, SPEC_A),
+        statement_key("risc0", RISC0_ELF, SPEC_A),
+        statement_key("sp1", sp1_elf, SPEC_A),
+    }
+    assert len(real) == 3
+
+    # a warrant stored under any one backend is invisible to the others
+    cache = WarrantCache(tmp_path / "cache")
+    cache.store(statement_key("nexus", NEXUS_ELF, SPEC_A),
+                b"nexus-proof", "nexus", SPEC_A.identity())
+    assert cache.lookup(statement_key("risc0", RISC0_ELF, SPEC_A)) is None
+    assert cache.lookup(statement_key("sp1", sp1_elf, SPEC_A)) is None
+    assert cache.lookup(statement_key("risc0", NEXUS_ELF, SPEC_A)) is None
+    assert cache.lookup(statement_key("sp1", NEXUS_ELF, SPEC_A)) is None
+
+    # filename blindness: same bytes, any name -> the SAME statement
+    renamed = tmp_path / "totally-different-name.bin"
+    renamed.write_bytes(NEXUS_ELF.read_bytes())
+    assert statement_key("nexus", renamed, SPEC_A) == same_elf["nexus"]
+    # different bytes, same name -> a DIFFERENT statement
+    impostor = tmp_path / "impostor" / NEXUS_ELF.name
+    impostor.parent.mkdir()
+    impostor.write_bytes(RISC0_ELF.read_bytes())
+    assert statement_key("nexus", impostor, SPEC_A) != same_elf["nexus"]
+
+
 # -- sections 4, 7, 12: reuse skips PROVING, never verification --------------------------------------
 
 
 @pytest.mark.skipif(not NEXUS_OK, reason="nexus not built; environment gap")
 def test_hit_skips_proving_but_never_verification(tmp_path):
-    """Three identical campaign points through one cache: 3 occurrences,
+    """A failed execution followed by three identical campaign points
+    through one cache: 4 occurrences (1 FAILED + 3 SUCCEEDED),
     1 observation, 1 stored artifact -- and the instrumented host shows
-    `prove` ran EXACTLY once while `verify` ran on every dispatch.
-    Evidence is invariant across no-cache / miss / hit."""
+    `prove` ran EXACTLY once while `verify` ran on every dispatch. The
+    failed execution never reaches a lane, so it can neither earn a
+    VerifiedExecution nor manufacture a cached warrant. Evidence is
+    invariant across no-cache / miss / hit."""
     shim, log = _instrumented_nexus(tmp_path)
     policy, lanes = _single_lane_policy(shim)
     cache = WarrantCache(tmp_path / "cache")
 
-    _, _, plain = _campaign(None, n_points=3)  # baseline: no verification at all
+    # baseline: no verification at all
+    _, _, plain = _campaign(None, n_points=3, prepend_failure=True)
 
     warrants: list[WarrantRecord] = []
     pool, trace, report = _campaign(
         policy_runner(policy, tmp_path, warrants, lanes=lanes, cache=cache),
-        n_points=3,
+        n_points=3, prepend_failure=True,
     )
-    assert report.successes == 3
-    assert len(trace.occurrences()) == 3, "every run is a distinct occurrence"
-    assert all(trace.state_of(i) == SUCCEEDED for i in range(3))
-    assert report.unique_evidence == 1, "three occurrences, ONE observation"
+    assert report.successes == 3 and report.failures == 1
+    assert len(trace.occurrences()) == 4, "every run is a distinct occurrence"
+    assert trace.state_of(0) == FAILED, "the failed execution is ON the trace"
+    assert all(trace.state_of(i) == SUCCEEDED for i in (1, 2, 3))
+    assert report.unique_evidence == 1, "three successes, ONE observation"
+    assert len(warrants) == 3, "the failed execution produced NO warrant record"
 
     assert [w.cache for w in warrants] == ["miss+stored", "hit", "hit"]
     assert all(w.outcome == "verified" for w in warrants)
@@ -198,6 +255,8 @@ def test_hit_skips_proving_but_never_verification(tmp_path):
     assert hit is not None and hit.artifact_intact
     entries = [p for p in (tmp_path / "cache").iterdir() if p.is_dir()]
     assert len(entries) == 1 and entries[0].name == key
+    assert cache.lookup(statement_key("nexus", NEXUS_ELF, BAD_SPEC)) is None, (
+        "a failed execution manufactured no cached warrant")
 
     # warrant/cache vocabulary never reaches the observation
     observation = pool.get_observation(report.observation_ids[0])
