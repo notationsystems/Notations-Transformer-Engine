@@ -112,13 +112,107 @@ observed fact about which subcommands ran, not an inference:
 
 The identical campaign the Stage 7 experiment ran (9-cell sweep, 3
 repeats, near-identical variant, genuine escalation, failure, retry,
-rejection — 17 points), same policy identity, three arms:
+rejection — 17 points), same policy identity (`b9dc819b…`), three arms
+in one run. Stage 7's own measurement (366.8 s total proving) is kept
+only as the recorded historical baseline; **arm A re-measured the
+uncached cost in this run**, and all comparisons below are within-run.
 
-<!-- STAGE8_RESULTS -->
+| | arm A — no cache | arm B — cold cache | arm C — warm cache¹ |
+|---|---|---|---|
+| executions | 17 | 17 | 18 |
+| successes / failures | 15 / 2 | 15 / 2 | 16 / 2 |
+| observations / unique evidence | 15 / 11 | 15 / 11 | 16 / 12 |
+| trace occurrences (S/F/R) | 17 (15/1/1) | 17 (15/1/1) | 18 (16/1/1) |
+| proof generations | **16** | **12** | **2** |
+| proving time | **501.8 s** | **402.5 s** | **46.4 s** |
+| cache hits (reused warrants) | — | 4 | 15 |
+| hit-verification overhead | — | 0.4 s | 1.8 s |
+| cache hit rate | — | 24 % of 17 lookups | 89 % of 18 lookups |
+| verification failures | 0 | 0 | 1 (the corrupted artifact) |
+| campaign wall time | 502.1 s | 403.0 s | 48.3 s |
 
-Evidence was asserted identical across all three arms (same observation
-ids on the common points; arm C's one *new* spec was a cache **miss**
-that proved fresh — a changed statement is a different key).
+¹ arm C reran the whole campaign on arm B's persisted cache, with one
+cached artifact deliberately corrupted beforehand and one *new*
+specification appended.
+
+**Measured, from the run:**
+
+- **Proof generations avoided: 19** (4 in arm B, 15 in arm C) — each
+  one a real proof that did not have to be generated.
+- **Same-campaign reduction (A→B): 19.8 % less proving** (501.8 s →
+  402.5 s). The within-campaign win is exactly the redundancy Stage 7
+  measured: repeats, the retry, and the escalation's second lane all
+  restate one statement.
+- **Cross-campaign reduction (A→C): 90.8 % less proving** (501.8 s →
+  46.4 s). The entire remaining cost is the corrupted-entry
+  regeneration plus the genuinely new specification — i.e. arm C paid
+  for proofs only where a proof was actually missing or invalid.
+- **Verification overhead of reuse: 2.1 s total, ≈0.11 s per reused
+  warrant** — mandatory re-verification costs about 0.4 % of the ~30 s
+  mean proof generation it replaces.
+- **Persisted artifacts: 13 entries, 1,170,206 proof bytes** (74–225 KB
+  per proof; Nexus smallest, RISC Zero largest).
+- **Corruption recovery, on the record:** `hit-invalid → invalidated →
+  regenerated+stored` — the invalid warrant failed verification, the
+  discard was an explicit recorded decision, and only then was a fresh
+  proof generated.
+- **Evidence invariance: CONFIRMED** — observation ids identical across
+  arms A, B and C on the common points (asserted, not eyeballed); arm
+  C's one new spec was a cache **miss** that proved fresh, because a
+  changed statement is a different key.
+
+## Epistemic status of each claim
+
+**MEASURED** (observed in this run, on real artifacts): every number in
+the table above; that `prove` was invoked exactly once per fresh
+statement and never on a hit (instrumented host log, not timing
+inference); that the corrupted artifact failed verification; that the
+consumer *process* in the cross-process test verified without proving.
+
+**STRUCTURALLY GUARANTEED** (by construction, enforced by code paths
+that have no alternative): a hit cannot skip verification
+(`verify_existing_proof` is the only hit path); `VerifiedExecution` is
+constructible only from a `Verified` result; backend isolation at the
+key (the backend name is inside the commitment); occurrences never
+enter the key; the evidence pool has no field a warrant can reach;
+regeneration cannot happen without an explicit `invalidate`.
+
+**CALLER-DECLARED** (trusted input, checkable but not checked here):
+that the backend name passed to `statement_key` matches the host binary
+the lane actually runs — the Stage 5 registry gate catches a wrong
+*artifact*, and a mismatched proof system fails verification, but the
+label itself is the caller's claim; likewise `regenerate_invalid` is a
+policy choice, not a discovered fact.
+
+**EXTERNALLY UNVERIFIABLE** (outside what any proof here can certify):
+that the native inputs describe the physical world (COMPUTATION ≠
+MEASUREMENT, unchanged since Stage 2); the soundness of the zkVM proof
+systems themselves; and the local filesystem's integrity *between*
+verifications — which is exactly why every hit is re-verified.
+
+## Conclusion
+
+**Does warrant reuse materially reduce the cost of repeated scientific
+computation without changing scientific evidence identity?**
+
+Yes — measured, not estimated: re-running a real 17-point campaign on
+persisted warrants cost 46.4 s of proving instead of 501.8 s (90.8 %
+reduction; 19 proof generations avoided across both cached arms) while
+observation ids, unique-evidence counts, and trace semantics were
+asserted identical to the uncached run, and every reused warrant still
+passed its backend verifier (≈0.11 s per hit, ~0.4 % of the proving it
+replaced).
+
+## Infrastructure note: repository rename
+
+During Stage 8 GitHub renamed the repository upstream to
+`Scientific-Transformer-Engine`; the old remote URL transparently
+redirects and pushes succeed. No internal renaming was performed: the
+`Scout-Retrieval-Agent` strings in `execution/build.py` are the
+canonical staging-path components baked into the Stage 5 build-recipe
+identities (renaming them would change every registered artifact hash),
+so they are part of recorded build identity, not branding. Metadata
+only; no action taken.
 
 ## What this did NOT change
 
