@@ -119,7 +119,39 @@ computations.
 
 ## Campaign (measured; `scripts/structural_campaign.py`)
 
-<!-- STRUCTURAL_CAMPAIGN_RESULTS -->
+Seven real structures — water (×3, the repeated structure), methane, a
+moved-atom water (the changed structure), FCC argon, rock salt, a
+strained FCC cell, and the argon trimer through GROMACS — ten points,
+every layer engaged, all measured in one run:
+
+| measured | value |
+|---|---|
+| structures processed | 7 (each with its structural identity printed) |
+| executions / successes / failures | 10 / 10 / 0 |
+| trace occurrences | 10 (all SUCCEEDED; occurrence-distinct as always) |
+| unique statements (specs) | 8 |
+| observations / unique evidence | 10 / 8 (water's repeats collapsed) |
+| proof generations | 4, all in the stage-9 prefetch (Nexus: water, methane, moved water; SP1: water) |
+| prefetch wall | 236.0 s for 269.4 s of proof time (SP1 ~231 s dominates) |
+| campaign warrants | 8, **all cache hits**, all re-verified |
+| water's warrants | (nexus, verified) + (sp1, verified) — one computation, two independent proof systems |
+| campaign wall | 220.0 s — of which **219.9 s is hit re-verification** |
+| hit re-verification, per backend | **SP1 ≈ 73.4 s/hit** (2.78 MB proof); **Nexus ≈ 0.1 s/hit** (77 KB) |
+| evidence fingerprints | 34 |
+| evidence invariance | verified campaign == unproved baseline — asserted, CONFIRMED |
+| GROMACS point | argon trimer potential completed through the external boundary |
+
+**The campaign's discovered bottleneck** (measured, not guessed):
+verification cost is not uniform across the proof ladder. A Nexus
+warrant re-verifies in 0.1 s; an SP1 warrant costs **~73 s per hit** —
+about a quarter of the ~300 s proof it reuses, paid on *every* hit
+because reuse rightly never skips verification. Three water repeats
+against a dual-backend policy therefore spent 219.9 s of a 220.0 s
+campaign re-verifying SP1 hits. Whatever comes next should start from
+this number — plausibly a reusable deterministic verifier artifact
+(verification key / backend setup, NOT a cached verdict), but that is
+the next stage's question, to be taken up only from these
+measurements.
 
 ## Claim classification
 
