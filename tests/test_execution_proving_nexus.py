@@ -164,3 +164,115 @@ def test_a_wrong_program_specification_is_refused_before_proving(tmp_path):
         prove_and_verify(
             foreign, tmp_path / "never.proof", host_path=HOST, elf_path=ELF
         )
+
+
+# -- the STE boundary under backend swap --------------------------------------------------------------
+
+
+def test_backend_swap_leaves_the_evidence_ledger_and_trace_invariant(tmp_path):
+    """The decisive integration property of this stage, tested inside the
+    real STE loop: swapping the proof backend changes the WARRANT (proof
+    artifact, verifier identity) and changes NOTHING about the
+    specification, the execution result, the admitted evidence identity,
+    or the operation-trace semantics.
+
+    Two complete loops over the same specification: one with the plain
+    checked engine (no proof), one gated on a real Nexus proof. The
+    admitted observation ids are IDENTICAL -- evidence identity is a
+    function of scientific content, blind to which (if any) proof system
+    warranted the computation -- and both operation traces record one
+    SUCCEEDED dispatch whose output_ref is that same observation."""
+    from evidence.admission import admit_document, admit_referent
+    from evidence.pool import EvidencePool
+    from evidence.types import make_document, make_referent, make_source
+    from execution.dispatcher import SpecificationDispatcher
+    from execution.proving import proved_runner
+    from experiment.policy import ExperimentPolicy
+    from experiment.session import make_experiment_session
+    from experiment.step import run_experiment_step
+    from materials.candidates import generate_candidates
+    from materials.decision import make_criterion
+    from materials.information import InformationValueEstimate
+    from materials.iteration import reevaluate_program
+    from materials.optimization import OptimizationPolicy
+    from materials.program import make_material_program_query
+    from materials.selection import SelectionPolicy
+    from materials.utility import ExperimentUtilityInput
+    from operations.trace import SUCCEEDED, OperationTrace
+    from retrieval.engine import DeterministicRetrievalEngine
+
+    def _session():
+        pool = EvidencePool()
+        source = make_source(kind="computational_campaign", name="STE-swap")
+        pool.put_source(source)
+        doc = make_document(
+            source_id=source.id, raw_content="backend swap session",
+            retrieval_method="manual_entry", retrieved_at="2026-08-25T00:00:00Z",
+        )
+        admit_document(pool, doc)
+        pool.put_document(doc)
+        for key, kind in (("process-lj-cell", "process"), ("formulation-argon-pair", "formulation")):
+            referent = make_referent(natural_key=key, kind=kind)
+            admit_referent(pool, referent)
+            pool.put_referent(referent)
+        engine = DeterministicRetrievalEngine()
+        query = make_material_program_query(
+            ["formulation-argon-pair"], "process-lj-cell", ("interaction_energy",)
+        )
+        iteration = reevaluate_program(
+            pool, engine, query, (make_criterion("interaction_energy", "<=", 0),)
+        )
+        return pool, make_experiment_session(pool, engine, iteration, document_id=doc.id)
+
+    def _interpret(candidate, result):
+        value = int.from_bytes(result.output, "little", signed=True)
+        return {"property": candidate.property, "value": value, "unit": "lj_integer_units"}
+
+    policy = ExperimentPolicy(
+        selection_policy=SelectionPolicy(
+            allowed_action_classes=None, allow_already_represented_context=True,
+            allow_redundant=True, allow_not_determinable_feasibility=True, max_selected=None,
+        ),
+        optimization_policy=OptimizationPolicy(
+            max_candidates=1, allowed_action_classes=None, allow_indeterminate_utility=True
+        ),
+        utility_input_source=lambda e: (
+            ExperimentUtilityInput(benefit=e.estimate, cost=1.0)
+            if isinstance(e, InformationValueEstimate) and e.estimate is not None
+            else ExperimentUtilityInput(benefit=1.0, cost=1.0)
+        ),
+    )
+
+    steps = {}
+    traces = {}
+    runners = {
+        "unproved": None,
+        "nexus": proved_runner(tmp_path, host_path=HOST, elf_path=ELF),
+    }
+    for label, runner in runners.items():
+        pool, session = _session()
+        dispatcher = SpecificationDispatcher(
+            spec_for=lambda c: _spec(), interpret=_interpret,
+            extracted_at="2026-08-25T00:00:00Z", runner=runner,
+        )
+        trace = OperationTrace()
+        candidates = generate_candidates(session.iteration.specification)
+        steps[label] = run_experiment_step(
+            session, candidates, dispatcher, policy, confidence=1.0, trace=trace
+        )
+        traces[label] = trace
+
+    # Evidence identity: blind to the warrant, byte-identical.
+    assert steps["unproved"].observation.id == steps["nexus"].observation.id
+    assert (
+        steps["unproved"].observation.extraction_method
+        == steps["nexus"].observation.extraction_method
+    )
+    # ExecutionResult content: identical (same engine, same checks).
+    assert steps["unproved"].result.id == steps["nexus"].result.id
+    # OperationTrace semantics: identical in both worlds.
+    for trace, step in ((traces["unproved"], steps["unproved"]), (traces["nexus"], steps["nexus"])):
+        assert trace.state_of(0) == SUCCEEDED
+        assert trace.transitions_of(0)[-1].output_ref == step.observation.id
+    # And the proof artifact exists only in the proved world.
+    assert any(p.name.startswith("proof-") for p in tmp_path.iterdir())
