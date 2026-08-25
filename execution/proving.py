@@ -303,3 +303,42 @@ def proved_runner(
         return proved.execution
 
     return run
+
+
+def verify_existing_proof(
+    native: ExecutionResult,
+    spec: ExecutionSpecification,
+    proof_path: pathlib.Path,
+    host: pathlib.Path,
+    elf: pathlib.Path,
+) -> dict:
+    """Stage 8: verify an EXISTING proof artifact against the statement
+    of an already-executed native result -- no proving anywhere in this
+    path. This is what makes a warrant cache safe: a cache hit is bytes,
+    and THIS is the gate those bytes must still pass.
+
+    Returns the host's parsed verify fields ({'outcome': 'verified'|
+    'failed', 'failure': ..., 'proof_identity': ...}). Raises only for
+    protocol/environment problems -- a failed verification is a RESULT
+    here (the caller decides refusal/escalation), not an exception,
+    because the caller must be able to distinguish 'cache hit but
+    warrant invalid' from 'no warrant'."""
+    if not host.exists() or not elf.exists():
+        raise ProvingUnavailable(f"host {host} or guest artifact {elf} not built")
+    _require_registered_artifact(spec, elf)
+    if native.status != "completed":
+        raise ProvedRunError("nothing to verify: the execution halted")
+    with tempfile.TemporaryDirectory() as tmp:
+        descriptor_file = pathlib.Path(tmp) / "descriptor.bin"
+        descriptor_file.write_bytes(spec.program)
+        proc = subprocess.run(
+            [str(host), "verify", str(elf), str(descriptor_file), str(proof_path),
+             "registered", spec.input_payload.hex(), (native.output or b"").hex(),
+             str(native.exit_code)],
+            capture_output=True, timeout=600,
+        )
+        if proc.returncode != 0:
+            raise ProvedRunError(
+                f"verifier process failed: {proc.stderr.decode(errors='replace')[-300:]}"
+            )
+        return _parse(proc.stdout.decode())

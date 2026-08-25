@@ -42,9 +42,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+from campaign.warrant_cache import WarrantCache, statement_key
 from execution.commitments import commit_hex
 from execution.engine import ExecutionResult, run_specification
-from execution.proving import ProvedRunError, ProvingUnavailable, prove_and_verify_result
+from execution.proving import (
+    ProvedRunError,
+    ProvingUnavailable,
+    prove_and_verify_result,
+    verify_existing_proof,
+)
 from execution.specification import ExecutionSpecification
 
 POLICY_TAG = "scout.campaign.verification-policy.v1"
@@ -147,6 +153,13 @@ class WarrantRecord:
     proof_identity: Optional[str] = None
     proof_path: Optional[str] = None
     error: Optional[str] = None
+    #: Stage 8: how the warrant was obtained. None = no cache in play;
+    #: "miss+stored" = freshly proven and stored; "hit" = reused after
+    #: mandatory re-verification; "hit-invalid" = the cached artifact
+    #: FAILED verification (never silently regenerated); "invalidated"
+    #: = the policy's explicit decision to discard a failed warrant
+    #: before regenerating. Campaign metadata, never evidence.
+    cache: Optional[str] = None
 
 
 class PolicyVerificationError(RuntimeError):
@@ -159,44 +172,91 @@ def policy_runner(
     proof_dir: pathlib.Path,
     warrant_sink: List[WarrantRecord],
     lanes: Optional[dict] = None,
+    cache: Optional[WarrantCache] = None,
+    regenerate_invalid: bool = False,
 ) -> Callable[[ExecutionSpecification], ExecutionResult]:
     """A `SpecificationDispatcher` runner that executes the science ONCE
     and then applies the policy's verification plan to that one result.
 
     Returns the native `ExecutionResult` unchanged -- the seam, the
     admission path, and every identity downstream are exactly what they
-    would be with no policy at all. The warrants land in `warrant_sink`."""
+    would be with no policy at all. The warrants land in `warrant_sink`.
+
+    Stage 8: with a `cache`, each lane first looks up the statement key.
+    A HIT retrieves the stored proof and MUST still pass the backend
+    verifier (`verify_existing_proof`) -- reuse skips PROVING, never
+    verification. A hit whose verification fails is recorded
+    `hit-invalid` and treated as a failed lane (escalation applies);
+    only with `regenerate_invalid=True` does the policy explicitly
+    invalidate the entry and prove afresh -- a recorded decision, never
+    an automatic repair that would hide corruption."""
     lanes = lanes if lanes is not None else default_lanes()
 
-    def _attempt(role, lane_name, spec, native):
-        lane = lanes.get(lane_name)
-        started = time.monotonic()
-        if lane is None or not lane.available_for(spec):
-            warrant_sink.append(WarrantRecord(
-                spec_identity=spec.identity(), policy_identity=policy.identity(),
-                role=role, backend=lane_name, outcome="unavailable",
-                seconds=0.0,
-            ))
-            return "unavailable"
+    def _record(spec, role, lane_name, outcome, started, cache_state=None,
+                proof_identity=None, proof_path=None, error=None):
+        warrant_sink.append(WarrantRecord(
+            spec_identity=spec.identity(), policy_identity=policy.identity(),
+            role=role, backend=lane_name, outcome=outcome,
+            seconds=time.monotonic() - started, cache=cache_state,
+            proof_identity=proof_identity, proof_path=proof_path,
+            error=None if error is None else str(error)[:300],
+        ))
+
+    def _prove_fresh(role, lane, lane_name, spec, native, started, cache_state):
         proof_out = proof_dir / f"proof-{spec.identity()[:16]}-{lane_name}.bin"
         try:
             proved = prove_and_verify_result(
                 native, spec, proof_out, lane.host_path, lane.artifact_for(spec)
             )
         except (ProvedRunError, ProvingUnavailable) as error:
-            warrant_sink.append(WarrantRecord(
-                spec_identity=spec.identity(), policy_identity=policy.identity(),
-                role=role, backend=lane_name, outcome="failed",
-                seconds=time.monotonic() - started, error=str(error)[:300],
-            ))
+            _record(spec, role, lane_name, "failed", started,
+                    cache_state=cache_state, error=error)
             return "failed"
-        warrant_sink.append(WarrantRecord(
-            spec_identity=spec.identity(), policy_identity=policy.identity(),
-            role=role, backend=lane_name, outcome="verified",
-            seconds=time.monotonic() - started,
-            proof_identity=proved.proof_identity, proof_path=proved.proof_path,
-        ))
+        if cache is not None:
+            key = statement_key(lane.name, lane.artifact_for(spec), spec)
+            cache.store(key, pathlib.Path(proved.proof_path).read_bytes(),
+                        lane.name, spec.identity())
+            cache_state = (cache_state or "miss") + "+stored"
+        _record(spec, role, lane_name, "verified", started,
+                cache_state=cache_state,
+                proof_identity=proved.proof_identity, proof_path=proved.proof_path)
         return "verified"
+
+    def _attempt(role, lane_name, spec, native):
+        lane = lanes.get(lane_name)
+        started = time.monotonic()
+        if lane is None or not lane.available_for(spec):
+            _record(spec, role, lane_name, "unavailable", started)
+            return "unavailable"
+
+        if cache is not None:
+            key = statement_key(lane.name, lane.artifact_for(spec), spec)
+            hit = cache.lookup(key)
+            if hit is not None:
+                fields = verify_existing_proof(
+                    native, spec, hit.proof_path, lane.host_path,
+                    lane.artifact_for(spec),
+                )
+                if fields.get("outcome") == "verified":
+                    _record(spec, role, lane_name, "verified", started,
+                            cache_state="hit",
+                            proof_identity=fields.get("proof_identity"),
+                            proof_path=str(hit.proof_path))
+                    return "verified"
+                # HIT BUT INVALID: never silently regenerated.
+                _record(spec, role, lane_name, "failed", started,
+                        cache_state="hit-invalid",
+                        error=f"cached warrant failed verification: "
+                              f"{fields.get('failure')}; intact={hit.artifact_intact}")
+                if regenerate_invalid:
+                    cache.invalidate(key)
+                    _record(spec, role, lane_name, "invalidated", started,
+                            cache_state="invalidated")
+                    return _prove_fresh(role, lane, lane_name, spec, native,
+                                        time.monotonic(), "regenerated")
+                return "failed"
+        return _prove_fresh(role, lane, lane_name, spec, native, started,
+                            "miss" if cache is not None else None)
 
     def run(spec: ExecutionSpecification) -> ExecutionResult:
         # ONE scientific execution, checked as always.
