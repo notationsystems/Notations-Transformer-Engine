@@ -181,7 +181,7 @@ engine-side per-request work — a Rust/STE frontier (result hex
 formatting, per-request bookkeeping) to take up only if a real
 workload demands it. Recorded, not built.
 
-## Phase 4 — Rust Engine Per-Request Cost: DEFERRED (gate applied)
+## Phase 4 — Rust Engine Per-Request Cost: PROFILED, then DEFERRED
 
 INSPECTED 2026-08-25: the only consumers of the batched forward path
 are the benchmark/profile scripts and `AttentionModel.forward_batch`
@@ -190,16 +190,51 @@ of points per run. **No actual workload demonstrates that 12,062
 forwards/s is insufficient**, so per the phase gate no implementation
 change was made and no speculative profiling harness was built.
 
-The frontier is recorded, not abandoned. When a real workload is
-throughput-constrained, the plan of record is: profile the Rust
-engine's per-request path component-by-component (request parsing /
-deserialization / reconstruction / execution bookkeeping / result
-construction / hex encoding / block formatting / stdout write) and let
-the measurement — not the hex-encoding hypothesis — pick the target,
-under the standing invariant: same protocol, execution, identity,
-failure, and verification semantics (parse-all-before-execute,
-per-item fault attribution, deterministic ordering, all five
-constituent identities, caller-side recompute-and-compare, no trusted
-engine digests), with lower measured engine-side overhead. Benchmark
-before and after; stop if the improvement is not meaningful for the
-real workload.
+The frontier was nonetheless **profiled before deferring**, because
+deferring on a hypothesis is what step 4 of the directive warns
+against. Profiling is measurement, not optimization: it required no
+instrumentation and no engine change — the attribution comes from
+differential experiments that vary what a request makes the engine do
+(`scripts/engine_request_profile.py`).
+
+**Design.** Three request shapes isolate the terms: `heat steps=0 n=3`
+(32 B in, 24 B out — a zero-iteration loop, so essentially no
+arithmetic) fixes the constant; `attention n=1 d=64` (49,416 B in,
+512 B out) is large-input/small-output; `heat steps=0 n=4096`
+(32,776 B in, 32,768 B out) is large in *and* out. A sweep over batch
+size on the constant point then separates one-time process spawn from
+the true marginal per-request cost by linear fit.
+
+**Measured components** (engine side, this machine):
+
+| component | measured |
+|---|---|
+| process spawn + startup | **2.15 ms per process** (one-time; the term batching already amortizes) |
+| true marginal per-request (tiny payload) | **11.43 µs** — parse, reconstruct, execution bookkeeping, result construction |
+| input-side (parse + reconstruct) | **12.7 µs/KB** |
+| output-side (hex + block formatting) | **58.2 µs/KB** — 4.6× the input side per byte |
+
+**Attribution for the real transformer request** (280 B in, 160 B out),
+at B=256: amortized spawn ≈ 8.4 µs (26%), fixed per-request
+bookkeeping 11.4 µs (35%), output hex + formatting 9.3 µs (28%), input
+parsing 3.6 µs (11%) — summing to ≈ 32.7 µs against the 35–37 µs
+measured independently in the previous phase, which is the check that
+the model is sound.
+
+**The hex hypothesis was half right, and that is why it was measured.**
+Output bytes really are 4.6× costlier than input bytes — consistent
+with `format!("{b:02x}")` allocating per byte — but at this workload's
+160-byte outputs that is only ~28% of engine cost. The single largest
+marginal term is the **fixed per-request path (11.4 µs)**, not hex. Had
+the frontier been opened on the hypothesis, the wrong component would
+have been optimized.
+
+**Gate re-applied against the measurements**: unchanged — no workload
+demands more than 12 k forwards/s, so **no implementation change was
+made**. If the gate ever opens, the target is the fixed per-request
+path first and output formatting second, under the standing invariant:
+same protocol, execution, identity, failure, and verification semantics
+(parse-all-before-execute, per-item fault attribution, deterministic
+ordering, all five constituent identities, caller-side
+recompute-and-compare, no trusted engine digests), benchmarked before
+and after, stopping if the improvement is not meaningful.

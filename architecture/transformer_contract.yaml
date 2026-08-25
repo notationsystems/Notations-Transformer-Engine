@@ -68,10 +68,17 @@ frontier:
   engine_per_request_cost:
     status: deferred
     measured: ~35-37 us/item engine-side at B=256; 12,062 forwards/s
-    gate: no actual workload requires more throughput (inspected
-      2026-08-25 -- campaigns execute tens of points; only benchmarks
-      consume the batch path at scale)
-    plan_of_record: component-by-component Rust per-request profile
-      first; measurement picks the target; all protocol/execution/
-      identity/failure/verification semantics preserved; benchmark
-      before and after; stop if not meaningful for the real workload
+    profiled: |
+      2026-08-25, differential (no instrumentation, no engine change).
+      spawn 2.15 ms/process (one-time); marginal per-request 11.43 us
+      fixed; input 12.7 us/KB; output hex+format 58.2 us/KB.
+      Real request (280 B in, 160 B out) at B=256 -- spawn 26%, fixed
+      bookkeeping 35%, output hex+format 28%, input parse 11%; sums to
+      32.7 us against 35-37 us measured independently, so the model is
+      sound. The hex hypothesis is real per BYTE but NOT dominant at
+      this workload; the largest marginal term is the fixed
+      per-request path.
+    plan_of_record: profiling DONE (above); if the gate opens, target
+      the fixed per-request path first and output formatting second;
+      all protocol/execution/identity/failure/verification semantics
+      preserved; benchmark before and after; stop if not meaningful
