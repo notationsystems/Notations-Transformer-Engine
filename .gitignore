@@ -4,8 +4,9 @@ __pycache__/
 crates/target/
 zk/target/
 zk/guest-pairwise/target/
-zk/guest-pairwise/Cargo.lock
+
 zk/guest-pairwise-nexus/target/
 zk/nexus/target/
 zk/guest-heat/target/
 zk/guest-heat-nexus/target/
+zk/artifacts/

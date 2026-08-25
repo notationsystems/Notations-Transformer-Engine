@@ -66,11 +66,8 @@ def default_host_path() -> pathlib.Path:
 
 
 def default_guest_elf_path() -> pathlib.Path:
-    """Where the succinct toolchain builds the SP1 guest ELF."""
-    return (
-        _REPO / "zk" / "guest-pairwise" / "target"
-        / "riscv64im-succinct-zkvm-elf" / "release" / "ste-guest-pairwise"
-    )
+    """The SP1 pairwise guest -- the reproducible-build artifact."""
+    return _REPO / "zk" / "artifacts" / "sp1-pairwise.elf"
 
 
 def default_nexus_host_path() -> pathlib.Path:
@@ -80,36 +77,55 @@ def default_nexus_host_path() -> pathlib.Path:
 
 def default_nexus_guest_elf_path() -> pathlib.Path:
     """Where the pinned nightly builds the Nexus guest ELF."""
-    return (
-        _REPO / "zk" / "guest-pairwise-nexus" / "target"
-        / "riscv32im-unknown-none-elf" / "release" / "ste-guest-pairwise-nexus"
-    )
+    return _REPO / "zk" / "artifacts" / "nexus-pairwise.elf"
 
 
 def default_heat_guest_elf_path() -> pathlib.Path:
     """The SP1 heat-diffusion guest ELF."""
-    return (
-        _REPO / "zk" / "guest-heat" / "target"
-        / "riscv64im-succinct-zkvm-elf" / "release" / "ste-guest-heat"
-    )
+    return _REPO / "zk" / "artifacts" / "sp1-heat.elf"
 
 
 def default_nexus_heat_guest_elf_path() -> pathlib.Path:
     """The Nexus heat-diffusion guest ELF."""
-    return (
-        _REPO / "zk" / "guest-heat-nexus" / "target"
-        / "riscv32im-unknown-none-elf" / "release" / "ste-guest-heat-nexus"
-    )
+    return _REPO / "zk" / "artifacts" / "nexus-heat.elf"
 
 
-#: Every descriptor a built guest implements. Adding a provable workload
-#: means adding its descriptor HERE and its guests under zk/ -- visibly,
-#: exactly like the execution-cli registry. A specification whose program
-#: is not in this set is refused before any proving is attempted.
-REGISTERED_GUEST_DESCRIPTORS = frozenset({
-    PAIRWISE_ENERGY_DESCRIPTOR,
-    HEAT_DIFFUSION_DESCRIPTOR,
-})
+def _registry_entry(spec: ExecutionSpecification):
+    """Stage 5: the guest registry is an INDEX from program identity to
+    reproducible-build artifacts; the authority is
+    `execution.build.verify_build` over the stored recipe. Returns the
+    per-backend entries for this specification's program, or None."""
+    try:
+        from execution.guest_registry import GUESTS
+    except ImportError:
+        return None
+    return GUESTS.get(spec.program_identity())
+
+
+def _require_registered_artifact(spec: ExecutionSpecification, elf: pathlib.Path) -> None:
+    """Refuse to prove or verify against an ELF that is not the
+    reproducible artifact registered for this specification's program.
+    This replaces stage 4's declared registration as the gate: the
+    identity checked here is re-derivable from source by rebuild
+    (`verify_build`), so a false registration is CATCHABLE, not merely
+    trusted."""
+    import hashlib
+
+    entries = _registry_entry(spec)
+    if not entries:
+        raise ProvedRunError(
+            "no built guest is registered for this specification's program descriptor; "
+            "refusing to prove a computation outside the capability envelope rather "
+            "than pretending -- see execution/guest_registry.py and execution.build"
+        )
+    actual = hashlib.sha256(elf.read_bytes()).hexdigest()
+    expected = {backend: entry["elf_sha256"] for backend, entry in entries.items()}
+    if actual not in expected.values():
+        raise ProvedRunError(
+            f"ELF {elf} (sha256 {actual[:16]}...) is not the reproducible-build artifact "
+            f"registered for this program (expected one of {expected}); the registry is an "
+            f"index -- rebuild via execution.build to re-derive the authoritative identity"
+        )
 
 
 @dataclass(frozen=True)
@@ -161,12 +177,7 @@ def prove_and_verify(
             f"sp1-host ({host}) or guest ELF ({elf}) not built; see zk/README notes "
             f"in docs/STE_VERIFICATION_SUBSTRATE.md"
         )
-    if spec.program not in REGISTERED_GUEST_DESCRIPTORS:
-        raise ProvedRunError(
-            "no built guest is registered for this specification's program descriptor; "
-            "refusing to prove a computation outside the capability envelope rather "
-            "than pretending -- see REGISTERED_GUEST_DESCRIPTORS"
-        )
+    _require_registered_artifact(spec, elf)
 
     # 1. The checked native execution.
     native = run_specification(spec)
