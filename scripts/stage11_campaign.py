@@ -50,11 +50,14 @@ OUT.mkdir(parents=True, exist_ok=True)
 MARKER = 333_331  # fresh-statement marker for the heat sweep
 
 #: Stage-11 measured memory classes (peak sampled RSS per prover on
-#: this 16 GB machine class; statement-size dependent for Nexus, the
-#: n=24 sweep cells being the ~10 GB worst case). CALLER-DECLARED
-#: limits derived from those measurements; the serial retry pass
-#: remains the backstop for co-scheduled worst cases.
-WORKER_LIMITS = {"nexus": 2, "risc0": 1, "sp1": 1}
+#: this 16 GB machine class): Nexus 2.6-10.1 GB (STATEMENT-SIZE
+#: dependent; n=24 sweep cells are the worst case), SP1 9.6 GB,
+#: RISC Zero 1.3 GB (memory-light -- measured, contrary to the naive
+#: cost-implies-memory assumption). CALLER-DECLARED limits derived from
+#: those measurements; the serial retry pass remains the backstop for
+#: co-scheduled cross-backend worst cases (nexus-big + sp1 ~ 19.7 GB
+#: exceeds the machine; per-backend caps do not gate ACROSS backends).
+WORKER_LIMITS = {"nexus": 2, "risc0": 2, "sp1": 1}
 
 # -- new real structures (textbook geometries, rounded once, here) ----
 AMMONIA = Molecule((Atom("N", 0, 0, 0), Atom("H", 94, 0, -38),
