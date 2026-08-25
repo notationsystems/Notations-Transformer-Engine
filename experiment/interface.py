@@ -39,6 +39,22 @@ class DispatchedMeasurement:
     `experiment.step.run_experiment_step`, never by the dispatcher
     itself.
 
+    `extraction_method` is REQUIRED, with no default. It previously
+    defaulted to `"measurement:campaign_execution"`. Phase 120 found that
+    the ONLY construction of this type anywhere in the repository is a
+    scripted test fixture returning hardcoded constants -- so the default
+    had never once labelled a measurement, and its entire observed
+    lifetime was mislabelling stipulated values. The type is a plain
+    frozen dataclass with no factory and no gate: `ActionDispatcher`
+    RETURNS it but does not OWN it, so the name established nothing. A
+    dispatcher must now state what it did.
+
+    This does not establish that a measurement occurred. Phase 119
+    demonstrated that a required declaration leaves genuine, fabricated,
+    simulated and hand-typed values collapsing to one identical
+    `Observation` whenever the caller declares the same method. A label is
+    not a witness.
+
     `extracted_at` is required, never defaulted to a wall-clock read --
     the same "caller-supplied, never wall-clock" discipline
     `scout.interface.RawDocument.retrieved_at` already established;
@@ -48,7 +64,7 @@ class DispatchedMeasurement:
     record_locator: str
     record_raw_content: str
     extracted_at: str
-    extraction_method: str = "measurement:campaign_execution"
+    extraction_method: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "content", MappingProxyType(dict(self.content)))

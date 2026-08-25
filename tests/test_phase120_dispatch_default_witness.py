@@ -118,7 +118,34 @@ meaningful and perfectly false: the string reaches
 every observation in this codebase's only end-to-end experiment test. It
 is the JUSTIFICATION that is missing, not the meaning.
 
-NO ABSTRACTION IS PROPOSED. Zero production changes in this phase.
+NO ABSTRACTION IS PROPOSED.
+
+REPAIRED AFTER THIS AUDIT
+--------------------------
+`DispatchedMeasurement.extraction_method` is now REQUIRED, and the sole
+constructor declares `"simulation:scripted_fixture"`. That literal was
+chosen, not inherited: a stipulated constant is not observed (nobody saw
+it), not extracted (no document holds it), and not inferred (no model
+made it). Of the four statuses `classify_epistemic_status` can return,
+`simulation:` is the ONLY one that asserts no EXTERNAL event -- a bare
+`fixture:` prefix falls through to EXTRACTED, which would falsely claim a
+document extraction. It is the least-wrong declaration available, not a
+claim that a simulation ran.
+
+The declared provenance of that test's observations changed, and their
+ids with it. That was the point: the previous value was FALSE for the
+only object that used it, and preserving it to keep a hash stable would
+have been preserving a false claim for convenience.
+
+THE TWO RULES, NOW BOTH LOCKED
+
+    CONSTRUCTOR   must not invent a world event   (Phase 119, Phase 120)
+    DECLARATION   is still not a witness          (Phase 119)
+
+Stated as one invariant: the architecture may REQUIRE a caller to declare
+what an object represents, but it must never SUPPLY a positive epistemic
+declaration merely because of a type name, a constructor, or an absent
+argument.
 """
 
 from __future__ import annotations
@@ -173,7 +200,7 @@ def test_exactly_one_construction_site_exists_and_it_is_a_test_fixture():
     assert len(sites) == 1
     path, _, declares = sites[0]
     assert path == "tests/test_experiment_step.py"
-    assert declares is False          # it takes the default
+    assert declares is True           # it now DECLARES; the default is gone
 
 
 def test_no_production_module_ever_constructs_one():
@@ -196,10 +223,11 @@ def test_the_type_is_freely_constructible_with_no_factory_or_gate():
     assert not hasattr(interface, "make_dispatched_measurement")
     public = {n for n in dir(interface) if not n.startswith("_")}
     assert "ActionDispatcher" in public and "DispatchedMeasurement" in public
-    # a bare call from anywhere gets the claim for free
-    bare = DispatchedMeasurement(content={"x": 1}, record_locator="l",
-                                 record_raw_content="1", extracted_at=TIMESTAMP)
-    assert bare.extraction_method == DEFAULT
+    # A bare call USED TO get the claim for free. It now cannot be made
+    # at all without saying what happened.
+    with pytest.raises(TypeError):
+        DispatchedMeasurement(content={"x": 1}, record_locator="l",
+                              record_raw_content="1", extracted_at=TIMESTAMP)
 
 
 def test_post_init_freezes_content_and_validates_nothing():
@@ -228,15 +256,21 @@ def test_the_protocol_returns_the_type_but_does_not_own_it():
     "fabricated by hand",
     "simulation output",
 ])
-def test_every_world_is_labelled_a_campaign_measurement(world):
-    made = DispatchedMeasurement(content=CONTENT, record_locator="loadframe-run-7",
-                                 record_raw_content="90.0", extracted_at=TIMESTAMP)
-    assert made.extraction_method == DEFAULT, world
+def test_no_world_can_be_constructed_without_declaring_what_it_is(world):
+    """WHEN THIS AUDIT RAN all four produced equal objects labelled a
+    campaign measurement. Now none can be built at all in silence."""
+    with pytest.raises(TypeError):
+        DispatchedMeasurement(content=CONTENT, record_locator="loadframe-run-7",
+                              record_raw_content="90.0", extracted_at=TIMESTAMP)
 
 
-def test_the_four_worlds_are_equal_as_objects():
+def test_the_four_worlds_still_collapse_once_they_declare_alike():
+    """FINDING B IS UNTOUCHED. Requiring the declaration removed the
+    architecture's unsolicited claim; it supplied no witness. Four callers
+    declaring the same string still produce one object."""
     made = [DispatchedMeasurement(content=CONTENT, record_locator="loadframe-run-7",
-                                  record_raw_content="90.0", extracted_at=TIMESTAMP)
+                                  record_raw_content="90.0", extracted_at=TIMESTAMP,
+                                  extraction_method=DEFAULT)
             for _ in range(4)]
     signatures = {(m.record_locator, m.record_raw_content, m.extraction_method,
                    tuple(sorted(m.content.items()))) for m in made}
@@ -276,22 +310,21 @@ def test_only_the_extraction_method_is_read_downstream():
 # -- 5/7. the defect is the same shape as Phase 119's --------------------------------------------------------
 
 
-def test_this_default_and_the_removed_one_have_the_same_shape():
-    """absence of caller information -> positive assertion about a world
-    event. The removed one is gone; this one remains."""
+def test_neither_default_survives():
+    """Both had the same shape -- absence of caller information becoming a
+    positive assertion about a world event -- and both are gone."""
     from materials.results import make_experimental_result
-    removed = inspect.signature(make_experimental_result).parameters["extraction_method"]
-    assert removed.default is inspect.Parameter.empty          # Phase 119
-
-    remaining = [f for f in dataclasses.fields(DispatchedMeasurement)
-                 if f.name == "extraction_method"][0]
-    assert remaining.default == DEFAULT                        # this phase
-
-
-def test_the_default_stands_unrepaired_and_no_abstraction_is_proposed():
-    """This phase reports. It does not repair, and it proposes nothing."""
+    assert inspect.signature(make_experimental_result).parameters[
+        "extraction_method"].default is inspect.Parameter.empty     # Phase 119
     assert [f for f in dataclasses.fields(DispatchedMeasurement)
-            if f.name == "extraction_method"][0].default == DEFAULT
+            if f.name == "extraction_method"][0].default is dataclasses.MISSING
+
+
+def test_the_repair_landed_and_no_abstraction_was_added():
+    """THE REGRESSION LOCK. The default is gone and nothing was invented
+    to replace it -- no execution record, no origin type, no gate."""
+    assert [f for f in dataclasses.fields(DispatchedMeasurement)
+            if f.name == "extraction_method"][0].default is dataclasses.MISSING
 
     forbidden = {"ExecutionRecord", "MeasurementOrigin", "ProvenanceEvent",
                  "TrustedDispatcher", "Witness"}
@@ -306,3 +339,48 @@ def test_the_default_stands_unrepaired_and_no_abstraction_is_proposed():
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in forbidden:
                     hits.append(f"{path.relative_to(REPO)}: {node.name}")
     assert hits == [], hits
+
+
+def test_the_sole_constructor_declares_the_least_wrong_thing():
+    """It does NOT declare a measurement, and it does not claim a
+    simulation ran -- `simulation:` is chosen because it is the only
+    status that asserts no external event."""
+    from retrieval.epistemic import SIMULATED, classify_epistemic_status
+    from evidence.types import make_observation
+
+    text = (REPO / "tests" / "test_experiment_step.py").read_text()
+    assert 'extraction_method="simulation:scripted_fixture"' in text
+    assert "measurement:campaign_execution" not in text
+
+    observation = make_observation(
+        record_ids=("r",), extraction_method="simulation:scripted_fixture",
+        content={"v": 1.0}, confidence=1.0, extracted_at=TIMESTAMP)
+    assert classify_epistemic_status(observation) == SIMULATED
+
+    # a bare `fixture:` prefix would fall through to EXTRACTED -- a false
+    # claim that a document was parsed
+    bare = make_observation(
+        record_ids=("r",), extraction_method="fixture:scripted",
+        content={"v": 1.0}, confidence=1.0, extracted_at=TIMESTAMP)
+    assert classify_epistemic_status(bare) != SIMULATED
+
+
+def test_the_two_rules_hold_together():
+    """CONSTRUCTOR must not invent a world event; DECLARATION is still not
+    a witness. The first is now enforced at both seams; the second remains
+    unachievable and is not attempted."""
+    import inspect as _inspect
+
+    from materials.results import make_experimental_result
+
+    # rule 1, enforced
+    assert _inspect.signature(make_experimental_result).parameters[
+        "extraction_method"].default is _inspect.Parameter.empty
+    assert [f for f in dataclasses.fields(DispatchedMeasurement)
+            if f.name == "extraction_method"][0].default is dataclasses.MISSING
+
+    # rule 2, unenforceable -- no witness field exists anywhere
+    for cls in (DispatchedMeasurement,):
+        fields = {f.name for f in dataclasses.fields(cls)}
+        for absent in ("witness", "attested_by", "signature", "verified"):
+            assert absent not in fields

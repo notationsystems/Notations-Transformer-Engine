@@ -285,17 +285,18 @@ def test_no_action_dispatcher_implementation_exists_to_have_been_called():
 # -- 3. the default exists twice -------------------------------------------------------------------------
 
 
-def test_the_second_of_the_two_defaults_has_since_been_removed():
+def test_both_of_the_two_defaults_have_since_been_removed():
     """WHEN THIS AUDIT RAN there were two independent defaults asserting
-    the measurement claim, and the second let the dispatcher be bypassed
-    while the claim still appeared. That one is now REQUIRED (see the
-    Phase 119 amendment); `DispatchedMeasurement`'s default remains, and
-    is defensible, since a dispatcher is meant to measure."""
-    dispatched_default = [f for f in dataclasses.fields(DispatchedMeasurement)
-                          if f.name == "extraction_method"][0].default
-    assert dispatched_default == DEFAULT_METHOD
-    factory = inspect.signature(make_experimental_result).parameters["extraction_method"]
-    assert factory.default is inspect.Parameter.empty
+    the measurement claim: the second let the dispatcher be bypassed while
+    the claim still appeared, and the first was provisionally called
+    defensible. Phase 119 removed the second; Phase 120 falsified the
+    defence for the first and it was removed too. Neither can now arise
+    from a caller's silence."""
+    field = [f for f in dataclasses.fields(DispatchedMeasurement)
+             if f.name == "extraction_method"][0]
+    assert field.default is dataclasses.MISSING
+    assert inspect.signature(make_experimental_result).parameters[
+        "extraction_method"].default is inspect.Parameter.empty
 
 
 def test_this_is_the_only_default_in_production_that_asserts_a_claim():

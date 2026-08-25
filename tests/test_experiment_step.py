@@ -56,6 +56,13 @@ class ScriptedDispatcher:
             record_locator=f"scripted-{candidate.id[:8]}-{value}",
             record_raw_content=f"scripted measurement: {property_name}={value}",
             extracted_at=self.extracted_at,
+            # Phase 120: a scripted constant is not a measurement. Of the
+            # four statuses `classify_epistemic_status` can return, only
+            # `simulation:` asserts no EXTERNAL event -- a bare `fixture:`
+            # prefix falls through to EXTRACTED, which would falsely claim
+            # a document extraction. This is the least-wrong declaration
+            # available, not a claim that a simulation ran.
+            extraction_method="simulation:scripted_fixture",
         )
 
 

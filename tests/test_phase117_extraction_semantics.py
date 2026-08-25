@@ -445,15 +445,24 @@ def test_the_method_is_identity_bearing_without_being_constitutive(anchored):
     assert a.record_ids == b.record_ids
 
 
-def test_a_default_asserts_the_strongest_claim():
-    """`DispatchedMeasurement.extraction_method` defaults to
-    "measurement:campaign_execution" -- the one place the architecture
-    defaults to a claim rather than to unknown. Defensible, since a
-    dispatcher is meant to measure, and worth knowing."""
+def test_no_default_asserts_a_claim_any_more():
+    """WHEN THIS AUDIT RAN, `DispatchedMeasurement.extraction_method`
+    defaulted to "measurement:campaign_execution" -- flagged here as the
+    one place the architecture defaulted to a claim rather than to
+    unknown, and provisionally called defensible. Phase 120 falsified the
+    defence: the only construction of the type anywhere is a scripted
+    fixture, so the default never once labelled a measurement. Both that
+    default and `make_experimental_result`'s are now REQUIRED."""
+    import inspect
+
     from experiment.interface import DispatchedMeasurement
-    default = [f for f in dataclasses.fields(DispatchedMeasurement)
-               if f.name == "extraction_method"][0].default
-    assert default == "measurement:campaign_execution"
+    from materials.results import make_experimental_result
+
+    field = [f for f in dataclasses.fields(DispatchedMeasurement)
+             if f.name == "extraction_method"][0]
+    assert field.default is dataclasses.MISSING
+    assert inspect.signature(make_experimental_result).parameters[
+        "extraction_method"].default is inspect.Parameter.empty
 
 
 # -- 13/16. nothing was added ------------------------------------------------------------------------------
