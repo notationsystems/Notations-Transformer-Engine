@@ -11,7 +11,7 @@
 use std::io::Write;
 
 use execution_core::{Expectation, ProofArtifact, ProofBackend, VerificationResult};
-use nexus_adapter::NexusPairwiseBackend;
+use nexus_adapter::NexusKernelBackend;
 
 fn from_hex(text: &str) -> Result<Vec<u8>, String> {
     if text.len() % 2 != 0 {
@@ -33,11 +33,11 @@ fn main() {
 
 const VERSION: &str = "0.3.6@f2ad126";
 
-fn setup(elf_path: &str, descriptor_path: &str) -> Result<NexusPairwiseBackend, String> {
+fn setup(elf_path: &str, descriptor_path: &str) -> Result<NexusKernelBackend, String> {
     let descriptor = std::fs::read(descriptor_path)
         .map_err(|e| format!("reading descriptor file {descriptor_path}: {e}"))?;
     let binding = execution_core::ProgramIdentity::of(&descriptor);
-    NexusPairwiseBackend::setup(std::path::Path::new(elf_path), binding, VERSION)
+    NexusKernelBackend::setup(std::path::Path::new(elf_path), binding, VERSION)
         .map_err(|e| format!("setup: {e:?}"))
 }
 

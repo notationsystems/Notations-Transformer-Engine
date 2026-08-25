@@ -82,6 +82,31 @@ class ExecutionSpecification:
         return commit_hex(INPUT_TAG, [self.input_payload])
 
 
+#: The heat-diffusion kernel's canonical descriptor -- byte-for-byte
+#: `execution_native::reference::HEAT_DIFFUSION_DESCRIPTOR` (stage 4's
+#: second provable workload; the round-trip through the engine pins the
+#: agreement, exactly as for the pairwise descriptor).
+HEAT_DIFFUSION_DESCRIPTOR = (
+    b"scout.native.heat-diffusion-kernel.v1\n"
+    b"input: [steps u32 LE][n u32 LE][n x i64 LE]; 3<=n<=4096; steps<=100000; |u|<=2^40\n"
+    b"per step, Jacobi, Dirichlet ends fixed: u'_i = u_i + (u_{i-1} - 2u_i + u_{i+1})/4\n"
+    b"(integer division, truncation toward zero; alpha=1/4 within stability bound 1/2)\n"
+    b"output: n x i64 LE final values; exit 0\n"
+    b"faults: 2=malformed, 3=n<3, 4=n/steps bound, 5=value bound"
+)
+
+
+def encode_heat_input(steps: int, values: list[int]) -> bytes:
+    """The heat kernel's canonical input encoding -- mirrors
+    `execution_native::reference::encode_heat_input`."""
+    import struct
+
+    out = struct.pack("<II", steps, len(values))
+    for value in values:
+        out += struct.pack("<q", value)
+    return out
+
+
 def encode_positions(positions: list[tuple[int, int, int]]) -> bytes:
     """The reference workload's canonical input encoding -- mirrors
     `execution_native::reference::encode_positions` so the same particle

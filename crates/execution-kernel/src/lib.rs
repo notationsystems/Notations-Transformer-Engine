@@ -22,6 +22,8 @@
 #![deny(missing_docs)]
 #![no_std]
 
+extern crate alloc;
+
 /// Fault: input length is not a multiple of 12.
 pub const FAULT_MALFORMED_LENGTH: u32 = 2;
 /// Fault: two particles are coincident (r2 == 0). An undefined term is
@@ -98,4 +100,108 @@ pub fn pairwise_energy(input: &[u8]) -> Result<[u8; 16], KernelFault> {
         }
     }
     Ok(energy.to_le_bytes())
+}
+
+// ---------------------------------------------------------------------
+// Second kernel (STE stage 4): 1-D heat diffusion -- an explicit
+// finite-difference PDE integrator, a fundamentally different
+// computational structure from the pairwise kernel: time-stepped
+// nearest-neighbour stencil vs all-pairs accumulation.
+// ---------------------------------------------------------------------
+
+/// Heat-kernel fault: input shape is wrong (too short, or not 8 + 8n bytes).
+pub const HEAT_FAULT_MALFORMED: u32 = 2;
+/// Heat-kernel fault: fewer than 3 nodes (no interior to diffuse).
+pub const HEAT_FAULT_TOO_SMALL: u32 = 3;
+/// Heat-kernel fault: node count exceeds 4096 or steps exceed 100000.
+pub const HEAT_FAULT_BOUNDS: u32 = 4;
+/// Heat-kernel fault: an initial value exceeds |u| <= 2^40.
+pub const HEAT_FAULT_VALUE_BOUND: u32 = 5;
+
+const HEAT_MAX_NODES: usize = 4096;
+const HEAT_MAX_STEPS: u32 = 100_000;
+const HEAT_VALUE_BOUND: i64 = 1 << 40;
+
+/// Explicit finite-difference integration of the 1-D heat equation on a
+/// fixed grid, entirely in integer arithmetic.
+///
+/// ```text
+/// input  := [steps: u32 LE][n: u32 LE][n x i64 LE initial values]
+/// bounds := 3 <= n <= 4096; steps <= 100000; |u_i| <= 2^40
+/// step   := for i in 1..n-1 (Dirichlet: u_0 and u_{n-1} fixed):
+///             u'_i = u_i + (u_{i-1} - 2*u_i + u_{i+1}) / 4
+///           integer division truncating toward zero (alpha = 1/4 is
+///           inside the explicit-scheme stability bound of 1/2)
+/// output := n x i64 LE final values
+/// exit   := 0
+/// ```
+///
+/// The update is computed against the PREVIOUS step's values (a carried
+/// `left_old`), never against half-updated ones -- the scheme is Jacobi,
+/// not Gauss-Seidel, and which one runs is part of the semantics the
+/// descriptor commits to.
+pub fn heat_diffusion(input: &[u8]) -> Result<alloc::vec::Vec<u8>, KernelFault> {
+    if input.len() < 8 {
+        return Err(KernelFault {
+            exit_code: HEAT_FAULT_MALFORMED,
+            detail: "input shorter than the 8-byte header",
+        });
+    }
+    let steps = u32::from_le_bytes([input[0], input[1], input[2], input[3]]);
+    let count = u32::from_le_bytes([input[4], input[5], input[6], input[7]]) as usize;
+    if input.len() != 8 + 8 * count {
+        return Err(KernelFault {
+            exit_code: HEAT_FAULT_MALFORMED,
+            detail: "input length is not 8 + 8*n bytes",
+        });
+    }
+    if count < 3 {
+        return Err(KernelFault {
+            exit_code: HEAT_FAULT_TOO_SMALL,
+            detail: "fewer than 3 nodes: no interior to diffuse",
+        });
+    }
+    if count > HEAT_MAX_NODES || steps > HEAT_MAX_STEPS {
+        return Err(KernelFault {
+            exit_code: HEAT_FAULT_BOUNDS,
+            detail: "node count or step count exceeds the descriptor's bounds",
+        });
+    }
+
+    let mut values = alloc::vec::Vec::with_capacity(count);
+    for index in 0..count {
+        let at = 8 + index * 8;
+        let value = i64::from_le_bytes([
+            input[at],
+            input[at + 1],
+            input[at + 2],
+            input[at + 3],
+            input[at + 4],
+            input[at + 5],
+            input[at + 6],
+            input[at + 7],
+        ]);
+        if value.abs() > HEAT_VALUE_BOUND {
+            return Err(KernelFault {
+                exit_code: HEAT_FAULT_VALUE_BOUND,
+                detail: "an initial value exceeds |u| <= 2^40",
+            });
+        }
+        values.push(value);
+    }
+
+    for _ in 0..steps {
+        let mut left_old = values[0];
+        for i in 1..count - 1 {
+            let old = values[i];
+            values[i] = old + (left_old - 2 * old + values[i + 1]) / 4;
+            left_old = old;
+        }
+    }
+
+    let mut output = alloc::vec::Vec::with_capacity(count * 8);
+    for value in &values {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(output)
 }

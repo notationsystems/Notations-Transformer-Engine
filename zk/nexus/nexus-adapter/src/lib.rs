@@ -72,13 +72,13 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// The Nexus backend for the pairwise-energy guest.
-pub struct NexusPairwiseBackend {
+pub struct NexusKernelBackend {
     elf: nexus_core::nvm::ElfFile,
     backend_id: BackendId,
     program_binding: ProgramIdentity,
 }
 
-impl NexusPairwiseBackend {
+impl NexusKernelBackend {
     /// Load the guest ELF and register the descriptor binding.
     ///
     /// `version` should name the fork revision (e.g. "0.3.6@f2ad126"):
@@ -145,7 +145,7 @@ impl NexusPairwiseBackend {
     }
 }
 
-impl ProofBackend for NexusPairwiseBackend {
+impl ProofBackend for NexusKernelBackend {
     fn backend(&self) -> &BackendId {
         &self.backend_id
     }

@@ -165,3 +165,127 @@ mod tests {
         assert_eq!(one.output, 0i128.to_le_bytes().to_vec());
     }
 }
+
+// ---------------------------------------------------------------------
+// STE stage 4: the second reference workload -- 1-D heat diffusion.
+// A fundamentally different computational structure (time-stepped
+// nearest-neighbour stencil) behind the same DeterministicProgram
+// contract, the same identity discipline, and -- via its own guests --
+// the same proof backends.
+// ---------------------------------------------------------------------
+
+/// The canonical descriptor [`HeatDiffusionKernel`] is identified by.
+/// Spells out the exact integer semantics, including that the scheme is
+/// Jacobi (updates read the previous step), so a reimplementation that
+/// quietly went Gauss-Seidel could not honestly share it.
+pub const HEAT_DIFFUSION_DESCRIPTOR: &[u8] = concat!(
+    "scout.native.heat-diffusion-kernel.v1\n",
+    "input: [steps u32 LE][n u32 LE][n x i64 LE]; 3<=n<=4096; steps<=100000; |u|<=2^40\n",
+    "per step, Jacobi, Dirichlet ends fixed: u'_i = u_i + (u_{i-1} - 2u_i + u_{i+1})/4\n",
+    "(integer division, truncation toward zero; alpha=1/4 within stability bound 1/2)\n",
+    "output: n x i64 LE final values; exit 0\n",
+    "faults: 2=malformed, 3=n<3, 4=n/steps bound, 5=value bound",
+)
+.as_bytes();
+
+/// The heat-diffusion reference workload. Same contract, same caveats
+/// as [`PairwiseEnergyKernel`]: not a materials primitive, asserts
+/// nothing about any material, exists to exercise the substrate with a
+/// second computational shape.
+pub struct HeatDiffusionKernel;
+
+impl DeterministicProgram for HeatDiffusionKernel {
+    fn canonical_bytes(&self) -> &[u8] {
+        HEAT_DIFFUSION_DESCRIPTOR
+    }
+
+    fn run(&self, input: &[u8]) -> Result<NativeCompletion, NativeFault> {
+        match execution_kernel::heat_diffusion(input) {
+            Ok(output) => Ok(NativeCompletion {
+                output,
+                exit_code: 0,
+            }),
+            Err(fault) => Err(NativeFault {
+                exit_code: fault.exit_code,
+                detail: fault.detail.to_string(),
+            }),
+        }
+    }
+}
+
+/// Encode a heat-diffusion input: step count plus initial node values.
+pub fn encode_heat_input(steps: u32, values: &[i64]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(8 + values.len() * 8);
+    bytes.extend_from_slice(&steps.to_le_bytes());
+    bytes.extend_from_slice(&(values.len() as u32).to_le_bytes());
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod heat_tests {
+    use super::*;
+
+    #[test]
+    fn diffusion_moves_toward_the_boundary_values() {
+        // A hot interior between cold fixed ends must cool monotonically
+        // toward the ends' values -- a semantic check on the workload.
+        let input = encode_heat_input(1000, &[0, 1_000_000, 1_000_000, 1_000_000, 0]);
+        let out = HeatDiffusionKernel.run(&input).unwrap();
+        let finals: Vec<i64> = out
+            .output
+            .chunks_exact(8)
+            .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(finals[0], 0, "Dirichlet: ends fixed");
+        assert_eq!(finals[4], 0);
+        assert!(finals[2] < 1_000_000, "interior cooled");
+        assert!(
+            finals[1] <= finals[2],
+            "profile is symmetric-ish and peaked at centre"
+        );
+    }
+
+    #[test]
+    fn deterministic_and_step_dependent() {
+        let short = encode_heat_input(10, &[0, 500, 900, 500, 0]);
+        let long = encode_heat_input(200, &[0, 500, 900, 500, 0]);
+        assert_eq!(
+            HeatDiffusionKernel.run(&short),
+            HeatDiffusionKernel.run(&short)
+        );
+        assert_ne!(
+            HeatDiffusionKernel.run(&short).unwrap().output,
+            HeatDiffusionKernel.run(&long).unwrap().output,
+            "steps are part of the computation"
+        );
+    }
+
+    #[test]
+    fn faults_are_the_descriptor_codes() {
+        assert_eq!(HeatDiffusionKernel.run(b"xx").unwrap_err().exit_code, 2);
+        assert_eq!(
+            HeatDiffusionKernel
+                .run(&encode_heat_input(1, &[1, 2]))
+                .unwrap_err()
+                .exit_code,
+            3
+        );
+        assert_eq!(
+            HeatDiffusionKernel
+                .run(&encode_heat_input(200_000, &[1, 2, 3]))
+                .unwrap_err()
+                .exit_code,
+            4
+        );
+        assert_eq!(
+            HeatDiffusionKernel
+                .run(&encode_heat_input(1, &[1 << 41, 0, 0]))
+                .unwrap_err()
+                .exit_code,
+            5
+        );
+    }
+}

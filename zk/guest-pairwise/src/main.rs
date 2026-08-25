@@ -19,7 +19,7 @@
 //! The kernel is `execution_kernel::pairwise_energy` -- the identical
 //! function the native backend runs. One implementation, two substrates.
 //!
-//! # Committed public-values layout (`ste.sp1.pairwise-io.v1`)
+//! # Committed public-values layout (`ste.sp1.kernel-io.v1`)
 //!
 //! ```text
 //! [22B convention tag][32B input commitment][1B marker]
@@ -43,8 +43,9 @@ use execution_model::{INPUT_TAG, OUTPUT_TAG};
 
 sp1_zkvm::entrypoint!(main);
 
-/// The public-values layout tag. Must match `sp1_adapter::SP1_IO_CONVENTION_TAG`.
-const CONVENTION_TAG: &[u8] = b"ste.sp1.pairwise-io.v1";
+/// The public-values layout tag (kernel-agnostic since stage 4).
+/// Must match `sp1_adapter::SP1_IO_CONVENTION_TAG`.
+const CONVENTION_TAG: &[u8] = b"ste.sp1.kernel-io.v1";
 
 pub fn main() {
     let input = sp1_zkvm::io::read_vec();

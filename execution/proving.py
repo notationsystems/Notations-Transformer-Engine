@@ -42,7 +42,11 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from execution.engine import ExecutionResult, run_specification
-from execution.specification import PAIRWISE_ENERGY_DESCRIPTOR, ExecutionSpecification
+from execution.specification import (
+    HEAT_DIFFUSION_DESCRIPTOR,
+    PAIRWISE_ENERGY_DESCRIPTOR,
+    ExecutionSpecification,
+)
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -80,6 +84,32 @@ def default_nexus_guest_elf_path() -> pathlib.Path:
         _REPO / "zk" / "guest-pairwise-nexus" / "target"
         / "riscv32im-unknown-none-elf" / "release" / "ste-guest-pairwise-nexus"
     )
+
+
+def default_heat_guest_elf_path() -> pathlib.Path:
+    """The SP1 heat-diffusion guest ELF."""
+    return (
+        _REPO / "zk" / "guest-heat" / "target"
+        / "riscv64im-succinct-zkvm-elf" / "release" / "ste-guest-heat"
+    )
+
+
+def default_nexus_heat_guest_elf_path() -> pathlib.Path:
+    """The Nexus heat-diffusion guest ELF."""
+    return (
+        _REPO / "zk" / "guest-heat-nexus" / "target"
+        / "riscv32im-unknown-none-elf" / "release" / "ste-guest-heat-nexus"
+    )
+
+
+#: Every descriptor a built guest implements. Adding a provable workload
+#: means adding its descriptor HERE and its guests under zk/ -- visibly,
+#: exactly like the execution-cli registry. A specification whose program
+#: is not in this set is refused before any proving is attempted.
+REGISTERED_GUEST_DESCRIPTORS = frozenset({
+    PAIRWISE_ENERGY_DESCRIPTOR,
+    HEAT_DIFFUSION_DESCRIPTOR,
+})
 
 
 @dataclass(frozen=True)
@@ -131,10 +161,11 @@ def prove_and_verify(
             f"sp1-host ({host}) or guest ELF ({elf}) not built; see zk/README notes "
             f"in docs/STE_VERIFICATION_SUBSTRATE.md"
         )
-    if spec.program != PAIRWISE_ENERGY_DESCRIPTOR:
+    if spec.program not in REGISTERED_GUEST_DESCRIPTORS:
         raise ProvedRunError(
-            "the SP1 adapter is bound to the pairwise-energy descriptor; refusing to "
-            "prove a specification for a program the guest is not registered as"
+            "no built guest is registered for this specification's program descriptor; "
+            "refusing to prove a computation outside the capability envelope rather "
+            "than pretending -- see REGISTERED_GUEST_DESCRIPTORS"
         )
 
     # 1. The checked native execution.

@@ -1,10 +1,12 @@
 //! The SP1 adapter: the first backend for which `Verified` is EARNED.
 //!
 //! Implements `execution_core::ProofBackend` over the SP1 fork's CPU
-//! prover/verifier for exactly one guest: `ste-guest-pairwise`, the
-//! pairwise-energy kernel compiled to riscv64im-succinct-zkvm-elf,
-//! carrying the guest-input-commitment convention
-//! (`ste.sp1.pairwise-io.v1`).
+//! prover/verifier for ONE REGISTERED GUEST AT A TIME -- any guest that
+//! follows the `ste.sp1.kernel-io.v1` public-values layout (stage 4
+//! generalization: the layout was never pairwise-specific; the pairwise
+//! and heat-diffusion guests both carry it, and the adapter is
+//! constructed with whichever ELF + descriptor binding the caller
+//! registers).
 //!
 //! # What a verified proof from this adapter establishes
 //!
@@ -51,7 +53,7 @@ use sp1_sdk::blocking::{CpuProver, ProveRequest, Prover, ProverClient};
 use sp1_sdk::{Elf, HashableKey, ProvingKey, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin};
 
 /// The public-values layout tag. Must match the guest's constant.
-pub const SP1_IO_CONVENTION_TAG: &[u8] = b"ste.sp1.pairwise-io.v1";
+pub const SP1_IO_CONVENTION_TAG: &[u8] = b"ste.sp1.kernel-io.v1";
 
 /// What the guest committed, parsed from the public values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +103,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// The SP1 backend for the pairwise-energy guest.
-pub struct Sp1PairwiseBackend {
+pub struct Sp1KernelBackend {
     client: CpuProver,
     pk: SP1ProvingKey,
     backend_id: BackendId,
@@ -110,7 +112,7 @@ pub struct Sp1PairwiseBackend {
     program_binding: ProgramIdentity,
 }
 
-impl Sp1PairwiseBackend {
+impl Sp1KernelBackend {
     /// Set up the CPU prover for `elf_bytes`, registering the binding to
     /// `program_binding` (the canonical descriptor's ProgramIdentity).
     pub fn setup(elf_bytes: Vec<u8>, program_binding: ProgramIdentity) -> anyhow::Result<Self> {
@@ -148,7 +150,7 @@ impl Sp1PairwiseBackend {
     }
 }
 
-impl ProofBackend for Sp1PairwiseBackend {
+impl ProofBackend for Sp1KernelBackend {
     fn backend(&self) -> &BackendId {
         &self.backend_id
     }

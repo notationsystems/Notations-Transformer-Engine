@@ -23,7 +23,7 @@ use std::io::Write;
 use execution_core::{
     Expectation, ProofArtifact, ProofBackend, VerificationResult, VerifiedExecution,
 };
-use sp1_adapter::Sp1PairwiseBackend;
+use sp1_adapter::Sp1KernelBackend;
 
 fn from_hex(text: &str) -> Result<Vec<u8>, String> {
     if !text.len().is_multiple_of(2) {
@@ -55,7 +55,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
-fn setup(elf_path: &str, program_id_hex: &str) -> Result<Sp1PairwiseBackend, String> {
+fn setup(elf_path: &str, program_id_hex: &str) -> Result<Sp1KernelBackend, String> {
     let elf = std::fs::read(elf_path).map_err(|e| format!("reading {elf_path}: {e}"))?;
     // The descriptor identity the guest is registered as implementing is
     // supplied by the caller as its 64-hex digest; reconstruct the typed
@@ -65,7 +65,7 @@ fn setup(elf_path: &str, program_id_hex: &str) -> Result<Sp1PairwiseBackend, Str
     let descriptor = std::fs::read(program_id_hex)
         .map_err(|e| format!("reading descriptor file {program_id_hex}: {e}"))?;
     let binding = execution_core::ProgramIdentity::of(&descriptor);
-    Sp1PairwiseBackend::setup(elf, binding).map_err(|e| format!("setup: {e:?}"))
+    Sp1KernelBackend::setup(elf, binding).map_err(|e| format!("setup: {e:?}"))
 }
 
 fn prove(args: &[String]) -> Result<(), String> {
