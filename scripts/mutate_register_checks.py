@@ -13,14 +13,17 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DERIVE = REPO / "architecture" / "derive_register.py"
+CONFORMANCE = REPO / "architecture" / "conformance.py"
 INVARIANTS = REPO / "architecture" / "invariants.yaml"
+CORE = REPO / "architecture" / "core.yaml"
+EVIDENCE_CLASS = REPO / "architecture" / "evidence_class.yaml"
 REGISTER = REPO / "architecture" / "exchange" / "invariant_register.yaml"
 
 MUTATIONS = [
     ("unreachable repo tolerated", DERIVE,
      lambda s: s.replace(
-         'raise DerivationError(\n            f"bound repository {name} is unreachable',
-         'return [], "0"*40  # MUTANT\n        raise DerivationError(\n            f"bound repository {name} is unreachable'),
+         'raise DerivationError(\n            f"bound repository {label} is unreachable',
+         'return [], None  # MUTANT\n        raise DerivationError(\n            f"bound repository {label} is unreachable'),
      "test_unreachable_bound_repository_fails_the_derivation"),
     ("citation check always passes", DERIVE,
      lambda s: s.replace(
@@ -28,20 +31,77 @@ MUTATIONS = [
          "    return True  # MUTANT\n    if not evidence:\n        return False"),
      "test_enforced_claims_must_cite_their_own_id"),
     ("commit not recorded per claim", DERIVE,
-     lambda s: s.replace("source_commit=commit,", 'source_commit="0"*40,  # MUTANT'),
+     lambda s: s.replace("source_commit=local_commit,", 'source_commit="0"*40,  # MUTANT'),
      "test_every_derived_record_carries_the_commit_it_was_read_at"),
     ("contest detection disabled", DERIVE,
      lambda s: s.replace(
-         "        return {\n            key: rs for key, rs in self.records.items()",
-         "        return {}  # MUTANT\n        return {\n            key: rs for key, rs in self.records.items()"),
-     "test_contested_invariants_are_surfaced_not_averaged"),
-    ("core version mislabelled again", INVARIANTS,
-     lambda s: s.replace('version: "1.0.0"', 'version: "0.1"', 1),
-     "test_declared_core_version_matches_this_repository_s_own_pyproject"),
+         '    statuses = {c.status for c in claims if c.scope != LOCAL_SCOPE}',
+         '    return False  # MUTANT\n    statuses = {c.status for c in claims if c.scope != LOCAL_SCOPE}'),
+     "test_a_planted_disagreement_IS_detected_as_contested"),
+
+    # RETARGETED TWICE THIS PHASE, and the second time is the
+    # instructive one. This mutation used to edit invariants.yaml, which
+    # no longer holds the version -- MALFORMED, reporting nothing. Moved
+    # to core.yaml, it SURVIVED: both target tests manipulate core.yaml
+    # themselves and restore what they found, so the test's own
+    # save/restore silently reverted the mutant. A mutation of a file a
+    # test rewrites measures the test's bookkeeping, not its assertion.
+    #
+    # So both now mutate the ENFORCING CODE. That is also the more
+    # honest probe of what changed this phase: with the referent
+    # decoupled from packaging, nothing outside the declaration pins its
+    # value, and the closure gate is the only thing that can still
+    # falsify a moved core version.
+    ("core version moves without breaking the closure", CONFORMANCE,
+     lambda s: s.replace("        if declared != expected:",
+                         "        if False:  # MUTANT"),
+     "test_moving_the_declared_core_version_breaks_every_artifact_that_binds_it"),
+    ("core version inferred from packaging", CONFORMANCE,
+     lambda s: s.replace(
+         '    if declaration.get("referent", {}).get("derived_from_packaging") is not False:',
+         "    if False:  # MUTANT"),
+     "test_a_packaging_derived_core_version_is_refused"),
+
+    # THE THREE-PARTY MUTATIONS.
+    ("sourceless party silently dropped", DERIVE,
+     lambda s: s.replace(
+         "        binding_mode=INVARIANT_REGISTRY if records else EXTENDS_ONLY,",
+         "        binding_mode=INVARIANT_REGISTRY,  # MUTANT"),
+     "test_a_bound_party_with_no_invariant_source_is_represented_not_dropped"),
+    ("unbound party accepted as sourceless", DERIVE,
+     lambda s: s.replace(
+         "    if not records and not binding_files:",
+         "    if False:  # MUTANT"),
+     "test_a_party_with_neither_invariants_nor_a_binding_fails"),
+    ("currency asked of the local clone only", DERIVE,
+     lambda s: s.replace(
+         '    if local == remote:\n        return "in_sync"',
+         '    return "in_sync"  # MUTANT\n    if local == remote:\n        return "in_sync"'),
+     "test_a_clone_behind_its_remote_fails_the_derivation"),
+    ("offline derivation claims currency", DERIVE,
+     lambda s: s.replace(
+         '"currency_established_against_remotes": derivation.remotes_checked,',
+         '"currency_established_against_remotes": True,  # MUTANT'),
+     "test_an_offline_derivation_never_claims_currency_it_did_not_check"),
+    ("mirror read as the holder's own name", DERIVE,
+     lambda s: s.replace(
+         "    generator = document.get(\"generated_by\")",
+         "    return True  # MUTANT\n    generator = document.get(\"generated_by\")"),
+     "test_a_mirrored_artifact_is_not_read_as_the_holder_s_self_declaration"),
+    ("deferral to a silent party tolerated", DERIVE,
+     lambda s: s.replace(
+         "def _check_deferrals(derivation: Derivation) -> None:",
+         "def _check_deferrals(derivation: Derivation) -> None:\n    return  # MUTANT"),
+     "test_a_repository_that_defers_cannot_be_derived_alone"),
+    ("owner status transcribed instead of resolved", EVIDENCE_CLASS,
+     lambda s: s.replace(
+         "  - id: generation_depth_bounded\n    scope: this_repository\n    owner_elsewhere: DAQ\n",
+         "  - id: generation_depth_bounded\n    scope: this_repository\n"),
+     "test_a_deferred_row_resolves_to_the_owner_s_LIVE_status"),
+
     ("committed register goes stale", REGISTER,
-     lambda s: s.replace('"contested_count": 9', '"contested_count": 0', 1)
-               if '"contested_count": 9' in s else s.replace("contested_count: 9", "contested_count: 0", 1),
-     "test_register_is_current_against_every_bound_repository"),
+     lambda s: s.replace('"contested_count": 0', '"contested_count": 9', 1),
+     "test_the_committed_register_is_faithful_to_the_commits_it_names"),
 ]
 
 

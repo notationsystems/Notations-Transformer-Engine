@@ -1,18 +1,101 @@
-"contested_count": 9
+"bound_parties": 3
+"contested_count": 0
+"currency_established_against_remotes": true
+"deferred_count": 4
 "derived_from":
-  - "commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+  - "binding_files":
+      - "architecture/_probes/cohort_identity_expectations.yaml"
+      - "architecture/_probes/generality.yaml"
+      - "architecture/admission_reachability.yaml"
+      - "architecture/aligned_observation_table.yaml"
+      - "architecture/canonicalization_defect.yaml"
+      - "architecture/condition_lifecycle.yaml"
+      - "architecture/condition_provenance_reachability.yaml"
+      - "architecture/condition_representation.yaml"
+      - "architecture/control_graph.yaml"
+      - "architecture/decisions/2026-08-26-joint-workload-decision.yaml"
+      - "architecture/doctrine.yaml"
+      - "architecture/evidence_class.yaml"
+      - "architecture/exchange/daq_capabilities.yaml"
+      - "architecture/exchange/daq_requirement_response.yaml"
+      - "architecture/exchange/scl_requirements.yaml"
+      - "architecture/execution_record.yaml"
+      - "architecture/invariants.yaml"
+      - "architecture/kalman_framing.yaml"
+      - "architecture/kalman_validation_preregistration.yaml"
+      - "architecture/method_provenance_reachability.yaml"
+      - "architecture/model_binding.yaml"
+      - "architecture/nonfinite_identity_reachability.yaml"
+      - "architecture/nonscalar_quantity.yaml"
+      - "architecture/proof_integrity.yaml"
+      - "architecture/property_admissibility.yaml"
+      - "architecture/proposals/2026-08-25-daq-workload-proposal.yaml"
+      - "architecture/recursive_depth.yaml"
+      - "architecture/selection_rule_defect.yaml"
+      - "architecture/structured_uncertainty.yaml"
+      - "architecture/uncertainty_provenance_reachability.yaml"
+      - "architecture/workload_primitive_matrix.yaml"
+    "binding_mode": "invariant_registry"
+    "bound_core": "core@1.0.0"
+    "branch": "claude/daf-state-space-architecture-v8peqd"
+    "commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+    "currency": "in_sync"
+    "invariant_sources":
+      - "architecture/invariants.yaml"
+    "invariants_contributed": 43
+    "label_is_a_local_handle_not_the_party_s_name": true
+    "remote_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
     "repository": "DAQ"
-  - "commit": "482c33605243b1cdcdbac6c1df32dc020204bee4"
+    "self_declared_names":
+      - "daq, in the compute layer's requirements artifact"
+  - "binding_files":
+      - "architecture/decisions/2026-08-26-joint-workload-decision.yaml"
+      - "architecture/exchange/daq_requirement_response.yaml"
+      - "architecture/exchange/scl_requirements.yaml"
+      - "architecture/kalman_validation_preregistration.yaml"
+      - "architecture/proof_integrity.yaml"
+    "binding_mode": "extends_only"
+    "bound_core": "core@1.0.0"
+    "branch": "claude/scl-architecture-design-0jzkm9"
+    "commit": "c1cb6be339e32ce347181ac4569f07c5fec9d50b"
+    "currency": "in_sync"
+    "invariant_sources": []
+    "invariants_contributed": 0
+    "label_is_a_local_handle_not_the_party_s_name": true
+    "remote_commit": "c1cb6be339e32ce347181ac4569f07c5fec9d50b"
     "repository": "SCL"
-  - "commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+    "self_declared_names": []
+  - "binding_files":
+      - "architecture/_probes/generality.yaml"
+      - "architecture/evidence_class.yaml"
+      - "architecture/model_binding.yaml"
+      - "architecture/transformer_contract.yaml"
+      - "architecture/verticals/chemistry/vertical.yaml"
+      - "architecture/vocabulary_map.yaml"
+    "binding_mode": "invariant_registry"
+    "bound_core": "core@1.0.0"
+    "branch": "claude/deterministic-state-architecture-q9kl5c"
+    "commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+    "currency": "in_sync"
+    "invariant_sources":
+      - "architecture/evidence_class.yaml"
+      - "architecture/invariants.yaml"
+      - "architecture/transformer_contract.yaml"
+    "invariants_contributed": 26
+    "label_is_a_local_handle_not_the_party_s_name": true
+    "remote_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
     "repository": "STE"
+    "self_declared_names": []
 "invariant_count": 51
 "invariants":
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_aligned_observation_table.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -20,9 +103,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_no_test_name_is_shadowed.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -30,9 +116,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_aligned_observation_table.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -40,9 +129,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -50,25 +142,34 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "process"
-    "contested": true
+    "contested": false
     "id": "agent_concurrence_is_not_corroboration"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -76,9 +177,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -86,9 +190,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -96,31 +203,43 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "recorded_unresolved"
-    "contested": true
+    "contested": false
     "id": "builder_check_lineage_recorded"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": true
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "enforced"
     "contested": false
@@ -128,9 +247,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -138,15 +260,21 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "vendor/scout-retrieval-agent/tests/test_canonical.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "frozen dataclasses + content-addressed identities (a widened type is a different identity) + the vertical conformance gate (architecture/conformance.py)"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -154,31 +282,43 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "process_unresolved"
-    "contested": true
+    "contested": false
     "id": "cross_vendor_validation"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "architecture.doctrine_generator.DOCTRINE_BUDGET_CHARS"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -186,15 +326,21 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -202,15 +348,21 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -218,9 +370,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_aligned_observation_table.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -228,9 +383,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "EvidencePool exposes no delete/mutate primitive"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -238,9 +396,12 @@
     "owning_repository": "STE"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "registered"
     "contested": false
@@ -248,9 +409,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_execution_record.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -258,9 +422,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_execution_record.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -268,9 +435,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_execution_record.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "daf_acquisition_only"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -278,9 +448,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_execution_record.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -288,15 +461,21 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -304,25 +483,34 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_lineage_depth.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": "DAQ"
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": "enforced"
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
-    "contested": true
+    "contested": false
     "id": "generation_depth_bounded"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -330,9 +518,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -340,15 +531,21 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "existing materials test suite"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -356,25 +553,34 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
+        "defers_to": "DAQ"
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": "vacuously_enforced"
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
-    "contested": true
+    "contested": false
     "id": "no_circular_training"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_addendum_invariants.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -382,9 +588,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -392,9 +601,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "boundary_implemented"
     "contested": false
@@ -402,41 +614,56 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "process"
-    "contested": true
+    "contested": false
     "id": "no_self_validation"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_doctrine_generation.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
-        "evidence": ""
+        "defers_to": ""
+        "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
-        "status": "process"
-    "contested": true
+        "status": "enforced"
+    "contested": false
     "id": "no_vendor_in_doctrine"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -444,25 +671,34 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_addendum_invariants.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
       - "asserted_by": "STE"
+        "defers_to": "DAQ"
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": "partially_enforced"
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
-    "contested": true
+    "contested": false
     "id": "prediction_carries_uncertainty"
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "transformer.prediction.Prediction"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -470,9 +706,12 @@
     "owning_repository": "STE"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_transformer_engine.py + the minting-seam ratchet"
         "evidence_cites_id": true
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -480,15 +719,21 @@
     "owning_repository": "STE"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": true
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "enforced"
     "contested": false
@@ -496,15 +741,21 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "existing evidence admission test suite"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -512,9 +763,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_addendum_invariants.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -522,9 +776,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_architecture_sync.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -532,9 +789,12 @@
     "owning_repository": "STE"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_admission_reachability.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -542,9 +802,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_ingest_metrics.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -552,9 +815,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -562,9 +828,12 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/invariants.yaml"
         "status": "superseded"
     "contested": false
@@ -572,9 +841,12 @@
     "owning_repository": ""
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_aligned_observation_table.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -582,25 +854,34 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_epistemic_boundary.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "represented_unenforced"
       - "asserted_by": "STE"
+        "defers_to": "DAQ"
         "evidence": ""
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": "represented_unenforced"
+        "scope": "this_repository"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
-    "contested": true
+    "contested": false
     "id": "training_admissibility_declared"
     "owning_repository": ""
   - "claims":
       - "asserted_by": "STE"
+        "defers_to": ""
         "evidence": "tests/test_transformer_engine.py"
         "evidence_cites_id": false
-        "source_commit": "d4d0c192d49e103326f91cc5ec4f221d5770ac85"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -608,9 +889,12 @@
     "owning_repository": "STE"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_structured_uncertainty.py"
         "evidence_cites_id": true
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -618,16 +902,35 @@
     "owning_repository": "DAQ"
   - "claims":
       - "asserted_by": "DAQ"
+        "defers_to": ""
         "evidence": "tests/test_ingest_metrics.py"
         "evidence_cites_id": false
-        "source_commit": "854780dadd86a0821a858c0fe993384a6188c51e"
+        "owner_status_resolved": ""
+        "scope": "project"
+        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
     "id": "unclassified_backlog_is_a_metric"
     "owning_repository": "DAQ"
+"parties_with_no_invariant_source":
+  - "SCL"
+"rows_with_a_local_scope_claim":
+  - "agent_concurrence_is_not_corroboration"
+  - "builder_check_lineage_recorded"
+  - "cross_vendor_validation"
+  - "generation_depth_bounded"
+  - "no_circular_training"
+  - "no_self_validation"
+  - "no_vendor_in_doctrine"
+  - "prediction_carries_uncertainty"
+  - "training_admissibility_declared"
 "rules":
   - "no repository may report a status for an invariant it does not own without citing the owning repository's source"
   - "an invariant claimed enforced must name a test that cites its id"
   - "the derivation fails if any bound repository is unreachable"
-  - "a derivation against a stale commit is a failed derivation"
+  - "a derivation against a stale commit is a failed derivation; currency is established against the remote head, not the local clone"
+  - "a party that declares no invariants is recorded as bound extends_only, with the files that bind it named; a party that declares neither invariants nor a binding fails the derivation"
+  - "a claim scoped to this_repository is a statement about its own repository's state; two such claims differing is a fact, not a contest. scope defaults to project, so silence never buys the exemption"
+  - "a repository reporting an invariant another party owns names that party and never transcribes its status; the owner's live status is resolved on every derivation, and a deferral that does not resolve fails"
+  - "the repository labels in this register are local handles for the join, not the parties' names; each party's own name is recorded beside its label and is never assigned by the deriving repository"

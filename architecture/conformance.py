@@ -43,8 +43,17 @@ class ConformanceError(ValueError):
 
 
 def core_version() -> str:
-    registry = yaml.safe_load((ROOT / "invariants.yaml").read_text())
-    return f"{registry['core']['name']}@{registry['core']['version']}"
+    """The DECLARED core version. Read from architecture/core.yaml --
+    never from packaging: a package version moves on any release, a
+    core-schema version moves only under bend_protocol, and binding
+    them would let a routine release renumber the core without a single
+    invariant changing meaning."""
+    declaration = yaml.safe_load((ROOT / "core.yaml").read_text())
+    if declaration.get("referent", {}).get("derived_from_packaging") is not False:
+        raise ConformanceError(
+            "architecture/core.yaml must declare derived_from_packaging: false "
+            "-- the core version is a declaration, not an inference")
+    return f"{declaration['name']}@{declaration['version']}"
 
 
 def check_vertical_contract(path: pathlib.Path) -> dict:
@@ -72,7 +81,11 @@ def check_core_closure() -> List[pathlib.Path]:
     expected = core_version()
     checked = []
     for path in sorted(ROOT.rglob("*.yaml")):
-        if path.name == "invariants.yaml":
+        # invariants.yaml carries the registry; core.yaml IS the core
+        # declaration. Neither binds a core -- a declaration cannot
+        # extend itself, and demanding it would be the same category
+        # error as demanding one from an emitted projection.
+        if path.name in ("invariants.yaml", "core.yaml"):
             continue
         # The exchange surface holds EMITTED projections and cross-repo
         # payloads, not this repository's canonical declarations. A

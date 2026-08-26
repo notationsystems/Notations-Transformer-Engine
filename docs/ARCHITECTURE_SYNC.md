@@ -1,8 +1,14 @@
 # Project-Wide Architecture Synchronization — Implemented
 
-Core version: **core@1.0.0** (declared in `architecture/invariants.yaml`;
-every architecture artifact pins it; the conformance gate refuses a
-mismatch).
+Core version: **core@1.0.0**, declared in `architecture/core.yaml` —
+NOT in `invariants.yaml` and NOT derived from packaging. A package
+version moves on any release; a core-schema version moves only under
+`bend_protocol`, so the two are decoupled deliberately and the
+declaration denies the coupling explicitly. Every architecture artifact
+pins the declared version and the conformance gate refuses a mismatch,
+which is what gives `bend_protocol` teeth: moving the version stops the
+whole repository conforming at once. See
+`docs/DERIVED_INVARIANT_REGISTER.md` §1.
 
 ## Phase 0 — inspection results (facts, before any change)
 
@@ -105,7 +111,10 @@ asserted. All firewall locks (phases 105/108/112b/115) pass.
   canonical assertion inside the chemistry vertical; admissibility
   classes narrow reproducibility per-vertical. Core semantics
   unchanged.
-- **Bent**: **none**. The generality probe found one candidate bend —
+- **Bent**: **none** — and since 2026-08-26 that is measured against a
+  probe carrying a computation property, which it previously was not
+  (§2 of the register record states exactly how narrow the evidence had
+  been). The generality probe found one candidate bend —
   `evidence_append_only` has no tombstone semantics, so a
   revocation-compelling source cannot be onboarded — and it is
   RECORDED as a core limitation requiring a version increment when
@@ -128,7 +137,18 @@ asserted. All firewall locks (phases 105/108/112b/115) pass.
 - Probe: evaluated against core@1.0.0 — non_reproducible: no bend
   (admissibility classes qualify); revocable_record: candidate bend
   recorded (tombstones absent); cohort_identity /
-  uncontrolled_conditions: untested, recorded as unknown, not guessed.
+  uncontrolled_conditions: untested, recorded as unknown, not guessed;
+  recursive_computation: no bend, on structural grounds (an N-iteration
+  estimator is one ExecutionSpecification, so one computation identity
+  and one trace occurrence at the boundary this repository owns), with
+  the evidence boundary recorded — the lineage-depth half is
+  `generation_depth_bounded`, owned by the acquisition layer, and is
+  not falsifiable from this repository's ledgers.
+  **The computation-property key was ABSENT until 2026-08-26.** Every
+  `Bent: zero` claimed before that date was measured against a probe
+  whose properties were all properties of an OBSERVATION, structurally
+  unable to falsify anything about computation — narrower evidence than
+  the claim implied. See `docs/DERIVED_INVARIANT_REGISTER.md` §2.
 
 ## Identity decisions
 
