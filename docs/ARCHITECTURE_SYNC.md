@@ -138,7 +138,9 @@ asserted. All firewall locks (phases 105/108/112b/115) pass.
   (admissibility classes qualify); revocable_record: candidate bend
   recorded (tombstones absent); cohort_identity /
   uncontrolled_conditions: untested, recorded as unknown, not guessed;
-  recursive_computation: no bend, on structural grounds (an N-iteration
+  recursive_computation: `none_at_the_execution_boundary` -- NOT a bare
+  `none`, deliberately, because it does not mean what the observation
+  rows' `none` means. No bend on structural grounds (an N-iteration
   estimator is one ExecutionSpecification, so one computation identity
   and one trace occurrence at the boundary this repository owns), with
   the evidence boundary recorded — the lineage-depth half is

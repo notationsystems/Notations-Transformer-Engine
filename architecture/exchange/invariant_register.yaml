@@ -1,11 +1,39 @@
 "bound_parties": 3
 "contested_count": 0
-"currency_established_against_remotes": true
+"currency":
+  "as_current_as_its_worst_sibling": "DAQ at cf35a20bb585 (in_sync)"
+  "checked_against_remotes": true
+  "deriving_party": "STE"
+  "deriving_party_is_exempt_by_construction": true
+  "per_party":
+    "DAQ":
+      "currency": "in_sync"
+      "local": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
+      "remote": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
+      "role": "sibling"
+    "SCL":
+      "currency": "in_sync"
+      "local": "a0050b13ddfe777234485550519c8e3607739a6f"
+      "remote": "a0050b13ddfe777234485550519c8e3607739a6f"
+      "role": "sibling"
+    "STE":
+      "currency": "authoritative_for_itself"
+      "local": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
+      "remote": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
+      "role": "deriving_party"
 "deferred_count": 4
 "derived_from":
-  - "binding_files":
+  - "artifacts_held_but_authored_elsewhere":
+      - "architecture/exchange/scl_requirements.yaml"
+    "artifacts_set_aside_authorship_unresolved":
+      - "architecture/exchange/invariant_register.yaml"
+      - "architecture/exchange/scl_contract_clauses.yaml"
+      - "architecture/exchange/ste_invariants.yaml"
+      - "architecture/kalman_validation_preregistration.yaml"
+    "binding_files":
       - "architecture/_probes/cohort_identity_expectations.yaml"
       - "architecture/_probes/generality.yaml"
+      - "architecture/_probes/revocable_record_expectations.yaml"
       - "architecture/admission_reachability.yaml"
       - "architecture/aligned_observation_table.yaml"
       - "architecture/canonicalization_defect.yaml"
@@ -18,11 +46,9 @@
       - "architecture/evidence_class.yaml"
       - "architecture/exchange/daq_capabilities.yaml"
       - "architecture/exchange/daq_requirement_response.yaml"
-      - "architecture/exchange/scl_requirements.yaml"
       - "architecture/execution_record.yaml"
       - "architecture/invariants.yaml"
       - "architecture/kalman_framing.yaml"
-      - "architecture/kalman_validation_preregistration.yaml"
       - "architecture/method_provenance_reachability.yaml"
       - "architecture/model_binding.yaml"
       - "architecture/nonfinite_identity_reachability.yaml"
@@ -38,36 +64,40 @@
     "binding_mode": "invariant_registry"
     "bound_core": "core@1.0.0"
     "branch": "claude/daf-state-space-architecture-v8peqd"
-    "commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
-    "currency": "in_sync"
+    "commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
     "invariant_sources":
       - "architecture/invariants.yaml"
     "invariants_contributed": 43
     "label_is_a_local_handle_not_the_party_s_name": true
-    "remote_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
     "repository": "DAQ"
     "self_declared_names":
       - "daq, in the compute layer's requirements artifact"
-  - "binding_files":
-      - "architecture/decisions/2026-08-26-joint-workload-decision.yaml"
+  - "artifacts_held_but_authored_elsewhere":
       - "architecture/exchange/daq_requirement_response.yaml"
-      - "architecture/exchange/scl_requirements.yaml"
+    "artifacts_set_aside_authorship_unresolved":
+      - "architecture/exchange/invariant_register.yaml"
+      - "architecture/exchange/scl_contract_clauses.yaml"
+      - "architecture/exchange/ste_invariants.yaml"
       - "architecture/kalman_validation_preregistration.yaml"
+    "binding_files":
+      - "architecture/decisions/2026-08-26-joint-workload-decision.yaml"
+      - "architecture/exchange/scl_requirements.yaml"
       - "architecture/proof_integrity.yaml"
     "binding_mode": "extends_only"
     "bound_core": "core@1.0.0"
     "branch": "claude/scl-architecture-design-0jzkm9"
-    "commit": "c1cb6be339e32ce347181ac4569f07c5fec9d50b"
-    "currency": "in_sync"
+    "commit": "a0050b13ddfe777234485550519c8e3607739a6f"
     "invariant_sources": []
     "invariants_contributed": 0
     "label_is_a_local_handle_not_the_party_s_name": true
-    "remote_commit": "c1cb6be339e32ce347181ac4569f07c5fec9d50b"
     "repository": "SCL"
     "self_declared_names": []
-  - "binding_files":
+  - "artifacts_held_but_authored_elsewhere": []
+    "artifacts_set_aside_authorship_unresolved": []
+    "binding_files":
       - "architecture/_probes/generality.yaml"
       - "architecture/evidence_class.yaml"
+      - "architecture/exchange/ste_invariant_declaration.yaml"
       - "architecture/model_binding.yaml"
       - "architecture/transformer_contract.yaml"
       - "architecture/verticals/chemistry/vertical.yaml"
@@ -75,17 +105,16 @@
     "binding_mode": "invariant_registry"
     "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
-    "currency": "in_sync"
+    "commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
     "invariant_sources":
       - "architecture/evidence_class.yaml"
       - "architecture/invariants.yaml"
       - "architecture/transformer_contract.yaml"
     "invariants_contributed": 26
     "label_is_a_local_handle_not_the_party_s_name": true
-    "remote_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
     "repository": "STE"
     "self_declared_names": []
+"generated_by": "architecture/exchange/build_invariant_register.py"
 "invariant_count": 51
 "invariants":
   - "claims":
@@ -95,7 +124,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -108,7 +137,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -121,7 +150,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -134,7 +163,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -147,7 +176,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
@@ -156,7 +185,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "process"
     "contested": false
@@ -169,7 +198,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -182,7 +211,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -195,7 +224,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -208,7 +237,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
@@ -217,7 +246,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "recorded_unresolved"
     "contested": false
@@ -230,7 +259,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -239,7 +268,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "enforced"
     "contested": false
@@ -252,7 +281,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -265,7 +294,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -274,7 +303,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -287,7 +316,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
@@ -296,7 +325,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "process_unresolved"
     "contested": false
@@ -309,7 +338,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -318,7 +347,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -331,7 +360,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -340,7 +369,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -353,7 +382,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -362,7 +391,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -375,7 +404,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -388,7 +417,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -401,7 +430,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "registered"
     "contested": false
@@ -414,7 +443,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -427,7 +456,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -440,7 +469,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "daf_acquisition_only"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -453,7 +482,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -466,7 +495,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -475,7 +504,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -488,7 +517,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -497,7 +526,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": "enforced"
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
     "contested": false
@@ -510,7 +539,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -523,7 +552,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -536,7 +565,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -545,7 +574,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -558,7 +587,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
@@ -567,7 +596,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": "vacuously_enforced"
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
     "contested": false
@@ -580,7 +609,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -593,7 +622,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "absent"
     "contested": false
@@ -606,7 +635,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "boundary_implemented"
     "contested": false
@@ -619,7 +648,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "vacuously_enforced"
       - "asserted_by": "STE"
@@ -628,7 +657,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "process"
     "contested": false
@@ -641,7 +670,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -650,7 +679,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -663,7 +692,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "blocked"
     "contested": false
@@ -676,7 +705,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
       - "asserted_by": "STE"
@@ -685,7 +714,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": "partially_enforced"
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
     "contested": false
@@ -698,7 +727,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -711,7 +740,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -724,7 +753,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -733,7 +762,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "enforced"
     "contested": false
@@ -746,7 +775,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
       - "asserted_by": "STE"
@@ -755,7 +784,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -768,7 +797,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -781,7 +810,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -794,7 +823,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -807,7 +836,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -820,7 +849,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -833,7 +862,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/invariants.yaml"
         "status": "superseded"
     "contested": false
@@ -846,7 +875,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -859,7 +888,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "represented_unenforced"
       - "asserted_by": "STE"
@@ -868,7 +897,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": "represented_unenforced"
         "scope": "this_repository"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/evidence_class.yaml"
         "status": "identified"
     "contested": false
@@ -881,7 +910,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "cbe1185702085d19d9d8e6d93999e703e14ae9e3"
+        "source_commit": "38d49611455d5199ba44b039a4e6b7e6ac34a5c8"
         "source_file": "architecture/transformer_contract.yaml"
         "status": "enforced"
     "contested": false
@@ -894,7 +923,7 @@
         "evidence_cites_id": true
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "partially_enforced"
     "contested": false
@@ -907,7 +936,7 @@
         "evidence_cites_id": false
         "owner_status_resolved": ""
         "scope": "project"
-        "source_commit": "7d5b7ab95f5b9541a4df8baea6d24469d046d505"
+        "source_commit": "cf35a20bb585ac564bcb9b35612911fe7ae7ec1e"
         "source_file": "architecture/invariants.yaml"
         "status": "enforced"
     "contested": false
@@ -926,11 +955,14 @@
   - "prediction_carries_uncertainty"
   - "training_admissibility_declared"
 "rules":
+  - "a mirror is not a source: provenance is established across all parties before anything is read, and byte-identity is what makes content unable to establish it"
+  - "an emitted projection is never a canonical source, whoever emitted it"
+  - "a party's own name is read only from an artifact it provably authored; a jointly agreed artifact says what was agreed, not what either party is called"
   - "no repository may report a status for an invariant it does not own without citing the owning repository's source"
   - "an invariant claimed enforced must name a test that cites its id"
   - "the derivation fails if any bound repository is unreachable"
-  - "a derivation against a stale commit is a failed derivation; currency is established against the remote head, not the local clone"
-  - "a party that declares no invariants is recorded as bound extends_only, with the files that bind it named; a party that declares neither invariants nor a binding fails the derivation"
+  - "currency is directional: the deriving party is authoritative for itself and exempt by construction; every sibling is checked against its remote and a sibling missing published state fails"
+  - "currency is reported per sibling and never collapsed -- a derivation is only as current as its worst sibling, and which sibling that is is part of the answer"
   - "a claim scoped to this_repository is a statement about its own repository's state; two such claims differing is a fact, not a contest. scope defaults to project, so silence never buys the exemption"
   - "a repository reporting an invariant another party owns names that party and never transcribes its status; the owner's live status is resolved on every derivation, and a deferral that does not resolve fails"
-  - "the repository labels in this register are local handles for the join, not the parties' names; each party's own name is recorded beside its label and is never assigned by the deriving repository"
+  - "the repository labels in this register are local handles for the join, not the parties' names"

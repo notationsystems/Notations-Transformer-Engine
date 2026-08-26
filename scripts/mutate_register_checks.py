@@ -22,8 +22,8 @@ REGISTER = REPO / "architecture" / "exchange" / "invariant_register.yaml"
 MUTATIONS = [
     ("unreachable repo tolerated", DERIVE,
      lambda s: s.replace(
-         'raise DerivationError(\n            f"bound repository {label} is unreachable',
-         'return [], None  # MUTANT\n        raise DerivationError(\n            f"bound repository {label} is unreachable'),
+         "        if not root.is_dir():",
+         "        if False:  # MUTANT"),
      "test_unreachable_bound_repository_fails_the_derivation"),
     ("citation check always passes", DERIVE,
      lambda s: s.replace(
@@ -75,19 +75,52 @@ MUTATIONS = [
      "test_a_party_with_neither_invariants_nor_a_binding_fails"),
     ("currency asked of the local clone only", DERIVE,
      lambda s: s.replace(
-         '    if local == remote:\n        return "in_sync"',
-         '    return "in_sync"  # MUTANT\n    if local == remote:\n        return "in_sync"'),
+         "    if local == remote:\n        return IN_SYNC",
+         "    return IN_SYNC  # MUTANT\n    if local == remote:\n        return IN_SYNC"),
      "test_a_clone_behind_its_remote_fails_the_derivation"),
     ("offline derivation claims currency", DERIVE,
      lambda s: s.replace(
-         '"currency_established_against_remotes": derivation.remotes_checked,',
-         '"currency_established_against_remotes": True,  # MUTANT'),
+         '"checked_against_remotes": derivation.remotes_checked,',
+         '"checked_against_remotes": True,  # MUTANT'),
      "test_an_offline_derivation_never_claims_currency_it_did_not_check"),
+    # -- a mirror is not a source: the three positions, one rule --
     ("mirror read as the holder's own name", DERIVE,
      lambda s: s.replace(
-         "    generator = document.get(\"generated_by\")",
-         "    return True  # MUTANT\n    generator = document.get(\"generated_by\")"),
-     "test_a_mirrored_artifact_is_not_read_as_the_holder_s_self_declaration"),
+         "        return self.authored_here is True",
+         "        return True  # MUTANT"),
+     "test_a_mirror_is_not_a_source__the_general_rule"),
+    ("an emitted projection read as a canonical source", DERIVE,
+     lambda s: s.replace(
+         "        return not self.emitted and not self.shared",
+         "        return not self.shared  # MUTANT"),
+     "test_deriving_twice_is_a_fixed_point"),
+    ("provenance decided per-repository instead of across parties", DERIVE,
+     lambda s: s.replace(
+         "            elif len(set(holders[digest])) > 1:",
+         "            elif False:  # MUTANT"),
+     "test_a_JOINT_artifact_is_not_read_as_either_party_s_self_declaration"),
+    ("unresolved authorship credited to whoever holds it", DERIVE,
+     lambda s: s.replace(
+         "        return not self.names_one_author",
+         "        return True  # MUTANT"),
+     "test_a_single_authored_artifact_two_parties_hold_credits_neither"),
+
+    # -- currency is directional, and per sibling --
+    ("deriving party exempted by tolerance, not construction", DERIVE,
+     lambda s: s.replace(
+         "    if is_deriving:",
+         "    if False:  # MUTANT"),
+     "test_the_deriving_party_is_exempt_by_construction_not_by_tolerance"),
+    ("the deriving party counted as its own worst sibling", DERIVE,
+     lambda s: s.replace(
+         "        return [b for b in self.bindings.values() if not b.is_deriving_party]",
+         "        return list(self.bindings.values())  # MUTANT"),
+     "test_currency_is_reported_per_sibling_and_never_collapsed"),
+    ("worst sibling collapsed to whichever was read first", DERIVE,
+     lambda s: s.replace(
+         "        return min(siblings, key=lambda b: _CURRENCY_ORDER.index(b.currency))",
+         "        return siblings[0]  # MUTANT"),
+     "test_the_worst_sibling_is_selected_not_the_first_one_read"),
     ("deferral to a silent party tolerated", DERIVE,
      lambda s: s.replace(
          "def _check_deferrals(derivation: Derivation) -> None:",

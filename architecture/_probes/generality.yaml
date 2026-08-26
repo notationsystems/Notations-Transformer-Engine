@@ -87,6 +87,13 @@ evaluation:
       exists.
     bend: unknown (recorded, not guessed)
   recursive_computation:
+    # THE VERDICT WORD IS DELIBERATELY NOT `none`. It does not mean what
+    # the four observation rows' `none` means. Those were evaluated
+    # against a substrate that HOLDS the thing they test. This one
+    # covers the half of recursion this repository can see and is silent
+    # on the half it cannot -- and a bare `none` sitting in a column of
+    # `none`s reads as tested rather than as bounded.
+    bend: none_at_the_execution_boundary
     finding: >-
       NO BEND, and the reason is structural rather than a policy this
       repository chose. An N-iteration estimator runs to completion
@@ -103,9 +110,16 @@ evaluation:
       is owned and enforced by the acquisition layer (implementation,
       two suites, declared bound, composition guard, planted hole). This
       repository's local copy of that invariant said `identified` while
-      the owner had closed it -- the contested row that motivated the
-      derived register.
-    bend: none
+      the owner had closed it -- the row that motivated the derived
+      register, and for which this repository now states no status at
+      all: it names the owner, and the register resolves the live value
+      on every derivation.
+    what_would_change_this_verdict: >-
+      an execution path here that mints one computation identity PER
+      ITERATION rather than per specification. The iteration count would
+      then be visible to an identity this repository mints and could
+      inflate one. No such path exists today; if one is built this row
+      is re-evaluated, never inherited.
     caveat: >-
       recorded because it qualifies the claim rather than supporting it:
       this verdict covers the execution boundary only. A repository that

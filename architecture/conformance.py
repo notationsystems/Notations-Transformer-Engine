@@ -7,7 +7,10 @@ Four gates, all fail-closed:
                             and pins the current core version -- an
                             unconformant vertical must not be wired
   check_core_closure        no architecture artifact silently extends a
-                            different core version than the registry's
+                            different core version than the declaration's
+                            -- every artifact except emitted projections,
+                            which bind no core because they may span
+                            repositories that bind different ones
   lint_doctrine_vendor_free vendor identities never appear in doctrine
                             (generated or otherwise)
   check_doctrine_current    regenerating doctrine from canonical
@@ -87,16 +90,24 @@ def check_core_closure() -> List[pathlib.Path]:
         # error as demanding one from an emitted projection.
         if path.name in ("invariants.yaml", "core.yaml"):
             continue
-        # The exchange surface holds EMITTED projections and cross-repo
-        # payloads, not this repository's canonical declarations. A
-        # projection is not a thing that binds a core -- the derived
-        # register spans repositories that may bind different ones, and
-        # stamping it with a single `extends` would assert something
-        # false. Same exclusion as architecture/derive_register.py, for
-        # the same reason: a projection must never be read as a source.
-        if "exchange" in path.relative_to(ROOT).parts:
-            continue
         data = yaml.safe_load(path.read_text())
+        # AN EMITTED PROJECTION IS NOT A THING THAT BINDS A CORE. The
+        # derived register spans repositories that may bind different
+        # ones, so stamping it with a single `extends` would assert
+        # something false.
+        #
+        # This used to skip the whole `exchange/` directory, which is a
+        # LOCATION standing in for the property. That protected exactly
+        # one path: a hand-authored declaration filed there was skipped
+        # for no reason, and an emitted projection filed anywhere else
+        # was demanded to bind. The same substitution -- a directory
+        # convention doing a provenance rule's job -- is what let the
+        # register be re-read as its own source the moment the rule was
+        # generalized in derive_register.py. So both now ask the same
+        # question: does the document declare that something generated
+        # it?
+        if isinstance(data, dict) and data.get("generated_by"):
+            continue
         declared = data.get("extends") if isinstance(data, dict) else None
         if declared is None:
             raise ConformanceError(f"{path} declares no `extends: core@<version>`")

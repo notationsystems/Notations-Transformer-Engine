@@ -146,6 +146,39 @@ direction wrong:
 (`currency_established_against_remotes: false`). What must not exist is
 a register that reads the same whether or not the question was asked.
 
+### The asymmetry is real, not an artifact of the check
+
+A symmetric "are we current" reports drift on the party doing the work
+— STE's clone diverges the instant it commits the very thing being
+derived. The first fix gave every party the same lenient comparison,
+which let STE through **for the wrong reason** and would have excused a
+*sibling* sitting in the same position.
+
+The asymmetry is a fact about authority, not a tolerance:
+
+- **A party's own HEAD is authoritative for itself.** It cannot be
+  stale against itself. The deriving party is exempt **by
+  construction** — it carries `authoritative_for_itself`, a state
+  reachable only by *being* the deriving party and never by passing a
+  comparison.
+- **Stale-ability runs one way**: toward siblings. The real question is
+  "am I current with respect to what I *derived from*", and that has
+  one answer per sibling.
+
+So currency is recorded per sibling and **never collapsed**. A
+derivation is only ever as current as its **worst sibling**, and a
+single boolean throws away both halves of that: which party is the
+constraint, and how far behind it is. The register names it:
+`as_current_as_its_worst_sibling: "DAQ at cf35a20bb585 (in_sync)"`.
+
+Mutation found both halves under-asserted. Routing the deriving party
+through the sibling check left every assertion true, because STE
+happened to be in sync at that moment. And returning `siblings[0]`
+instead of the minimum was indistinguishable in production, because
+both siblings were in the same state — it took two planted siblings in
+*different* states, with the worse one read second, to make the
+selection observable at all.
+
 ### Faithfulness and currency are different properties
 
 Enforcing currency *inside the test suite* was a design error of mine,
@@ -238,7 +271,68 @@ scoping, instead of taking the count on faith.
 
 ---
 
-## 6. One party, two names — arriving inside this derivation
+## 6. A mirror is not a source — the general rule
+
+The same defect has now arrived **three times in three positions**:
+
+1. the emitted register re-read by its own derivation
+2. a top-level owner read as though it were a row's owner
+3. a party's self-declaration read out of an artifact it merely *holds*
+
+All three are one rule, and the third made it obvious that patching
+positions was the wrong move. **Byte-identity is exactly what makes it
+dangerous**: a mirror and its origin are the same bytes by design, so
+nothing in the *content* can separate them. Only provenance can.
+
+So provenance is now established **across all parties at once**, before
+anything is read, and holders are found **by digest rather than by
+path** — a mirror may sit anywhere, and identical bytes are the only
+thing that makes two files the same artifact. Two facts decide it:
+
+- do any other bound parties hold these exact bytes?
+- does the document name a generator, and does that generator resolve
+  *here*?
+
+Generator resolution is load-bearing because it is the only test that
+needs **no name resolution**. Asking "is this party the owner named in
+the file" is circular here — the acquisition layer calls itself `daf`,
+the compute layer addresses it as `daq`, and this derivation labels it
+`DAQ`. A path either exists in a repository or it does not.
+
+Each read then gets a different entitlement:
+
+| read | requires |
+|---|---|
+| canonical invariant source | not emitted, and no other party holds these bytes |
+| self-declaration (a name) | provable authorship — `joint` is **not** authorship |
+| binding evidence | not authored elsewhere, and not a shared file naming a single author |
+
+**The location conventions are gone.** Both the derivation and the
+core-closure lint used to skip the `exchange/` *directory* — a location
+standing in for the property. That protected exactly one path, and the
+substitution is precisely what re-admitted the circular defect the
+moment the rule was generalized: the emitted register did not declare
+itself emitted, so 26 invariants became 77 and every row read as
+contested. The artifact now says `generated_by`, and **the derivation
+is a fixed point** — emitting twice produces identical bytes, which is
+the proof rather than the assertion, since an artifact that fed itself
+could not reach one.
+
+### The case that separates a joint record from a mirror
+
+Shared bytes that **name a single author** were written by exactly one
+holder, and this derivation cannot say which — the author tokens are in
+each party's own vocabulary, and resolving them here would be the
+deriving party deciding another party's identity. Crediting the holder
+would assert a binding the party never declared. So they are excluded
+from **both**, and **listed** in the register
+(`artifacts_set_aside_authorship_unresolved`): a limitation that costs
+a party evidence should be visible to that party rather than silently
+applied. Under-crediting the true author is the safe direction — a
+party that really binds says so somewhere it authored alone, and all
+three do.
+
+## 7. One party, two names — how the third position was found
 
 DAQ and SCL found that DAQ calls itself `daf` in all six of its own
 artifacts while SCL addresses all eight requirement rows to `daq` — both
@@ -265,7 +359,36 @@ origin — absent is not false.
 
 ---
 
-## 7. Carried forward, unresolved
+## 8. Answering a sibling's standing request
+
+The acquisition layer published a **reconstruction** of STE's invariant
+set, marked `RECONSTRUCTION_NOT_DECLARATION`, with three asks and a note
+that the request "stands unanswered and is recorded as unanswered
+rather than as an agreement." There was a party to answer. Answered in
+`architecture/exchange/ste_invariant_declaration.yaml`, authored here —
+and its findings **re-measured against this tree** rather than taken on
+trust, since it says itself it must never be cited as STE's statement.
+Every factual claim it makes reproduced.
+
+1. **Declare the invariant set** — already declared
+   (`architecture/invariants.yaml`, 26 entries, id + rule each). But the
+   request names a *different* set: `invariants.yaml` is **not** a
+   renumbering of I1–I10 and must not be read as one. Mapping them
+   would manufacture a correspondence no document supports.
+2. **Resolve the cardinality: eight or ten** — **neither.** Measured
+   independently here: I3–I8 cited individually, I1/I2 only inside one
+   range, **I9 and I10 cited nowhere at all**. The range defers to a
+   brief that is not in this repository at any path. So the "10
+   invariants re-verified" sentence is **retracted as unsupported** —
+   not corrected to eight, because eight is a single citation to an
+   absent referent and would replace one unsupported number with
+   another.
+3. **Re-run the probe against five properties** — done, and it is the
+   finding STE owed the record: every `Bent: zero` here before
+   2026-08-26 quantified over four properties, all of them properties of
+   an *observation*.
+
+## 9. Carried forward, unresolved
 
 - **DAQ's `no_vendor_in_doctrine`** claims enforced, but the cited test
   does not cite the id — the implementation does. Enforcement is real;
@@ -278,6 +401,9 @@ origin — absent is not false.
   undeclared extraction method — the extractor declares its own as a
   class constant. The probe is not a baseline; it is a gate that must
   pass first, and it correctly fails.
+- **The I1–I10 numbered set** is unrecoverable from this repository —
+  its referent ("see brief") is not in the tree. Recorded as
+  unrecoverable rather than reconstructed; the "10" is retracted.
 - **`cohort_identity` / `uncontrolled_conditions`** remain `unknown` in
   STE's probe — recorded, not guessed. DAQ ran the cohort probe in *its*
   substrate mid-phase and reports a representation gap; that result is
@@ -291,8 +417,8 @@ origin — absent is not false.
 
 ## Verified
 
-Register locks **19/19**, all mutation-verified with per-test
-attribution: **14/14 mutants killed by their named test** — tolerated
+Register locks **25/25**, all mutation-verified with per-test
+attribution: **20/20 mutants killed by their named test** — tolerated
 unreachable repo, citation check always passing, commit not recorded per
 claim, contest detection disabled, core version moving without breaking
 the closure, core version inferred from packaging, sourceless party
@@ -311,9 +437,17 @@ assertion.** Both now mutate the enforcing code.
 
 `invariant_register.yaml`: 3 parties, 51 invariants, **0 contested**, 4
 deferred, emitted through the byte-identical shared serializer adopted
-from DAQ. `crates`: `fmt` and `clippy` clean.
+from DAQ, and a **fixed point** under re-derivation. `crates`: `fmt` and
+`clippy` clean.
 
-### Suite: 2050 passed, and 5 failures that are NOT this phase's
+Three mutants survived the first battery and each was a real gap, not a
+mutation artifact — the assertions were weaker than the claims they
+carried. Deciding provenance per-repository left the mirror test green
+because that pair's mirror carries a generator and took a different
+branch entirely; the branch the mutation actually broke had nothing
+asserting on it. **A rule is not covered because one of its arms is.**
+
+### Suite: 2065 passed, and 5 failures that are NOT this phase's
 
 Reported rather than absorbed into a green claim.
 

@@ -232,11 +232,14 @@ def test_the_committed_register_is_faithful_to_the_commits_it_names():
 
     # and the artifact records that its currency WAS established when it
     # was written, even though this check deliberately did not re-ask
-    assert committed["currency_established_against_remotes"] is True
-    for entry in committed["derived_from"]:
+    currency = committed["currency"]
+    assert currency["checked_against_remotes"] is True
+    assert currency["per_party"]["STE"]["currency"] == "authoritative_for_itself"
+    for label in ("DAQ", "SCL"):
+        entry = currency["per_party"][label]
         assert entry["currency"] in ("in_sync", "local_ahead_of_remote")
-        assert len(entry["remote_commit"]) == 40
-    assert set(CURRENCY_FIELDS) == {"currency", "remote_commit"}, (
+        assert len(entry["remote"]) == 40
+    assert set(CURRENCY_FIELDS) == {"currency"}, (
         "widening the excluded set would let a real drift hide in the gap")
 
 
@@ -367,8 +370,15 @@ def test_emitted_projections_are_never_read_as_canonical_sources():
         "must be strictly fewer -- equality means self-ingestion")
 
     # the core-closure lint does not demand a binding from a projection
+    # -- and it now asks the same question the derivation asks, rather
+    # than skipping a DIRECTORY that happened to contain the one file
+    # anyone had noticed. A hand-authored declaration filed beside the
+    # projection is checked; the projection is not.
     checked = {p.name for p in check_core_closure()}
     assert "invariant_register.yaml" not in checked
+    assert "ste_invariant_declaration.yaml" in checked, (
+        "an authored declaration must be held to the core it binds, "
+        "wherever it is filed")
 
 
 # -- three parties, one with no invariant source -----------------------------------------------------
@@ -473,43 +483,168 @@ def test_an_offline_derivation_never_claims_currency_it_did_not_check():
     """`check_remotes=False` is allowed and is recorded. What must not
     exist is a register that reads the same whether or not the question
     was asked."""
-    offline = register_document(derive(check_remotes=False))
-    assert offline["currency_established_against_remotes"] is False
-    for entry in offline["derived_from"]:
-        assert entry["currency"] == "not_checked"
-        assert entry["remote_commit"] == ""
+    offline = register_document(derive(check_remotes=False))["currency"]
+    assert offline["checked_against_remotes"] is False
+    for label, entry in offline["per_party"].items():
+        assert entry["remote"] == ""
+        if entry["role"] == "sibling":
+            assert entry["currency"] == "not_checked"
+    # the deriving party's exemption is structural and survives going
+    # offline -- it was never the remote check that granted it
+    assert offline["per_party"]["STE"]["currency"] == "authoritative_for_itself"
 
 
 # -- one party, two names ----------------------------------------------------------------------------
 
 
 @peers_only
-def test_a_mirrored_artifact_is_not_read_as_the_holder_s_self_declaration():
-    """FOUND BY RUNNING, and it is the sibling pair's one-party-two-names
-    defect arriving in this derivation.
+def test_a_mirror_is_not_a_source__the_general_rule():
+    """THE SAME DEFECT IN THREE POSITIONS, closed once.
 
-    The compute layer holds a byte-identical MIRROR of the acquisition
-    layer's requirement response, which carries the acquisition layer's
-    `also_known_as`. Scanning for self-declarations without asking whose
-    artifact it is reported the acquisition layer's name as the compute
-    layer's -- one party's name attributed to another, by a derivation
-    whose entire subject is not trusting one repository's account of
-    another.
+    It arrived as a circular derivation (the emitted register re-read by
+    its own derivation), as a top-level owner read as a row's owner, and
+    as one party's self-declaration read out of another party's
+    artifact. The invariant across all three: **a mirror is not a
+    source**, and BYTE-IDENTITY IS WHAT MAKES IT DANGEROUS -- a mirror
+    and its origin are the same bytes by design, so nothing in the
+    content can separate them. Only provenance can.
 
-    Mirrors are byte-identical to their origins by design, so content
-    cannot separate them. The generator can: only the origin repository
-    holds the script the artifact names.
+    So provenance is established across all parties first, and each read
+    asks what it is entitled to read. This pins the entitlements rather
+    than any one of the three symptoms.
     """
     document = register_document(derive(**OFFLINE))
-    names = {e["repository"]: e["self_declared_names"] for e in document["derived_from"]}
-    assert names["DAQ"], "the acquisition layer declares a correspondence"
-    assert names["SCL"] == [], (
-        "the compute layer declares no name of its own; the mirror it holds "
-        "is the acquisition layer's self-declaration, not its own")
+    by_label = {e["repository"]: e for e in document["derived_from"]}
 
-    # and the labels are never asserted to BE the names
+    # (3) a self-declaration is readable only from a file the party
+    #     provably authored. SCL holds a byte-identical mirror of DAQ's
+    #     requirement response, which carries DAQ's `also_known_as`.
+    assert by_label["DAQ"]["self_declared_names"], "DAQ declares a correspondence"
+    assert by_label["SCL"]["self_declared_names"] == [], (
+        "the mirror SCL holds is DAQ's self-declaration, not SCL's")
+    assert "architecture/exchange/daq_requirement_response.yaml" in \
+        by_label["SCL"]["artifacts_held_but_authored_elsewhere"]
+    assert "architecture/exchange/scl_requirements.yaml" in \
+        by_label["DAQ"]["artifacts_held_but_authored_elsewhere"], (
+            "the rule is symmetric -- each party mirrors the other's artifact")
+
+    # (1) an emitted projection is never a canonical invariant source,
+    #     wherever it is filed and whoever emitted it
+    for entry in document["derived_from"]:
+        for source in entry["invariant_sources"]:
+            held = yaml.safe_load(
+                (dict(BOUND_REPOSITORIES)[entry["repository"]] / source).read_text())
+            assert "generated_by" not in held, (
+                f"{entry['repository']}:{source} declares a generator -- it is a "
+                f"projection and must not be read as a canonical source")
+
+    # ...and the labels are never asserted to BE the parties' names
     for entry in document["derived_from"]:
         assert entry["label_is_a_local_handle_not_the_party_s_name"] is True
+
+
+@peers_only
+def test_deriving_twice_is_a_fixed_point():
+    """THE PROOF THAT A PROJECTION IS NOT A SOURCE, rather than the
+    assertion that it isn't.
+
+    If the emitted register were readable as a source, a second
+    derivation would differ from the first -- that is exactly what
+    happened when the directory-based exclusion was replaced by the
+    general rule and the artifact did not yet declare itself emitted:
+    26 invariants became 77 and every row read as contested.
+
+    A fixed point cannot be reached by an artifact that feeds itself.
+    """
+    first = canonical_bytes(register_document(derive(**OFFLINE)))
+    committed = (EXCHANGE / "invariant_register.yaml").read_bytes()
+    from architecture.derive_register import without_currency
+    assert without_currency(yaml.safe_load(first.decode())) == \
+        without_currency(yaml.safe_load(committed.decode()))
+
+    second = canonical_bytes(register_document(derive(**OFFLINE)))
+    assert first == second, (
+        "re-deriving over the emitted artifact changed the result -- the "
+        "projection is being read as a source")
+
+
+@peers_only
+def test_a_single_authored_artifact_two_parties_hold_credits_neither():
+    """The case that separates a joint record from a mirror.
+
+    Shared bytes that NAME an author were written by exactly one holder,
+    and this derivation cannot say which: the author tokens are in each
+    party's own vocabulary, and resolving them here would be the
+    deriving party deciding another party's identity. Crediting the
+    holder would assert a binding the party never declared.
+
+    Excluded from both, and LISTED -- a limitation that costs a party
+    evidence should be visible to that party rather than silently
+    applied.
+    """
+    document = register_document(derive(**OFFLINE))
+    for entry in document["derived_from"]:
+        set_aside = entry["artifacts_set_aside_authorship_unresolved"]
+        assert not (set(set_aside) & set(entry["binding_files"])), (
+            "an artifact whose author is unresolved must not also be counted "
+            "as this party's binding evidence")
+    scl = next(e for e in document["derived_from"] if e["repository"] == "SCL")
+    assert scl["binding_files"], (
+        "excluding unresolved authorship must not leave a bound party with no "
+        "evidence at all -- a party that really binds says so somewhere it "
+        "authored alone")
+
+
+# -- currency is directional, and per sibling ---------------------------------------------------------
+
+
+@peers_only
+def test_the_deriving_party_is_exempt_by_construction_not_by_tolerance():
+    """A party's own HEAD is authoritative FOR ITSELF.
+
+    It cannot be stale against itself, and it diverges from its remote
+    the instant it commits the work being derived. The first
+    implementation gave every party the same lenient comparison, which
+    let the deriving party through for the wrong reason -- and would
+    have excused a SIBLING sitting in exactly the same position.
+
+    The exemption is now structural and visible, so a reader can audit
+    it instead of inferring it from a state that happens to pass.
+    """
+    currency = register_document(derive(**OFFLINE))["currency"]
+    assert currency["deriving_party"] == "STE"
+    assert currency["deriving_party_is_exempt_by_construction"] is True
+    assert currency["per_party"]["STE"]["role"] == "deriving_party"
+    # THE ASSERTION THE FIRST VERSION OF THIS TEST WAS MISSING, found by
+    # mutation: routing the deriving party through the sibling check
+    # left every line above true, because STE happened to be in sync at
+    # that moment. It is the STATE that has to be structural -- a value
+    # only reachable by being the deriving party, never by passing a
+    # comparison.
+    assert currency["per_party"]["STE"]["currency"] == "authoritative_for_itself"
+    for label in ("DAQ", "SCL"):
+        assert currency["per_party"][label]["role"] == "sibling"
+        assert currency["per_party"][label]["currency"] != "authoritative_for_itself"
+
+
+@peers_only
+def test_currency_is_reported_per_sibling_and_never_collapsed():
+    """A derivation is only as current as its WORST sibling -- and which
+    sibling that is, at which commit, is part of the answer.
+
+    A single boolean throws away both halves. This asserts the rollup
+    names a specific sibling and that the deriving party can never be
+    it, since it is not a sibling and cannot be the constraint."""
+    derivation = derive(**OFFLINE)
+    currency = register_document(derivation)["currency"]
+    assert set(currency["per_party"]) == {"STE", "DAQ", "SCL"}
+
+    worst = derivation.worst_sibling
+    assert worst is not None and not worst.is_deriving_party
+    assert worst.label in currency["as_current_as_its_worst_sibling"]
+    assert currency["deriving_party"] not in \
+        currency["as_current_as_its_worst_sibling"].split()[0]
+
 
 
 def test_a_repository_that_defers_cannot_be_derived_alone():
@@ -528,3 +663,103 @@ def test_a_repository_that_defers_cannot_be_derived_alone():
     """
     with pytest.raises(DerivationError, match="not a bound party"):
         derive((("STE", REPO),), check_remotes=False)
+
+
+def _planted_party(root, body, *, with_origin=False):
+    """A minimal bound repository, optionally with a real local remote."""
+    (root / "architecture").mkdir(parents=True, exist_ok=True)
+    for name, text in body.items():
+        (root / "architecture" / name).write_text(text)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.email=t@t", "-c",
+                    "user.name=t", "commit", "-qm", "x"], check=True)
+    return root
+
+
+def test_a_JOINT_artifact_is_not_read_as_either_party_s_self_declaration(tmp_path):
+    """Shared bytes with no generator: neither party can be shown to
+    have authored it, and `cannot establish` is never `authored`.
+
+    FOUND BY MUTATION. Deciding provenance per-repository instead of
+    across parties left the mirror test green, because the mirror in
+    that pair carries a generator and took a different branch entirely.
+    The branch the mutation actually broke — two parties holding
+    identical bytes that name no author — had nothing asserting on it.
+    A rule is not covered because one of its arms is.
+    """
+    shared = ('extends: core@1.0.0\n'
+              'also_known_as: "the name in the jointly agreed file"\n'
+              'invariants:\n  - id: agreed_row\n    status: enforced\n')
+    parties = []
+    for name in ("ALPHA", "BETA"):
+        root = _planted_party(tmp_path / name, {
+            "joint.yaml": shared,
+            "own.yaml": f'extends: core@1.0.0\ninvariants:\n'
+                        f'  - id: {name.lower()}_own\n    status: enforced\n',
+        })
+        parties.append((name, root))
+
+    derivation = derive(tuple(parties), check_remotes=False)
+
+    # neither party is credited with the name in the shared file
+    for _, binding in derivation.bindings.items():
+        assert binding.self_declared_names == (), (
+            "a jointly held artifact says what was agreed, not what either "
+            "party is called")
+    # nor is its invariant row read as either party's own claim
+    assert "agreed_row" not in derivation.records, (
+        "a registry two parties hold identically is not evidence of who wrote it")
+    for name in ("alpha_own", "beta_own"):
+        assert name in derivation.records, "each party's sole-held rows still count"
+    # but it DOES evidence both parties' binding -- a joint record both
+    # signed binds both, which is what separates it from a mirror
+    for _, binding in derivation.bindings.items():
+        assert "architecture/joint.yaml" in binding.binding_files
+
+
+def test_the_worst_sibling_is_selected_not_the_first_one_read(tmp_path):
+    """A derivation is only as current as its WORST sibling.
+
+    FOUND BY MUTATION: returning `siblings[0]` instead of the minimum
+    was indistinguishable in production, because both siblings happened
+    to be in sync. Two siblings in DIFFERENT states are what make the
+    selection observable at all — so the worse one is planted second,
+    where a first-one-read rule would miss it.
+    """
+    parties = []
+    for name in ("AHEAD_ONE", "SYNCED_ONE"):
+        upstream = tmp_path / f"{name}.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(upstream)], check=True)
+        clone = tmp_path / name
+        subprocess.run(["git", "clone", "-q", str(upstream), str(clone)], check=True)
+        (clone / "architecture").mkdir(parents=True)
+        (clone / "architecture" / "own.yaml").write_text(
+            f'extends: core@1.0.0\ninvariants:\n  - id: {name.lower()}\n'
+            f'    status: enforced\n')
+        git = ["git", "-C", str(clone), "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-qm", "one"], check=True)
+        branch = subprocess.run(["git", "-C", str(clone), "branch", "--show-current"],
+                                capture_output=True, text=True).stdout.strip()
+        subprocess.run(["git", "-C", str(clone), "push", "-q", "origin", branch],
+                       check=True)
+        parties.append((name, clone))
+
+    # make the FIRST party the healthy one and the SECOND the worse one
+    ahead = parties[0][1]
+    (ahead / "architecture" / "own.yaml").write_text(
+        (ahead / "architecture" / "own.yaml").read_text() + "  - id: extra\n    status: enforced\n")
+    subprocess.run(["git", "-C", str(ahead), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(ahead), "-c", "user.email=t@t", "-c",
+                    "user.name=t", "commit", "-qm", "unpushed"], check=True)
+
+    derivation = derive(tuple(reversed(parties)))   # synced read FIRST
+    states = {b.label: b.currency for b in derivation.siblings}
+    assert states == {"AHEAD_ONE": "local_ahead_of_remote", "SYNCED_ONE": "in_sync"}
+
+    worst = derivation.worst_sibling
+    assert worst.label == "AHEAD_ONE", (
+        "the rollup must name the worst sibling, not whichever was read first")
+    assert "AHEAD_ONE" in register_document(derivation)["currency"][
+        "as_current_as_its_worst_sibling"]
