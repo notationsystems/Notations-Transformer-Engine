@@ -103,6 +103,30 @@ three_rerun_the_probe_against_five_properties:
     was narrower than the claims implied, and the narrowing was not
     disclosed at the time because nobody had noticed the gap.
 
+a_claim_in_that_artifact_that_this_file_makes_false:
+  the_claim: >-
+    "there is no counterparty response and this file does not pretend
+    one" -- and, beneath it, that the request "stands unanswered and is
+    recorded as unanswered rather than as an agreement". That was true
+    when written and is not true now.
+  reported_not_edited: >-
+    this repository does not write into the acquisition layer's
+    artifact, for the same reason the acquisition layer reported a stale
+    row in the compute layer's requirements rather than editing it: a
+    party's own artifact is its to correct, and a counterparty
+    correcting it produces an agreement nobody made. It is also not
+    possible here -- this session holds no write access to that
+    repository -- but the boundary would hold either way, and stating
+    the access limit as if it were the reason would be the weaker
+    version of the argument.
+  what_the_counterparty_may_now_record: >-
+    answered, disputed, or partially answered. This file does not make
+    that call on its behalf. What it does establish is that the
+    ABSENCE-OF-A-PARTY premise no longer holds: there is a counterparty,
+    it has answered, and the answer is at a path in this repository that
+    the acquisition layer already reads for the derived register.
+  where: architecture/exchange/ste_invariant_declaration.yaml
+
 what_this_file_is_not:
   not_a_source_for_the_register: >-
     it declares no `invariants:` key. The registry is declared in one

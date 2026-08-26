@@ -160,7 +160,14 @@ def test_a_wrong_program_specification_is_refused_before_proving(tmp_path):
     foreign = ExecutionSpecification(
         program=b"not the registered guest", configuration=b"", input_payload=b""
     )
-    with pytest.raises(ProvedRunError, match="not registered"):
+    with pytest.raises(ProvedRunError, match="no built guest is registered"):
+        # The regex was written against a message this refusal no longer
+        # carries. Stage 5 replaced "descriptor not registered" with the
+        # guest-registry wording, and this assertion was not updated --
+        # so it has been red since 3f40d23 while the refusal it tests
+        # kept working perfectly. A stale `match=` fails LOUDLY and
+        # says nothing true, which is the worst of both: it costs a
+        # green suite and buys no coverage.
         prove_and_verify(
             foreign, tmp_path / "never.proof", host_path=HOST, elf_path=ELF
         )
