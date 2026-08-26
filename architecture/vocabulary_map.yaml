@@ -2,7 +2,7 @@
 # The terms below are how humans ask; the four classes are what ingest
 # assigned. This map is TOTAL over the presentation vocabulary and
 # one-directional -- it never mints and never promotes.
-extends: core@0.1
+extends: core@1.0.0
 
 vocabulary_map:
   reported:      {class: asserted}

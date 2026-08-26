@@ -145,7 +145,7 @@ def test_vocabulary_maps_onto_the_four_classes_and_validated_is_not_one():
 
 def test_conformance_gates_pass_on_the_committed_repository():
     check_doctrine_current()
-    assert core_version() == "core@0.1"
+    assert core_version() == "core@1.0.0"
     assert len(check_core_closure()) >= 5
     contract = check_vertical_contract(
         REPO / "architecture" / "verticals" / "chemistry" / "vertical.yaml")
@@ -155,7 +155,7 @@ def test_conformance_gates_pass_on_the_committed_repository():
 
 def test_unconformant_vertical_is_refused(tmp_path):
     bad = tmp_path / "vertical.yaml"
-    bad.write_text("extends: core@0.1\nvertical: incomplete\n")
+    bad.write_text("extends: core@1.0.0\nvertical: incomplete\n")
     with pytest.raises(ConformanceError, match="missing"):
         check_vertical_contract(bad)
     stale = tmp_path / "stale.yaml"

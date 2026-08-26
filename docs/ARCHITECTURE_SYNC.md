@@ -1,6 +1,6 @@
 # Project-Wide Architecture Synchronization — Implemented
 
-Core version: **core@0.1** (declared in `architecture/invariants.yaml`;
+Core version: **core@1.0.0** (declared in `architecture/invariants.yaml`;
 every architecture artifact pins it; the conformance gate refuses a
 mismatch).
 
@@ -44,7 +44,7 @@ mismatch).
   optimizer pool writes), locked by source-scan + refusal tests.
 - **Registries** — `architecture/{invariants,evidence_class,
   model_binding,vocabulary_map}.yaml`, `_probes/generality.yaml`,
-  `verticals/chemistry/vertical.yaml`; all parse, all pin core@0.1.
+  `verticals/chemistry/vertical.yaml`; all parse, all pin core@1.0.0.
 - **Doctrine generator** — `architecture/doctrine_generator.py`:
   doctrine is a generated projection of the canonical YAML
   (`architecture/generated/doctrine/*.md`, committed); deterministic;
@@ -125,7 +125,7 @@ asserted. All firewall locks (phases 105/108/112b/115) pass.
   construction.
 - Migration: legacy records 0 (no persistence layer); rules registered
   for when persistence lands; no bypass path exists.
-- Probe: evaluated against core@0.1 — non_reproducible: no bend
+- Probe: evaluated against core@1.0.0 — non_reproducible: no bend
   (admissibility classes qualify); revocable_record: candidate bend
   recorded (tombstones absent); cohort_identity /
   uncontrolled_conditions: untested, recorded as unknown, not guessed.

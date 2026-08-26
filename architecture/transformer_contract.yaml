@@ -2,7 +2,7 @@
 # model computation, subordinate to the epistemic architecture.
 # Classification: Transformer contract (not core; core semantics
 # unchanged).
-extends: core@0.1
+extends: core@1.0.0
 
 contract: transformer_engine
 

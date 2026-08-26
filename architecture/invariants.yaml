@@ -4,7 +4,16 @@
 # every gap is stated, not defaulted.
 core:
   name: core
-  version: "0.1"
+  # CORRECTED 2026-08-26. This repository previously declared 0.1, a number
+  # invented during the architecture-sync phase and never checked against
+  # this repository's OWN pyproject.toml, which reads version = "1.0.0",
+  # "Frozen Specification v1.0.0". The acquisition layer inspected that
+  # file (architecture/core.yaml there) and bound core@1.0.0; the compute
+  # layer binds core@1.0.0. STE was the only repository asserting 0.1, and
+  # it was asserting it about ITSELF. This is a truthfulness repair to a
+  # mislabel, not a version increment: no invariant changed meaning.
+  version: "1.0.0"
+  pyproject_agrees: true
 
 # ---------------------------------------------------------------------
 # The substrate control loop -- ACQUISITION-FIRST. A loop, not a stack:

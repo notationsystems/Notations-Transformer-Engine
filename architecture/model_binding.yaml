@@ -8,7 +8,7 @@
 #     (role -> binding -> adapter -> execution). NOT INSTANTIATED in
 #     this repository: there is no deployment to inspect, so snapshot
 #     identifiers are recorded as UNPINNED rather than invented.
-extends: core@0.1
+extends: core@1.0.0
 
 runtime_executors:
   - id: execution-cli

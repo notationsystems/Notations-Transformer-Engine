@@ -74,6 +74,15 @@ def check_core_closure() -> List[pathlib.Path]:
     for path in sorted(ROOT.rglob("*.yaml")):
         if path.name == "invariants.yaml":
             continue
+        # The exchange surface holds EMITTED projections and cross-repo
+        # payloads, not this repository's canonical declarations. A
+        # projection is not a thing that binds a core -- the derived
+        # register spans repositories that may bind different ones, and
+        # stamping it with a single `extends` would assert something
+        # false. Same exclusion as architecture/derive_register.py, for
+        # the same reason: a projection must never be read as a source.
+        if "exchange" in path.relative_to(ROOT).parts:
+            continue
         data = yaml.safe_load(path.read_text())
         declared = data.get("extends") if isinstance(data, dict) else None
         if declared is None:

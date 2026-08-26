@@ -3,7 +3,7 @@
 # retroactively against the already-wired slice; the conformance gate
 # (architecture/conformance.py) exists so every FUTURE wiring passes it
 # first.
-extends: core@0.1
+extends: core@1.0.0
 
 vertical: chemistry
 

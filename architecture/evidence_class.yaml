@@ -1,6 +1,6 @@
 # The four immutable evidence classes and their invariants.
 # Executable form: evidence/classes.py; locks: tests/test_architecture_sync.py.
-extends: core@0.1
+extends: core@1.0.0
 
 classes:
   measured:
