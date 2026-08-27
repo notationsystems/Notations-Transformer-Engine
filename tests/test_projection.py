@@ -28,6 +28,8 @@ def test_canonical_state_remains_unchanged_by_projection(genesis_version):
 
 
 def test_same_version_produces_identical_morpho_ir(genesis_version):
+    # projection_is_deterministic (I6/I7): the same Version always
+    # projects to the same IR.
     config = CompilerConfig()
     doc1 = compile_morpho(project_state(genesis_version), config)
     doc2 = compile_morpho(project_state(genesis_version), config)

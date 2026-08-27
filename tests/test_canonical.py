@@ -291,6 +291,8 @@ def test_explicit_edge_add_and_remove_round_trip_through_validation():
 
 
 def test_edge_add_rejected_when_schema_declares_no_edge_types():
+    # edges_are_explicit_only (I4): an edge type the schema does not
+    # declare is refused -- relationships are stated, never inferred.
     schema = StateSchema(
         schema_version="1.0.0",
         fields={"A": FieldSchema(id="A", type="scalar", default=1), "B": FieldSchema(id="B", type="scalar", default=2)},

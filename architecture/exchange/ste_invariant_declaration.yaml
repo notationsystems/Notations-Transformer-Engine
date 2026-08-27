@@ -38,6 +38,30 @@ one_declare_the_invariant_set:
     per entry. Mapping one onto the other would manufacture a
     correspondence no document supports -- and manufacturing a
     correspondence is a worse failure than leaving the gap visible.
+  RECONCILED_2026_08_27: >-
+    the relationship is now MEASURED rather than left as a warning:
+    architecture/canonical_state_invariants.yaml. Verdict
+    NAMES_THINGS_THE_YAML_DOES_NOT. Containment fails in both
+    directions, nothing was superseded, and citing
+    architecture/invariants.yaml as "STE's invariants" loses the
+    canonical-state core entirely -- that file registers the EPISTEMIC
+    layer, the numbered set is the CANONICAL-STATE/PROJECTION core. One
+    bridge exists and is recorded in both directions: I3's content is
+    carried by the control_loop return edge, which names canonical state
+    explicitly and sits outside the `invariants:` list.
+  what_was_recovered: >-
+    five of the ten, registered under DESCRIPTIVE ids with the brief's
+    numbering kept as provenance rather than adopted -- this repository
+    can verify what its own citations constrain, not what the brief said.
+    All five are enforced.
+  and_a_defect_it_surfaced_here: >-
+    before this, only I5 had ever been cited by a TEST. I3, I6, I7 and I8
+    appeared in implementation docstrings and nowhere else; I4 in prose
+    only. Enforcement was real throughout and the machine-checkable link
+    was absent -- your own recorded defect arriving by the opposite
+    route: not a claim without enforcement, but enforcement without a
+    claim. The enforcing tests now cite the ids, each added only after
+    reading the test and confirming it enforces what it is credited with.
 
 two_resolve_the_cardinality:
   answer: NEITHER. Eight is unrecoverable and ten is unsupported.
@@ -71,6 +95,21 @@ two_resolve_the_cardinality:
     documents CONSTRAIN and marks two of eight unrecoverable; that is
     the most anyone can get from these bytes, and this repository
     confirms it rather than improving on it.
+  the_measurement_behind_the_retraction: >-
+    re-run here rather than taken on trust, and it went further: there is
+    NO numbered invariant list anywhere in this repository -- not a
+    table, not a heading, not an enumeration. Two candidate lists were
+    checked and rejected. The anti-pattern table in the same document
+    that carries the "10" sentence has TWELVE rows and is about
+    anti-patterns; and no Phase 12 document enumerating invariants
+    exists. The "10" is one sentence with nothing behind it.
+  where_this_repository_agrees_with_your_reconstruction: >-
+    on I1/I2 being unrecoverable, and on the middle of the range being
+    the recoverable part. THAT AGREEMENT IS NOT CONFIRMATION and is
+    recorded as agreement only: both readings come from the same
+    documents by the same method, so there is no independence in it --
+    the same rule this pair applied to a serializer whose two halves
+    agreed on the wrong reason.
 
 three_rerun_the_probe_against_five_properties:
   answer: DONE, and the finding is recorded against this repository

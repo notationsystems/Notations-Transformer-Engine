@@ -30,6 +30,9 @@ def _python_files(package_dir: Path):
 
 
 def test_core_never_imports_downstream_packages():
+    # inference_never_produces_canonical_truth (I3) and
+    # representation_never_enters_canonical_state (I8), structurally:
+    # nothing downstream can reach back into the canonical core.
     for path in _python_files(REPO_ROOT / "core"):
         for module in _imports_in(path):
             assert not module.startswith(("morpho", "backends", "runtime")), (

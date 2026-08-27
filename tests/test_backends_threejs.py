@@ -134,6 +134,8 @@ def test_deleted_entity_disappears_from_scene_descriptor():
 
 
 def test_threejs_backend_cannot_become_source_of_truth():
+    # representation_never_enters_canonical_state (I8): a backend holds
+    # no import of the canonical mutation surface.
     source = inspect.getsource(threejs_compiler)
     tree = pyast.parse(source)
     imported_modules = []
@@ -185,6 +187,8 @@ def test_same_identity_different_value_yields_same_id_but_different_geometry(sam
 
 
 def test_same_canonical_state_yields_byte_equivalent_scene_descriptor(genesis_version):
+    # projection_is_deterministic (I6/I7), at the backend end: byte
+    # equivalence, not merely equivalence.
     """same canonical state -> byte-equivalent scene descriptor (Phase 12
     §5, verbatim requirement) -- recompiling from the identical Version
     twice, including the new value-dependent geometry sizing, must be

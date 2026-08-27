@@ -73,6 +73,7 @@ def test_json_field_identity_matches_original_key_for_flat_fields():
     version, _schema = _ingest_json(SAMPLE_JSON_RECORD, source="lab_run_42")
     for key in SAMPLE_JSON_RECORD:
         assert key in version.state.fields
+        # field_identity_is_the_key (I5): identity is the key, never the value
         assert version.state.fields[key].id == key  # I5: no silent renaming
 
 
