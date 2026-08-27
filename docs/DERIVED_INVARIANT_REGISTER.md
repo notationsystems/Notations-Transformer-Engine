@@ -597,7 +597,22 @@ because that pair's mirror carries a generator and took a different
 branch entirely; the branch the mutation actually broke had nothing
 asserting on it. **A rule is not covered because one of its arms is.**
 
-### Suite: 2065 passed, and 5 failures that are NOT this phase's
+### Suite: five failures, reported here and cleared two commits later
+
+**This section went stale and was found by a measurement run for another
+reason** — while counting hand-maintained restatements of derived state
+to decide whether the generator was worth building. It said *"Not fixed
+here"* and named a suite count of 2065; both were true when written and
+neither was true a day later. The five were cleared at `20104e6`, and one
+of them was not what it looked like — `nexus-pairwise` had genuinely
+diverged. See `docs/STE_STAGE5_REPRODUCIBLE_BUILDS.md`.
+
+That is the argument for the generator standing in its own document: a
+hand-maintained projection of derived state goes stale silently, reads as
+authoritative, and this one did it inside the record whose entire subject
+is that failure mode. The rest of this section is retained as written —
+it was accurate at the time and a dated measurement is worth more than a
+quiet edit.
 
 Reported rather than absorbed into a green claim.
 
