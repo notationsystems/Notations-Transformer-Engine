@@ -213,13 +213,15 @@ def test_the_committed_register_is_faithful_to_the_commits_it_names():
     of it that is this repository's to guarantee: whatever the register
     says it read, it really read.
     """
-    from architecture.derive_register import CURRENCY_FIELDS, without_currency
+    from architecture.derive_register import (
+        CURRENCY_FIELDS, deriving_party_of, without_currency)
 
     raw = (EXCHANGE / "invariant_register.yaml").read_bytes()
     committed = yaml.safe_load(raw.decode())
     fresh = register_document(derive(**OFFLINE))
+    party = deriving_party_of(committed)
 
-    assert without_currency(committed) == without_currency(fresh), (
+    assert without_currency(committed, party) == without_currency(fresh, party), (
         "the committed register is not what derivation produces from the "
         "clones on disk -- either it was hand-edited, or a clone moved "
         "since emission (run build_invariant_register.py --currency)")
@@ -557,10 +559,12 @@ def test_deriving_twice_is_a_fixed_point():
     A fixed point cannot be reached by an artifact that feeds itself.
     """
     first = canonical_bytes(register_document(derive(**OFFLINE)))
-    committed = (EXCHANGE / "invariant_register.yaml").read_bytes()
-    from architecture.derive_register import without_currency
-    assert without_currency(yaml.safe_load(first.decode())) == \
-        without_currency(yaml.safe_load(committed.decode()))
+    committed = yaml.safe_load(
+        (EXCHANGE / "invariant_register.yaml").read_bytes().decode())
+    from architecture.derive_register import deriving_party_of, without_currency
+    party = deriving_party_of(committed)
+    assert without_currency(yaml.safe_load(first.decode()), party) == \
+        without_currency(committed, party)
 
     second = canonical_bytes(register_document(derive(**OFFLINE)))
     assert first == second, (
@@ -805,3 +809,38 @@ def test_an_open_decision_is_not_the_same_as_a_contest():
     assert not derivation.contested
     assert derivation.awaiting_a_decision
     assert not (set(derivation.contested) & set(derivation.awaiting_a_decision))
+
+
+@peers_only
+def test_a_sibling_commit_is_never_excluded_from_the_comparison():
+    """The exclusion is narrow on purpose, and this is the half that
+    would matter if it were not.
+
+    The deriving party's own commit is excluded because it cannot be
+    stable across the act of recording it -- committing the register
+    advances the very value the register carries. A SIBLING's commit has
+    no such property: it is the identity of what was read, it is where
+    drift would actually hide, and it must match exactly.
+    """
+    from architecture.derive_register import deriving_party_of, without_currency
+
+    committed = yaml.safe_load((EXCHANGE / "invariant_register.yaml").read_text())
+    party = deriving_party_of(committed)
+    assert party, "the artifact must name its deriving party"
+
+    stripped = without_currency(committed, party)
+    for entry in stripped["derived_from"]:
+        if entry["repository"] == party:
+            assert "commit" not in entry
+        else:
+            assert len(entry["commit"]) == 40, (
+                f"{entry['repository']} is a sibling -- its commit is not "
+                f"self-referential and must survive the comparison")
+
+    # a tampered sibling commit must still be caught
+    tampered = yaml.safe_load((EXCHANGE / "invariant_register.yaml").read_text())
+    sibling = next(e for e in tampered["derived_from"] if e["repository"] != party)
+    sibling["commit"] = "0" * 40
+    assert without_currency(tampered, party) != stripped, (
+        "changing a sibling's commit must change the comparison, or the "
+        "exclusion has swallowed the thing it was narrowed to protect")

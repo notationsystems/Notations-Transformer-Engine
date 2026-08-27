@@ -773,6 +773,8 @@ def register_document(derivation: Derivation) -> dict:
             "binding_mode": binding.binding_mode,
             "bound_core": binding.bound_core,
             "branch": binding.branch,
+            # For the deriving party this is the PARENT of the commit
+            # that will carry this file -- see without_currency.
             "commit": binding.local_commit,
             "binding_files": list(binding.binding_files),
             "invariant_sources": list(binding.invariant_sources),
@@ -862,21 +864,61 @@ def register_document(derivation: Derivation) -> dict:
 
 #: Fields recorded at EMISSION, describing the remote check rather than
 #: the sources read. A faithfulness comparison must exclude exactly this
-#: and nothing more -- `commit` in particular stays in, because it is
-#: the identity of what was read and is the whole point of the artifact.
+#: and nothing more -- a SIBLING's `commit` in particular stays in,
+#: because it is the identity of what was read and is the whole point of
+#: the artifact.
 CURRENCY_FIELDS = ("currency",)
 
 
-def without_currency(document: dict) -> dict:
-    """The document minus its emission-time currency record.
+def without_currency(document: dict, deriving_party: str = "") -> dict:
+    """The document minus what cannot be stable across the act of
+    recording it.
 
-    Faithfulness ("the register is what derivation produces from the
-    commits it names") is checkable offline and forever. Currency
-    ("those commits are still the remote heads") stops being true the
-    moment someone else pushes. Comparing the two together makes an
-    honest artifact read as corrupt, so the comparison excludes
-    precisely the currency block -- and excluding MORE than that would
-    let a real drift hide in the gap, which is why the field list is a
-    constant rather than a filter written at each call site.
+    TWO EXCLUSIONS, AND THE SECOND IS THE DERIVING-PARTY ASYMMETRY
+    AGAIN -- third appearance, after currency and after the mirror rule.
+
+    CURRENCY. Faithfulness ("the register is what derivation produces
+    from the commits it names") is checkable offline and forever;
+    currency ("those commits are still the remote heads") stops being
+    true the moment someone else pushes. Comparing them together makes
+    an honest artifact read as corrupt.
+
+    THE DERIVING PARTY'S OWN COMMIT. Found by the faithfulness gate
+    failing, which is the gate working: the register records the commit
+    its sources were read at, and committing the register ADVANCES that
+    commit. So the artifact is always one commit stale about itself, and
+    no emission order fixes it -- the value it would need is the hash of
+    a commit that does not exist yet and will contain this file. It
+    passed until now only because every emission was immediately
+    followed by exactly one commit; two commits since an emission
+    exposed it.
+
+    A party cannot record, inside an artifact it is about to commit, the
+    commit that will contain that artifact. So the deriving party's
+    commit is recorded (it is the PARENT of the commit carrying this
+    file, which is the honest reading) and excluded from the comparison.
+    Sibling commits are not excluded and must match exactly: for them
+    the value is not self-referential, and that is where drift would
+    actually hide.
     """
-    return {k: v for k, v in document.items() if k not in CURRENCY_FIELDS}
+    stripped = {k: v for k, v in document.items() if k not in CURRENCY_FIELDS}
+    if not deriving_party:
+        return stripped
+    stripped["derived_from"] = [
+        {k: v for k, v in entry.items()
+         if not (entry.get("repository") == deriving_party and k == "commit")}
+        for entry in stripped.get("derived_from", [])
+    ]
+    stripped["invariants"] = [
+        {**entry, "claims": [
+            {k: v for k, v in claim.items()
+             if not (claim.get("asserted_by") == deriving_party and k == "source_commit")}
+            for claim in entry.get("claims", [])]}
+        for entry in stripped.get("invariants", [])
+    ]
+    return stripped
+
+
+def deriving_party_of(document: dict) -> str:
+    """Which party emitted this register, from the artifact itself."""
+    return str(document.get("currency", {}).get("deriving_party", ""))

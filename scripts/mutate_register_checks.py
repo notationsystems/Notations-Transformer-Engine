@@ -142,6 +142,11 @@ MUTATIONS = [
          "            if any(c.awaiting_decision for c in claims)",
          "            if False  # MUTANT"),
      "test_an_open_decision_is_not_the_same_as_a_contest"),
+    ("the deriving-party exclusion widened to swallow sibling commits", DERIVE,
+     lambda s: s.replace(
+         '         if not (entry.get("repository") == deriving_party and k == "commit")}',
+         '         if k != "commit"}  # MUTANT'),
+     "test_a_sibling_commit_is_never_excluded_from_the_comparison"),
     ("committed register goes stale", REGISTER,
      lambda s: s.replace('"contested_count": 0', '"contested_count": 9', 1),
      "test_the_committed_register_is_faithful_to_the_commits_it_names"),

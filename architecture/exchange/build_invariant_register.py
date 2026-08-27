@@ -45,6 +45,7 @@ sys.path.insert(0, str(HERE.parent.parent))
 
 from architecture.derive_register import (  # noqa: E402
     derive,
+    deriving_party_of,
     register_document,
     without_currency,
 )
@@ -107,7 +108,8 @@ def main(argv) -> int:
         import yaml as _yaml
         committed = _yaml.safe_load(ARTIFACT.read_text())
         fresh = register_document(derive(check_remotes=False))
-        if without_currency(committed) != without_currency(fresh):
+        party = deriving_party_of(committed)
+        if without_currency(committed, party) != without_currency(fresh, party):
             print(
                 "UNFAITHFUL REGISTER: re-deriving from the local clones does "
                 "not reproduce the committed artifact. Either the artifact "
