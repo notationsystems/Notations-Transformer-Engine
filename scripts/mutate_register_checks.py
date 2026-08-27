@@ -132,6 +132,16 @@ MUTATIONS = [
          "  - id: generation_depth_bounded\n    scope: this_repository\n"),
      "test_a_deferred_row_resolves_to_the_owner_s_LIVE_status"),
 
+    ("an open decision silently dropped from the register", DERIVE,
+     lambda s: s.replace(
+         '        "awaiting_a_decision": sorted(derivation.awaiting_a_decision),',
+         '        "awaiting_a_decision": [],  # MUTANT'),
+     "test_open_decisions_are_derived_and_re_emitted_not_left_in_prose"),
+    ("an open decision reported as a contest", DERIVE,
+     lambda s: s.replace(
+         "            if any(c.awaiting_decision for c in claims)",
+         "            if False  # MUTANT"),
+     "test_an_open_decision_is_not_the_same_as_a_contest"),
     ("committed register goes stale", REGISTER,
      lambda s: s.replace('"contested_count": 0', '"contested_count": 9', 1),
      "test_the_committed_register_is_faithful_to_the_commits_it_names"),

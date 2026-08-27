@@ -388,7 +388,88 @@ Every factual claim it makes reproduced.
    2026-08-26 quantified over four properties, all of them properties of
    an *observation*.
 
-## 9. Carried forward, unresolved
+## 9. Decisions, not measurements
+
+**A property of this project, not a list of stragglers.** Every
+instrument here converts an assumption into a **measurement**, and none
+converts a measurement into a **choice**. Probes, mutation batteries,
+reachability traces, currency gates and this register all answer *what
+is true*; not one of them answers *what should be done about it*.
+
+That explains why five rows have outlived twenty phases of rigour. They
+will not resolve by being measured harder — they are waiting on a
+person, which is a reasonable place to wait **so long as the register
+keeps saying so**. A prose note survives by inertia, which is exactly how
+four of them got here. So the flag is now **derived and re-emitted on
+every run** (`awaiting_a_decision`), and each flagged row must state
+*which* decision or the lock fails — a flag without a question is a note
+again.
+
+| row | the decision |
+|---|---|
+| `evidence_append_only` | take the tombstone bend now, or when a revocation-compelling source arrives — **deferred, with a trigger** |
+| `self_optimization_acceptance_criteria` | capabilities 5–9 — **settled for 6, open for 7–9** |
+| `multi_writer_write_conflict` | which policy governs two writers into one canonical state |
+| `cross_vendor_validation` | whether review must cross vendors |
+| `builder_check_lineage_recorded` | the same rule's authorship record |
+
+**Zero contested and five awaiting are both true at once**, and
+collapsing either into the other is the error this register exists to
+stop. A contest is two parties disagreeing about what *is*. An open
+decision is nobody having chosen what *should be*. A test asserts the
+two sets stay disjoint.
+
+### Capability 6: the criterion is provenance, not a threshold
+
+"Identifies deficiencies" has **no subject**. Every deficiency this
+project has found was surfaced by an *agent operating on the system*,
+not by the system — and crediting those to the substrate is the same
+category error as citing a reconstruction as a declaration.
+
+So a finding counts only if **a committed check surfaced it without an
+agent reading the code**:
+
+| finding | surfaced by | counts |
+|---|---|---|
+| `nexus-pairwise` ELF divergence | `test_recipe_roundtrip_and_identity_stability` | **yes** |
+| both sibling clones stale | the currency gate | **yes** |
+| projection re-read as its own source | the fixed-point check | **yes** |
+| three under-asserted locks | the mutation batteries | **yes** |
+| the vacuous pass | a human, reading output | no |
+| enforced-but-never-stated invariants | a human, grepping | no |
+
+Four passes — a real claim, not a deferred one. Capability 5 is
+evidenced by the gated optimizations. **7–9 stay unclaimed**: nothing
+here optimizes its own architecture.
+
+The partition costs this repository in the direction that matters. The
+two most interesting findings of the phase that set this criterion both
+fall on the **no** side. A criterion that kept the impressive findings
+and excluded the dull ones would be a criterion fitted to the answer.
+
+### The tombstone bend: deferred, with an expiry that fires
+
+Building tombstones with no revocation-compelling source would be a
+proposal wearing measurement's clothes — the discipline that stopped the
+checker optimization at −6%. But the cost is **not flat**. Today
+`EvidencePool` has no persistence layer and legacy records are 0, so the
+bend is free. The moment records outlive a process, every stored record
+predates the semantics and retrofitting becomes structural.
+
+The window closes at a specific, nameable event — and a carried-forward
+note does not close with it; it survives the event silently. **Name the
+event, ask what goes red.** `tests/test_tombstone_decision_trigger.py`
+fails the moment `EvidencePool` grows a persistence primitive while the
+tombstone limitation is still recorded. It does not check that tombstones
+exist — that would build the thing the decision deferred. It checks only
+that the two facts cannot be true at once.
+
+And because a check that never fires is an untested assertion — and this
+one is designed never to fire in the state it ships in, the shape that
+rots unnoticed — **the event is planted and the trigger is required to
+catch it.**
+
+## 10. Carried forward, unresolved
 
 - **DAQ's `no_vendor_in_doctrine`** claims enforced, but the cited test
   does not cite the id — the implementation does. Enforcement is real;
@@ -417,8 +498,8 @@ Every factual claim it makes reproduced.
 
 ## Verified
 
-Register locks **25/25**, all mutation-verified with per-test
-attribution: **20/20 mutants killed by their named test** — tolerated
+Register locks **27/27**, all mutation-verified with per-test
+attribution: **22/22 mutants killed by their named test** — tolerated
 unreachable repo, citation check always passing, commit not recorded per
 claim, contest detection disabled, core version moving without breaking
 the closure, core version inferred from packaging, sourceless party

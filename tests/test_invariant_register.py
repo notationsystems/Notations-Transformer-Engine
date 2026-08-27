@@ -763,3 +763,45 @@ def test_the_worst_sibling_is_selected_not_the_first_one_read(tmp_path):
         "the rollup must name the worst sibling, not whichever was read first")
     assert "AHEAD_ONE" in register_document(derivation)["currency"][
         "as_current_as_its_worst_sibling"]
+
+
+@peers_only
+def test_open_decisions_are_derived_and_re_emitted_not_left_in_prose():
+    """A PROPERTY OF THIS PROJECT, made visible.
+
+    Every instrument here converts an assumption into a MEASUREMENT and
+    none converts a measurement into a CHOICE. Probes, mutation
+    batteries, reachability traces, currency gates and this register all
+    answer "what is true"; not one answers "what should be done about
+    it". Five rows are therefore waiting on a person, which is a
+    reasonable place to wait -- so long as the register keeps saying so.
+
+    A prose note survives by inertia, which is how four of these reached
+    twenty phases. A derived field cannot: it is re-emitted on every run
+    and goes stale loudly.
+    """
+    document = register_document(derive(**OFFLINE))
+    awaiting = document["awaiting_a_decision"]
+    assert "evidence_append_only" in awaiting, (
+        "the one recorded candidate bend must stay visible")
+    assert "self_optimization_acceptance_criteria" in awaiting
+
+    for entry in document["invariants"]:
+        for claim in entry["claims"]:
+            if entry["id"] in awaiting and claim["asserted_by"] == "STE":
+                assert claim["awaiting_decision"], (
+                    f"{entry['id']} is listed as awaiting a decision and the "
+                    f"claim does not say WHICH -- that is a note again")
+
+
+@peers_only
+def test_an_open_decision_is_not_the_same_as_a_contest():
+    """Zero contested and five awaiting are both true at once, and
+    collapsing either into the other is the error this register exists to
+    stop. A contest is two parties disagreeing about what IS. An open
+    decision is nobody having chosen what SHOULD BE -- no amount of
+    further measurement closes it."""
+    derivation = derive(**OFFLINE)
+    assert not derivation.contested
+    assert derivation.awaiting_a_decision
+    assert not (set(derivation.contested) & set(derivation.awaiting_a_decision))

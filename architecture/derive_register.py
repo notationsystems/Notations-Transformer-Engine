@@ -286,6 +286,7 @@ class InvariantRecord:
     evidence_cites_id: bool   # whether that evidence actually names the id
     scope: str                # project | this_repository
     owner_elsewhere: Optional[str]  # the party that owns this invariant
+    awaiting_decision: Optional[str]  # the decision, when one is pending
 
 
 @dataclass(frozen=True)
@@ -370,6 +371,27 @@ class Derivation:
             key: [c for c in claims if c.owner_elsewhere]
             for key, claims in self.records.items()
             if any(c.owner_elsewhere for c in claims)
+        }
+
+    @property
+    def awaiting_a_decision(self) -> Dict[str, List[InvariantRecord]]:
+        """Rows that will not resolve by being measured harder.
+
+        A PROPERTY OF THIS PROJECT, not a list of stragglers: every
+        instrument here converts an assumption into a MEASUREMENT, and
+        none converts a measurement into a CHOICE. Probes, mutation
+        batteries, reachability traces, currency gates and this register
+        all answer "what is true"; not one of them answers "what should
+        be done about it".
+
+        Surfaced here because that is what stops them fading. A prose
+        note survives by inertia; a derived field is re-emitted on every
+        run, so an open decision stays as visible as a contested row.
+        """
+        return {
+            key: [c for c in claims if c.awaiting_decision]
+            for key, claims in self.records.items()
+            if any(c.awaiting_decision for c in claims)
         }
 
     @property
@@ -550,6 +572,7 @@ def _build_binding(label, root, files, provenance, is_deriving, check_remote):
             if isinstance(evidence, dict):
                 evidence = evidence.get("locks") or evidence.get("validator")
             owner = entry.get("owner_elsewhere")
+            pending = entry.get("decision") if entry.get("awaiting_decision") else None
             records.append(InvariantRecord(
                 invariant_id=entry["id"],
                 status=str(entry.get("status", "unstated")),
@@ -560,6 +583,7 @@ def _build_binding(label, root, files, provenance, is_deriving, check_remote):
                 evidence_cites_id=_evidence_cites_id(root, evidence, entry["id"]),
                 scope=str(entry.get("scope", PROJECT_SCOPE)),
                 owner_elsewhere=str(owner) if owner else None,
+                awaiting_decision=str(pending) if pending else None,
             ))
             contributed = True
         if contributed:
@@ -724,6 +748,7 @@ def register_document(derivation: Derivation) -> dict:
                 "status": c.status,
                 "scope": c.scope,
                 "defers_to": c.owner_elsewhere or "",
+                "awaiting_decision": c.awaiting_decision or "",
                 # RESOLVED AT DERIVATION TIME, NEVER COPIED. A deferring
                 # repository writes the owner's NAME; this field is
                 # filled in from the owner's live source on every run,
@@ -793,6 +818,12 @@ def register_document(derivation: Derivation) -> dict:
         # reader should check for themselves rather than take on the
         # count's word.
         "rows_with_a_local_scope_claim": sorted(derivation.scoped_local),
+        # WAITING ON A PERSON, and saying so. These do not resolve by
+        # being measured harder -- every instrument in this project turns
+        # an assumption into a measurement and none turns a measurement
+        # into a choice. Derived and re-emitted, so an open decision
+        # cannot survive by inertia the way a prose note can.
+        "awaiting_a_decision": sorted(derivation.awaiting_a_decision),
         "invariants": invariants,
         "rules": [
             "a mirror is not a source: provenance is established across all "
@@ -820,6 +851,9 @@ def register_document(derivation: Derivation) -> dict:
             "party and never transcribes its status; the owner's live status is "
             "resolved on every derivation, and a deferral that does not resolve "
             "fails",
+            "an open decision is flagged and re-emitted rather than left in "
+            "prose: no instrument here converts a measurement into a choice, so "
+            "a row waiting on a person stays visible instead of fading",
             "the repository labels in this register are local handles for the "
             "join, not the parties' names",
         ],
