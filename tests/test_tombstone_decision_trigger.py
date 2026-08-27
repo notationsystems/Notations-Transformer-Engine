@@ -126,25 +126,48 @@ def test_the_deferral_is_recorded_as_a_decision_not_a_note():
     assert entry["trigger_enforced_by"] == "tests/test_tombstone_decision_trigger.py"
 
 
-def test_every_open_decision_is_flagged_in_the_registry():
-    """The property this records: every instrument here converts an
-    assumption into a measurement, and none converts a measurement into a
-    choice. These rows will not resolve by being measured harder.
+def test_every_open_decision_states_which_decision_it_is_waiting_on():
+    """The property, not the enumeration.
 
-    Flagging them is what stops them fading -- the flag is derived and
-    re-emitted, where a prose note is not.
+    This assertion first listed the five flagged rows by name. Two were
+    then settled and it failed -- correctly, but for the wrong reason:
+    it was measuring membership of a set that is supposed to shrink. An
+    enumeration is correct exactly until the world changes and then
+    fails on the change rather than on a defect.
+
+    What has to hold is the property. A flagged row must say WHICH
+    decision it waits on, and a decided row must record the decision and
+    stop being flagged. Both directions, so a row cannot be quietly
+    unflagged without a resolution, or resolved without unflagging.
     """
     registry = yaml.safe_load(REGISTRY.read_text())
-    awaiting = {e["id"] for e in registry["invariants"] if e.get("awaiting_decision")}
-    assert awaiting == {
-        "evidence_append_only",              # the tombstone bend
-        "multi_writer_write_conflict",       # a merge policy
-        "cross_vendor_validation",           # a process rule
-        "builder_check_lineage_recorded",    # the same process rule's record
-        "self_optimization_acceptance_criteria",  # capabilities 5-9
-    }
+    flagged, decided = [], []
     for entry in registry["invariants"]:
         if entry.get("awaiting_decision"):
-            assert entry.get("decision"), (
-                f"{entry['id']}: flagged as awaiting a decision without "
-                f"stating WHICH decision -- that is a note again")
+            flagged.append(entry)
+        if entry.get("decided"):
+            decided.append(entry)
+
+    assert flagged, "the mechanism must have subjects or it is untested"
+    for entry in flagged:
+        assert entry.get("decision"), (
+            f"{entry['id']}: flagged as awaiting a decision without stating "
+            f"WHICH decision -- that is a note again")
+        assert not entry.get("decided"), (
+            f"{entry['id']}: both flagged and decided")
+
+    for entry in decided:
+        assert not entry.get("awaiting_decision"), (
+            f"{entry['id']}: decided and still flagged")
+        assert entry["decided"].strip()[:4].isdigit(), (
+            f"{entry['id']}: a decision must record WHEN it was taken -- "
+            f"undated, it cannot be told from a default nobody chose")
+
+
+def test_the_tombstone_bend_is_still_among_the_open_ones():
+    """The one row this file exists for, asserted by name because it is
+    this file's subject rather than a sample of a set."""
+    registry = yaml.safe_load(REGISTRY.read_text())
+    entry = next(e for e in registry["invariants"] if e["id"] == "evidence_append_only")
+    assert entry["awaiting_decision"] is True
+    assert entry["deferred_while"], "it is deferred on a condition, not merely open"

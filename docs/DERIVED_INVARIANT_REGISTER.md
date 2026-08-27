@@ -405,13 +405,82 @@ every run** (`awaiting_a_decision`), and each flagged row must state
 *which* decision or the lock fails — a flag without a question is a note
 again.
 
+**Three settled on 2026-08-27, two open.**
+
 | row | the decision |
 |---|---|
-| `evidence_append_only` | take the tombstone bend now, or when a revocation-compelling source arrives — **deferred, with a trigger** |
+| `evidence_append_only` | the tombstone bend — **deferred, with a trigger** |
+| `multi_writer_write_conflict` | the merge policy for two writers — **deferred, with a trigger** |
 | `self_optimization_acceptance_criteria` | capabilities 5–9 — **settled for 6, open for 7–9** |
-| `multi_writer_write_conflict` | which policy governs two writers into one canonical state |
-| `cross_vendor_validation` | whether review must cross vendors |
-| `builder_check_lineage_recorded` | the same rule's authorship record |
+| `cross_vendor_validation` | **settled: standing.** Vendor-disjointness of the validator is a constraint, not a property the current topology happens to have |
+| `builder_check_lineage_recorded` | **settled: the weaker form.** A shared-vendor lineage requires a review *record*; the review need not itself be cross-vendor |
+
+### Why the weaker form, deliberately
+
+The stronger rule makes every enforcement change a two-vendor ceremony —
+which is the condition under which someone eventually adds an exception,
+leaving a rule that *has* a hole and *still* costs the ceremony. **A rule
+that survives beats a stricter one that gets holed.** Recorded as a
+deliberate weakening rather than as the strongest form anyone could think
+of, because a rule nobody follows is indistinguishable from no rule and
+harder to notice. The residual — a shared-vendor review is not
+independent review — is recorded, not argued away.
+
+### A premise corrected while settling `cross_vendor_validation`
+
+It looked already satisfied by the binding table: validator on one
+vendor, proposing lineage on another. But `role_bindings.status` is
+`not_instantiated_in_repository` — that is the **intended** topology, not
+a live deployment. Meanwhile `builder_lineage.vendor_relationship` is
+recorded as `shared`, and actually is.
+
+Two different lineages: the runtime topology, and who authored the
+enforcement code. Satisfying one says nothing about the other, and
+reading a table that describes nothing as a satisfied constraint is how
+an intended topology becomes a claim. So the row is `partially_enforced`,
+the enforced half binds the declaration, and the unenforced half is
+stated rather than implied.
+
+### The pattern, generalized
+
+> **A deferred decision is safe only while the condition that made it
+> safe still holds, and the condition should be checked rather than
+> remembered.**
+
+A note does not close when its condition does — it survives the event in
+silence, which is how four of these reached twenty phases. So a row
+declaring `deferred_while:` must name a `trigger_enforced_by:`, that file
+must exist, and it must actually mention the row. The last clause matters:
+a trigger naming a file that says nothing about the invariant is the
+enforcement-claim defect again, which this project has now met from both
+directions.
+
+The field draws a distinction worth keeping: `awaiting_decision` alone
+means **undecided**; `deferred_while` means **safe under a condition**.
+Only the second needs a trigger. Capabilities 7–9 are the first kind —
+nothing makes them safe and nobody has chosen — and demanding a trigger
+there would mean inventing a condition to satisfy a rule, which is how a
+mechanism starts generating the evidence it was built to check.
+
+Two triggers exist, and each has its **own reachability proof** — a check
+designed never to fire in its shipping state is the archetype of the
+shape that rots, so both plant the event and are required to catch it:
+
+| deferral | safe while | fires when |
+|---|---|---|
+| tombstone bend | `EvidencePool` has no persistence layer | it grows one while the limitation still stands |
+| merge policy | exactly one `VersionStore` implementation | a second appears |
+
+### The same lesson, a fourth time
+
+Two mutants survived the first battery on the process checks, for the
+reason that has now recurred four times: **a check whose inputs are
+coincidentally uniform tests nothing about the selection.** The review
+record exists and the vendors *are* disjoint, so weakening either
+assertion changed nothing observable. The fix has been identical every
+time — extract the predicate, drive it over constructed inputs covering
+both outcomes — and never adding cases to the subject and hoping one
+fails. **15/15 killed** after.
 
 **Zero contested and five awaiting are both true at once**, and
 collapsing either into the other is the error this register exists to

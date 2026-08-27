@@ -111,6 +111,9 @@ invariants:
       tombstones for no consumer is a proposal wearing measurement's
       clothes -- the same discipline that stopped the checker
       optimization at -6%.
+    deferred_while: >-
+      EvidencePool has no persistence layer, so legacy records are 0 and
+      nothing stored predates the semantics.
     trigger: >-
       the deferral EXPIRES when EvidencePool grows a persistence
       primitive. Today legacy records are 0 because nothing is stored, so
@@ -158,13 +161,33 @@ invariants:
       thing it describes changes, and nothing here was watching it.
   - id: cross_vendor_validation
     scope: this_repository
-    awaiting_decision: true
-    decision: whether single-binding authorship is acceptable, or review
-              must cross vendors
-    status: process_unresolved
-    note: see model_binding.yaml builder_check_lineage -- single-binding
-          authorship is the current fact; cross-vendor review is a
-          flagged, undecided process decision
+    decided: >-
+      2026-08-27, STANDING. The validator role stays vendor-disjoint
+      from the proposing lineage as a CONSTRAINT, not as a property the
+      current topology happens to have.
+    why_standing: >-
+      it is the only structural check on no_self_validation that is not
+      a prompt-boundary fiction. Left as a coincidence of deployment it
+      would be silently lost the first time a topology was rewired for
+      an unrelated reason.
+    status: partially_enforced
+    enforcement:
+      validator: the declared topology in architecture/model_binding.yaml
+                 is checked -- validator.vendor is disjoint from every
+                 proposing role's vendor
+      locks: tests/test_process_decisions.py
+      failure_mode: fail_closed
+    the_half_that_is_NOT_enforced: >-
+      no binding is instantiated (role_bindings.status:
+      not_instantiated_in_repository), so this binds the DECLARATION and
+      becomes runtime-live only at instantiation. Stated because the
+      intended topology and a live deployment are different objects, and
+      reading the first as the second is how a table describing nothing
+      comes to be cited as a satisfied constraint.
+    and_it_does_not_satisfy_builder_check_lineage: >-
+      that row is about who authored the ENFORCEMENT CODE, where the
+      vendor relationship is recorded as `shared` and actually is. Two
+      different lineages; satisfying one says nothing about the other.
   - id: no_self_validation
     scope: this_repository
     status: process
@@ -257,7 +280,17 @@ invariants:
       which policy governs two writers asserting into one canonical
       state. Unblocked by the identity-policy work -- the merge GUARD
       exists and refuses a policy mismatch rather than guessing -- so
-      what is missing is the choice, not the mechanism.
+      what is missing is the choice, not the mechanism. LEFT UNDECIDED:
+      it changes the identity model, and there is still exactly one
+      writer.
+    deferred_while: >-
+      exactly one VersionStore implementation exists.
+      core.canonical.version.InMemoryVersionStore documents itself as
+      single-writer, in-process, append-only, and is the only
+      implementation of the protocol. The deferral is safe because of
+      that fact and not because nobody has asked -- so the fact is
+      CHECKED rather than remembered.
+    trigger_enforced_by: tests/test_process_decisions.py
     enforcement:
       validator: none; refusal on mismatch is the current behaviour
       failure_mode: fail_closed
@@ -295,14 +328,31 @@ invariants:
 
   - id: builder_check_lineage_recorded
     scope: this_repository
-    awaiting_decision: true
-    decision: whether enforcement-code review must be cross-vendor
+    decided: >-
+      2026-08-27, THE WEAKER FORM. A validator authored by a binding
+      sharing a vendor with the lineage it constrains requires a REVIEW
+      RECORD; the review itself is not required to be cross-vendor.
+    why_the_weaker_form: >-
+      the residual is real and small. The stronger form makes every
+      enforcement change a two-vendor ceremony, and that is the
+      condition under which someone eventually adds an exception -- at
+      which point the rule has a hole and still costs the ceremony. A
+      rule that survives is worth more than a stricter one that gets
+      holed. Recorded as a deliberate weakening, not as the strongest
+      form anyone could think of, because a rule nobody follows is
+      indistinguishable from no rule and harder to notice.
     rule: every enforcement validator records its authoring binding; a
           validator authored by a binding sharing a vendor with the
           proposing lineage it constrains requires an explicit review
           record
     status: recorded_unresolved
     enforcement:
-      record: architecture/model_binding.yaml (authorship recorded)
-      unresolved: whether review must be cross-vendor (process decision,
-                  flagged, not defaulted)
+      validator: architecture/model_binding.yaml builder_lineage --
+                 vendor_relationship `shared` requires a non-empty,
+                 specific review_record
+      locks: tests/test_process_decisions.py
+      failure_mode: fail_closed
+    residual: >-
+      a shared-vendor review is not independent review. The record makes
+      the exposure visible and auditable; it does not remove it, and
+      saying otherwise would be the ceremony without the substance.

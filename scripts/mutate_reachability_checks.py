@@ -63,10 +63,23 @@ MUTATIONS = [
 ]
 
 
+#: Which suite holds which target. A mutation aimed at a test in another
+#: file silently passes as "not caught" otherwise -- measuring the
+#: dispatch, not the check.
+SUITES = ("tests/test_chemistry_reachability.py", "tests/test_process_decisions.py")
+
+
+def _suite_for(target):
+    for suite in SUITES:
+        if f"def {target}(" in (REPO / suite).read_text():
+            return suite
+    raise SystemExit(f"no suite defines {target}")
+
+
 def run_one(target):
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--no-header", "-x",
-         f"tests/test_chemistry_reachability.py::{target}"],
+         f"{_suite_for(target)}::{target}"],
         cwd=REPO, capture_output=True, text=True)
     return result.returncode != 0
 
@@ -91,6 +104,39 @@ def main():
     bad = [v for v in verdicts if v[0] != "KILLED"]
     print(f"\n{len(verdicts)-len(bad)}/{len(verdicts)} mutants killed by their named test")
     return 1 if bad else 0
+
+
+# Appended: the deferred-decision mechanism. A trigger that cannot be
+# shown firing is the shape it was built to prevent.
+REGISTRY = REPO / "architecture" / "invariants.yaml"
+PROCESS = REPO / "tests" / "test_process_decisions.py"
+
+MUTATIONS += [
+    ("a conditional deferral with no trigger", REGISTRY,
+     lambda s: s.replace("    trigger_enforced_by: tests/test_process_decisions.py",
+                         "    trigger_enforced_by_MUTANT: none"),
+     "test_every_conditional_deferral_names_the_check_that_ends_it"),
+    ("a trigger naming a file that never mentions the row", REGISTRY,
+     lambda s: s.replace("    trigger_enforced_by: tests/test_process_decisions.py",
+                         "    trigger_enforced_by: tests/test_adapters.py"),
+     "test_every_conditional_deferral_names_the_check_that_ends_it"),
+    ("a second writer tolerated", PROCESS,
+     lambda s: s.replace("    assert len(implementations) == 1, (",
+                         "    assert True, (  # MUTANT"),
+     "test_the_multi_writer_trigger_fires_when_a_second_writer_is_planted"),
+    ("a shared-vendor lineage with no review record", PROCESS,
+     lambda s: s.replace("    return bool(record) and len(record) > 20",
+                         "    return True  # MUTANT"),
+     "test_both_process_predicates_reject_what_they_are_meant_to_reject"),
+    ("a bare 'reviewed' accepted as a record", PROCESS,
+     lambda s: s.replace("    return bool(record) and len(record) > 20",
+                         "    return bool(record)  # MUTANT"),
+     "test_both_process_predicates_reject_what_they_are_meant_to_reject"),
+    ("the validator sharing a vendor with what it validates", PROCESS,
+     lambda s: s.replace("    return validator not in {spec[\"vendor\"] for role, spec in topology.items()",
+                         "    return True or validator not in {spec[\"vendor\"] for role, spec in topology.items()"),
+     "test_both_process_predicates_reject_what_they_are_meant_to_reject"),
+]
 
 
 if __name__ == "__main__":
