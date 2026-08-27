@@ -103,6 +103,33 @@ three_rerun_the_probe_against_five_properties:
     was narrower than the claims implied, and the narrowing was not
     disclosed at the time because nobody had noticed the gap.
 
+why_the_reconstruction_was_necessary_at_all:
+  finding: >-
+    the submodule pin. The acquisition layer vendors this repository at
+    3e5bea9, which is 63 commits behind this branch's head, and at that
+    commit there is NO architecture/ directory. architecture/invariants.yaml
+    and the whole structures/ package first appear in 1637bd8, after the
+    pin. So the declaration this request asks for was not missing from
+    the repository -- it was outside the tree the request could see.
+  why_it_is_recorded_here_rather_than_left_implicit: >-
+    it makes the request coherent rather than mistaken. Reconstructing
+    I1-I10 from prose was the correct move given a tree with no
+    invariant registry in it, and the reconstruction says so itself by
+    citing docs. The gap was never that this repository declined to
+    declare; it is that the pin predates the declaration.
+  what_it_does_not_resolve: >-
+    the cardinality. I1-I10 are cited in docs/ that exist at BOTH
+    commits, and the referent -- "see brief" -- is absent from both. A
+    newer pin would surface architecture/invariants.yaml and would not
+    recover a single one of the numbered invariants. Those are two
+    different sets and moving the pin only settles the first.
+  and_a_second_thing_it_does_not_resolve: >-
+    whether moving the pin is wanted. That artifact records
+    modifiable: false against the pinned commit and states that `bent:
+    zero` is entailed by the core's bytes being unmodified there. Moving
+    a pin re-opens that entailment and is the pinning party's decision,
+    not this one's. Reported, not urged.
+
 a_claim_in_that_artifact_that_this_file_makes_false:
   the_claim: >-
     "there is no counterparty response and this file does not pretend

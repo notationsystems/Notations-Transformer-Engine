@@ -117,23 +117,56 @@ re-running this probe. Codes that go REACHABLE become measurable; the
 rest stay silent and stay labelled. The register is regenerated, never
 edited.
 
-**A sibling has measured that this is not the polymer constraint.** The
-acquisition layer asked, before acquiring GPC data, whether "no content
-gate runs at ingest" was the state that data should arrive into, and
-measured the answer in its own substrate: not the question that decides
-anything. Its result is **pointed at, not transcribed** — read it at the
-source, which the derived register names and pins to a commit.
+**A sibling measured something that looks like the same fact and is
+not.** Before acquiring GPC data the acquisition layer asked whether "no
+content gate runs at ingest" was the state that data should arrive into,
+and answered: not the question that decides anything — five replicates
+pass every gate that exists, so wiring them would have changed nothing
+either way. Its result is **pointed at, not transcribed**; the derived
+register names it and pins it to a commit.
 
-It does not change the verdict above, and the reason is the same
-boundary that runs through this project: the sibling measured *its*
-gates and *its* comparison machinery. `0 of 20 REACHABLE` is a statement
-about this repository, established here, and a sibling's finding about
-its own path is not evidence about paths this repository has.
+Read quickly, that is this result from the other end: it says wiring the
+gates changes nothing, this says nothing reaches them. Two independent
+measurements agreeing on a structural claim would be worth more than
+either.
 
-What it does change is the sentence a reader would otherwise infer from
-this section. Wiring the gates makes the **rate measurable here**. It is
-not the thing that unblocks polymer science, and the sibling has
-measured what is. Recording that distinction matters because this
-document could otherwise be cited as "the gates are the blocker" — which
-would be this repository's local scope quietly promoted into a claim
-about the project.
+### They are not independent, and they are not the same gates
+
+Checked before citing, because the last time convergence was treated as
+confirmation without checking, **both halves agreed on the wrong
+reason**.
+
+The acquisition layer vendors this repository as a submodule, **pinned
+at `3e5bea9`**. That commit is **63 behind this branch's head**, and:
+
+| | at `3e5bea9` | first appears in |
+|---|---|---|
+| `structures/` — the 20 gates measured here | **absent** | `1637bd8` |
+| `architecture/` | **absent** | `1637bd8` |
+
+Its readiness test imports `science.table`, `materials.analysis` and
+`evidence.types` — its own table gate, and this repository's admission
+path *as it stood 63 commits ago*. **Not one of the twenty codes
+measured here existed in the tree it measured.**
+
+So "every gate that exists" is true of the gate set it had, and that set
+is **disjoint from** the one measured here. The two results agree in
+direction and are about different things. Citing one as corroboration of
+the other would be citing a measurement that could not have touched the
+gates in question — convergence-is-not-evidence arriving in the
+direction that would have been flattering, which is the direction it is
+hardest to catch.
+
+**This result therefore stands alone.** `0 of 20 REACHABLE` is
+established here, by the trace and the executed plant above, and by
+nothing else.
+
+### What the sibling's finding does change
+
+Not the verdict — the sentence a reader would otherwise infer from this
+section. Wiring the gates makes the **rate measurable in this
+repository**. It is not what unblocks polymer science: the sibling
+measured that the pairing is destroyed in the analysis projection, on
+its side of the boundary and a separate problem from anything here.
+Without that distinction this document could be cited as "the gates are
+the blocker" — local scope quietly promoted into a project claim.
