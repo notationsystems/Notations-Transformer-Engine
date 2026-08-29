@@ -203,3 +203,56 @@ what_this_file_is_not:
     records the request as unanswered; when it reads this it may record
     it as answered, disputed, or partially answered. That is its call to
     make and this file does not make it on its behalf.
+
+answer_to_the_bent_zero_silence_result:
+  their_finding: >-
+    the acquisition layer moved its pin, checked `bent: zero` against the
+    declared canonical-state set for the first time, and reported SILENCE
+    rather than cleanliness -- every declared invariant names a subject
+    under core.*, and no authored package there imports core.* at all, so
+    by this repository's own rule a zero over a subject nothing reaches
+    is not a measurement.
+  the_rule_is_ours_and_it_is_right: >-
+    accepted without qualification. A zero over an unreached subject is
+    silence, and applying it to this repository's newest claim rather
+    than only to ours is the check working.
+  the_premise_is_not_true_HERE: >-
+    re-measured rather than accepted: FOUR authored packages import
+    core.* across ten files -- morpho, backends, runtime, adapters -- and
+    every named subject is reached. core.canonical.state (1),
+    core.canonical.validation (2), core.projection.project (2), and the
+    backends for the extrinsic boundary.
+  why_both_results_are_right: >-
+    it measured which of ITS OWN packages reach a VENDORED copy; this
+    measures which of this repository's packages reach its own core.
+    Different subject, different tree, same shape as the disjoint gate
+    sets: two correct answers that only appear to conflict because they
+    are about different things.
+  and_an_import_edge_is_an_INFERENCE: >-
+    which is this repository's other rule, so the edge is not the answer
+    either. Violations were PLANTED at validate_candidate -- the sole
+    entry point, which an adapter feeds from external data -- and both
+    gates fired with their own refusal codes.
+  measured:
+    gates: 2
+    reached_by_a_planted_violation: 2
+    structural_no_violating_path_exists: 2
+    property_holds_over_execution: 1
+    probe: scripts/canonical_state_reachability.py
+    locks: tests/test_canonical_state_reachability.py
+  the_three_shapes_are_not_collapsed: >-
+    five subjects, three kinds. A gate refuses and a plant answers the
+    question; a structural absence has no violating input, so calling it
+    unreachable would read as a hole; a determinism property has no
+    violating input either, so calling it reachable would read as a gate
+    nobody trips. One verdict over the five would repeat the error the
+    chemistry probe was built to avoid.
+  what_this_repository_got_wrong_building_it: >-
+    the probe shipped without a MALFORMED verdict and paid for it on the
+    first run: two plants crashed on their OWN construction and an
+    exception handler that could not tell a gate firing from a plant
+    failing to build scored both REACHED -- in this repository's own
+    favour, which is the direction that is hardest to catch. Four further
+    corrections to one plant followed. A fragment of "EDGE" even matched
+    "EdgeRecord" inside a construction TypeError: a fragment loose enough
+    to match the subject does not identify the refusal.
