@@ -1,0 +1,280 @@
+"""Recover the pairing the analysis projection drops.
+
+WHY THIS EXISTS. `materials.analysis.ComparisonGroup` carries exactly
+`(context, values, disagreement)`, and `values` is a bare tuple of
+floats. No observation id, no Record, no run identity travels with a
+value into the group. So a set of replicate runs measuring TWO
+properties produces two independent tuples, and nothing in the result
+pairs the i-th value of one with the i-th value of the other.
+
+A correlation is precisely a statement about that pairing. So a
+correlation cannot be computed from what the projection produces, even
+from perfect replicate data -- the grouping unpairs the observations
+before any statistic is reached.
+
+THE PAIRING IS NOT LOST, ONLY UNPROJECTED. Observations are
+content-addressed, retained, and each names its Record. Joining on
+Record recovers it. That is what this module does, and it is a CONSUMER
+rather than a change: `analyze`, `ComparisonGroup` and
+`_comparison_context` are untouched, so no grouping semantics move and
+no core version does either.
+
+THE FINDING IS THE ACQUISITION LAYER'S. It measured the unpairing, in
+its own substrate, and stated the remedy precisely -- "joining on Record
+outside the grouping, which is a consumer this repository does not
+have, not a capability it lacks." That consumer is here because the
+module it has to sit beside is here.
+
+WHAT THIS REPOSITORY ADDS TO THAT FINDING, AND IT IS THE SHARPER HALF.
+The unpairing is not merely an absence. A group's values arrive in the
+order `RetrievalResult.observation_ids` gives them, and that field is
+`tuple(sorted(set(...)))` with `ordering: sorted_by_id` -- so the values
+are ordered by CONTENT-ADDRESSED OBSERVATION ID. Two properties
+measured on the same runs have different content, therefore different
+ids, therefore two unrelated permutations of the same runs.
+
+  (This mechanism was first written here as "the group sorts by context
+  repr", which is a real sort -- `_group_by_comparison_context` does
+  sort, but it sorts the LIST OF GROUPS, not the values inside one. The
+  explanation named a true fact that was not the cause. It was caught by
+  a mutation aimed at the line the explanation named, which removed that
+  sort and left the reordering exactly as it was. A wrong mechanism
+  behind a right finding survives review easily, because the finding
+  keeps reproducing.)
+
+Measured on five replicate GPC runs:
+
+    inserted   Mn = 3251, 3402, 3188, 3610, 3305
+    returned   Mn = 3610, 3188, 3305, 3402, 3251
+
+Same multiset, different order -- and stable, so it reproduces run to
+run and across hash seeds. So pairing the two tuples by index does not
+fail, and does not even flicker: it SUCCEEDS and returns the wrong
+number, the same wrong number every time. On that data the
+index pairing gives rho = +0.38 where the true value is -0.98: wrong in
+SIGN, with nothing in the result to indicate it. The polymer vertical's
+stated question is rho's sign. An absence announces itself; a confident
+wrong answer does not, which is why this module never zips two value
+tuples and why `correlation` takes a join rather than two sequences.
+
+THE ACQUISITION CONTRACT THIS DEPENDS ON. Both halves are load-bearing
+and they fail in OPPOSITE directions:
+
+  one Record per RUN -- because Observation identity is over
+  (record_ids, extraction_method, content), two runs reporting the same
+  value from one Record collapse into ONE observation. That is correct
+  for a re-read and wrong for a replicate, and it biases an estimated
+  spread DOWNWARD, which is the overconfident direction.
+
+  the run identifier NOT in content -- an acquisition locator in content
+  makes every observation its own single-member comparison group, so
+  nothing is comparable at all.
+
+Neither is enforced here. This module cannot repair a corpus that
+violates them; it can only refuse to guess, which is what `ambiguous`
+below is for.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Dict, List, Mapping, Optional, Tuple
+
+from evidence.pool import EvidencePool
+from evidence.types import Referent
+from materials.analysis import MaterialQuestion, analyze
+
+
+@dataclass(frozen=True)
+class PairedRun:
+    """One Record's worth of a replicate run: every requested property
+    it carries, with the observation each value came from.
+
+    `record_id` is retained rather than discarded because it is the
+    join key, and a pairing whose key is thrown away is a pairing that
+    cannot be checked."""
+
+    record_id: str
+    values: Mapping[str, float]
+    observation_ids: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+        object.__setattr__(self, "observation_ids",
+                           MappingProxyType(dict(self.observation_ids)))
+
+    def complete_for(self, properties: Tuple[str, ...]) -> bool:
+        return all(name in self.values for name in properties)
+
+
+@dataclass(frozen=True)
+class ReplicateJoin:
+    """The recovered pairing, and everything it refused to pair.
+
+    `complete` is the only thing a statistic may be computed over.
+    `incomplete` and `ambiguous` are RETAINED rather than dropped: a
+    join that silently discarded what it could not pair would report a
+    clean n over an unstated denominator, which is the same defect as a
+    rejection rate over gates nothing reaches."""
+
+    material: Referent
+    properties: Tuple[str, ...]
+    complete: Tuple[PairedRun, ...]
+    incomplete: Tuple[PairedRun, ...]
+    ambiguous: Tuple[str, ...]
+
+    @property
+    def n(self) -> int:
+        return len(self.complete)
+
+    @property
+    def records_seen(self) -> int:
+        return len(self.complete) + len(self.incomplete) + len(self.ambiguous)
+
+
+def join_on_record(pool: EvidencePool, engine, material_natural_key: str,
+                   properties: Tuple[str, ...]) -> ReplicateJoin:
+    """Join a material's observations on Record, outside the grouping.
+
+    Deterministic and side-effect-free, on the same terms as `analyze`:
+    it calls only public read API and never writes to the pool. It
+    reaches each property through `analyze` so that retrieval, referent
+    resolution and property matching stay in ONE place -- a second
+    traversal written here would be a second definition of which
+    observations belong to a material, and two definitions drift.
+    """
+    if len(properties) < 1:
+        raise ValueError("a join needs at least one property to join on")
+
+    referent: Optional[Referent] = None
+    by_record: Dict[str, Dict[str, float]] = {}
+    observations: Dict[str, Dict[str, str]] = {}
+    ambiguous: set = set()
+
+    for name in properties:
+        answer = analyze(pool, engine,
+                         MaterialQuestion(material_natural_key=material_natural_key,
+                                          property=name))
+        referent = answer.material
+        for observation in answer.observed:
+            for record_id in observation.record_ids:
+                slot = by_record.setdefault(record_id, {})
+                value = float(observation.content["value"])
+                if name in slot and slot[name] != value:
+                    # TWO DIFFERENT VALUES OF ONE PROPERTY ON ONE RECORD.
+                    # The acquisition contract says one Record per RUN, so
+                    # this Record is either two runs merged or a genuine
+                    # re-read that disagrees with itself. Either way the
+                    # join has no basis for choosing, and choosing would
+                    # be inventing a run. The record is refused whole --
+                    # never partially, since its other properties are
+                    # equally suspect.
+                    ambiguous.add(record_id)
+                    continue
+                slot[name] = value
+                observations.setdefault(record_id, {})[name] = observation.id
+
+    complete: List[PairedRun] = []
+    incomplete: List[PairedRun] = []
+    for record_id in sorted(by_record):
+        if record_id in ambiguous:
+            continue
+        run = PairedRun(record_id=record_id, values=by_record[record_id],
+                        observation_ids=observations.get(record_id, {}))
+        (complete if run.complete_for(properties) else incomplete).append(run)
+
+    return ReplicateJoin(
+        material=referent,
+        properties=tuple(properties),
+        complete=tuple(complete),
+        incomplete=tuple(incomplete),
+        ambiguous=tuple(sorted(ambiguous)),
+    )
+
+
+def paired_values(join: ReplicateJoin, first: str,
+                  second: str) -> Tuple[Tuple[float, float], ...]:
+    """The pairs, in a STATED order -- by record id -- rather than an
+    incidental one.
+
+    Order is irrelevant to every statistic here, so this is not about
+    correctness of the number. It is about the difference between an
+    order that is chosen and an order that is inherited: the trap this
+    module exists for is exactly an inherited order that looked like a
+    chosen one."""
+    for name in (first, second):
+        if name not in join.properties:
+            raise ValueError(f"{name!r} was not joined on; joined: {join.properties}")
+    return tuple((run.values[first], run.values[second]) for run in join.complete)
+
+
+def correlation(join: ReplicateJoin, first: str, second: str) -> Optional[float]:
+    """Pearson rho over the RECOVERED pairing, or None where it is
+    undefined.
+
+    None is returned for the two DEFINITIONAL cases and no others:
+    fewer than two pairs, and zero variance in either series. Those are
+    not thresholds -- a correlation is not defined on one point or on a
+    constant, and returning 0.0 or 1.0 for them would be inventing a
+    result. No policy threshold on n is applied here, because choosing
+    one is a decision about what evidence suffices, and this module
+    measures rather than decides. The caller has `join.n`.
+
+    This says nothing about significance, and nothing about the
+    material. It is a statistic over the pairs that were recovered.
+    """
+    pairs = paired_values(join, first, second)
+    if len(pairs) < 2:
+        return None
+    xs = [x for x, _ in pairs]
+    ys = [y for _, y in pairs]
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in pairs)
+    variance_x = sum((x - mean_x) ** 2 for x in xs)
+    variance_y = sum((y - mean_y) ** 2 for y in ys)
+    if variance_x == 0.0 or variance_y == 0.0:
+        return None
+    return numerator / math.sqrt(variance_x * variance_y)
+
+
+def fragmentation(pool: EvidencePool, engine, material_natural_key: str,
+                  property_name: str) -> Tuple[int, int]:
+    """`(observations, comparison_groups)` for one property.
+
+    WHAT THIS SURFACES AND WHY IT IS NOT A FIX. `_comparison_context`
+    keeps every content key except `property` and the value key --
+    `uncertainty` included. So replicates from an instrument that
+    reports a per-run uncertainty, which is what a real one does, split
+    into singleton groups: measured, five replicates whose uncertainty
+    differs by 1 g/mol become FIVE groups of one, every disagreement
+    None. Not an error, not a refusal, not a warning. Five groups of
+    one.
+
+    That rule is NOT changed here. Its docstring states the intent --
+    absence is never treated as a match -- and differing VALUES
+    splitting a group follows from the same rule rather than being a
+    separate decision. Whether a per-run uncertainty belongs in a
+    comparison context is a question about scientific semantics, which
+    makes it a DECISION and not a measurement, and changing grouping
+    semantics is a core-invariant change under bend_protocol. So the
+    consequence is made VISIBLE instead: `observations > groups == 1`
+    is a comparable set, and `groups == observations > 1` is the silent
+    fragmentation, named.
+    """
+    answer = analyze(pool, engine,
+                     MaterialQuestion(material_natural_key=material_natural_key,
+                                      property=property_name))
+    return len(answer.observed), len(answer.observed_comparison_groups)
+
+
+def is_fragmented(pool: EvidencePool, engine, material_natural_key: str,
+                  property_name: str) -> bool:
+    """True when every observation landed in its own group, so no
+    disagreement is computable anywhere -- the "five groups of one"
+    condition, as a question that can be asked instead of a silence."""
+    observations, groups = fragmentation(pool, engine, material_natural_key,
+                                         property_name)
+    return observations > 1 and groups == observations

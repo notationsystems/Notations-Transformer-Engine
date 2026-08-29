@@ -538,6 +538,43 @@ one is designed never to fire in the state it ships in, the shape that
 rots unnoticed — **the event is planted and the trigger is required to
 catch it.**
 
+## 9b. The second gap the sibling named on this side of the boundary
+
+`chemistry_rule_ownership.yaml` said the chemistry gate call site "is
+inside the unmodifiable submodule and is STE's, not DAQ's." That was
+acted on and the gates are wired.
+
+`polymer_acquisition_readiness.yaml` names the next one in the same
+form: the analysis projection drops the pairing between two properties
+measured on the same replicate runs, and *"recovering rho would mean
+joining on Record outside the grouping — which is a consumer this
+repository does not have, not a capability it lacks."*
+
+**Verified here at this commit rather than carried across.** The sibling
+read this tree at a pin that has since moved twice, so the three findings
+were re-measured against these modules: the group's fields are
+`{context, values, disagreement}`; the pairing is recoverable from the
+pool by joining on Record; five replicates whose per-run uncertainty
+differs by 1 g/mol fragment into five singleton groups.
+
+**And one thing is sharper here than the sibling recorded it.** The
+unpairing is not an absence. Values arrive ordered by content-addressed
+observation id, so two properties come back as two *unrelated
+permutations of the same runs* — index-pairing them succeeds and returns
+**rho = +0.38 against a true −0.98**, wrong in sign, stably, with nothing
+in the result to indicate it. The polymer vertical's question is rho's
+sign.
+
+`materials/replicate_join.py` is the consumer. It is additive:
+`ComparisonGroup` and `_comparison_context` are untouched, so no grouping
+semantics move and no core version does either. The fragmentation is
+**surfaced rather than fixed** — whether a per-run uncertainty belongs in
+a comparison context is a decision about scientific semantics, which puts
+it in `bend_protocol` territory and on the register's
+`awaiting_decision` list rather than in a patch.
+
+Full record: `docs/REPLICATE_PAIRING.md`.
+
 ## 10. Carried forward, unresolved
 
 - **DAQ's `no_vendor_in_doctrine`** claims enforced, but the cited test

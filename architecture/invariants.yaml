@@ -255,6 +255,89 @@ invariants:
                   locks: tests/test_architecture_sync.py,
                   failure_mode: fail_closed}
 
+  # -- THE PROJECTION DROPS THE PAIRING -------------------------------
+  #
+  # Found by the acquisition layer, in its own substrate, and verified
+  # here at this commit rather than taken on faith: ComparisonGroup
+  # carries (context, values, disagreement) with `values` a bare tuple of
+  # floats, so two properties measured on the same replicate runs come
+  # back as two independent tuples with nothing to join them.
+  #
+  # NOT A DEFECT ROW. Every module involved does what its docstring says,
+  # and the grouping's conservatism is deliberate and documented. What
+  # was missing is a CONSUMER: the pairing survives in the evidence pool
+  # -- observations are content-addressed and each names its Record --
+  # and is lost only in the analysis projection. The sibling stated the
+  # remedy exactly and could not build it, because the module it must sit
+  # beside is here.
+  - id: pairing_recoverable_outside_the_projection
+    scope: this_repository
+    rule: a statistic over paired observations is computed from a join on
+          Record, never from the positional order of two comparison-group
+          value tuples
+    status: enforced
+    implementation: materials/replicate_join.py
+    enforcement: {validator: materials.replicate_join.join_on_record,
+                  locks: tests/test_replicate_join.py,
+                  mutation: scripts/mutate_replicate_join_checks.py,
+                  failure_mode: refuse_to_pair}
+    why_positional_pairing_is_worse_than_no_pairing: |
+      it does not fail. A group's values arrive ordered by
+      RetrievalResult.observation_ids, which is tuple(sorted(set(...)))
+      over CONTENT-ADDRESSED ids -- so two properties, having different
+      content, come back as two unrelated permutations of the same runs.
+      Zipping them succeeds and returns a number. Measured on five
+      replicate GPC runs: rho = +0.38 by index against a true -0.98.
+      Wrong in SIGN, stably, the same wrong number every run, with
+      nothing in the result to indicate it. The polymer vertical's
+      stated question is rho's sign.
+    what_it_refuses_rather_than_guesses: |
+      a Record carrying two different values of one property is either
+      two runs merged or a re-read disagreeing with itself; the join has
+      no basis to choose and choosing would invent a run. Refused whole,
+      never partially, and RETAINED alongside incomplete records so that
+      n is never reported over an unstated denominator.
+    depends_on_an_unenforced_acquisition_contract: |
+      one Record per RUN, and the run identifier NOT in content. Both
+      halves are load-bearing and fail in OPPOSITE directions -- a run id
+      in content makes every observation its own group so nothing is
+      comparable, while one Record per report merges equal values and
+      biases an estimated spread DOWNWARD, the overconfident direction.
+      Neither is enforced anywhere. This consumer cannot repair a corpus
+      that violates them; it can only refuse to guess.
+
+  - id: comparison_context_fragmentation_is_visible
+    scope: this_repository
+    rule: a property whose observations all land in singleton comparison
+          groups is a reportable condition, not a silence
+    status: enforced
+    implementation: materials/replicate_join.py (fragmentation, is_fragmented)
+    enforcement: {locks: tests/test_replicate_join.py,
+                  failure_mode: reported_not_refused}
+    measured: |
+      _comparison_context keeps every content key except `property` and
+      the value key -- `uncertainty` included. Five replicates whose
+      per-run uncertainty differs by 1 g/mol split into FIVE singleton
+      groups and every disagreement is None. Not an error, not a
+      refusal, not a warning. An instrument that reports a per-run
+      uncertainty is what a real one does.
+    why_the_rule_was_not_changed: |
+      A DECISION, NOT A MEASUREMENT. The docstring states the intent --
+      absence is never treated as a match -- and differing VALUES
+      splitting a group follows from that same rule rather than being a
+      separate choice. Whether a per-run uncertainty belongs in a
+      comparison context is a question about scientific semantics, and
+      changing grouping semantics is a core-invariant change under
+      bend_protocol. So the consequence is surfaced and the rule is
+      left alone. `awaiting_decision` is set because the question is
+      real and is nobody's to settle by implementation.
+    awaiting_decision: true
+    decision: whether a per-run uncertainty is part of a comparison
+              context or metadata about one value
+    deferred_while: no corpus carrying per-run uncertainties has been
+                    admitted, so nothing is silently fragmenting today
+    trigger_enforced_by: tests/test_replicate_join.py
+
   # -- THE CHEMISTRY VERTICAL'S INGEST GATES --------------------------
   #
   # All five ids were DECLARED FIRST IN THE ACQUISITION LAYER's registry
