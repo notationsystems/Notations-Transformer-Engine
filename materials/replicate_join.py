@@ -87,6 +87,11 @@ from evidence.types import Referent
 from materials.analysis import MaterialQuestion, analyze
 
 
+class UndeclaredRunsError(ValueError):
+    """A statistic that assumes its pairs are replicate runs was asked
+    for over a join that has not been told which Records are runs."""
+
+
 @dataclass(frozen=True)
 class PairedRun:
     """One Record's worth of a replicate run: every requested property
@@ -113,6 +118,12 @@ class PairedRun:
 class ReplicateJoin:
     """The recovered pairing, and everything it refused to pair.
 
+    A JOIN IS A FACT; "THESE ARE RUNS" IS A CLAIM. Joining on Record is
+    something this module can do from the pool alone. Asserting that the
+    joined Records are replicate runs is not -- see `runs_declared` and
+    `declaring_runs` below -- so the two are kept apart, the same split
+    as STRUCTURE from WARRANT everywhere else here.
+
     `complete` is the only thing a statistic may be computed over.
     `incomplete` and `ambiguous` are RETAINED rather than dropped: a
     join that silently discarded what it could not pair would report a
@@ -124,6 +135,71 @@ class ReplicateJoin:
     complete: Tuple[PairedRun, ...]
     incomplete: Tuple[PairedRun, ...]
     ambiguous: Tuple[str, ...]
+    #: Has a caller stated which of these Records are replicate runs?
+    #: False from `join_on_record`, and only `declaring_runs` sets it.
+    #: `correlation` refuses while it is False.
+    runs_declared: bool = False
+
+    def declaring_runs(self, record_ids) -> "ReplicateJoin":
+        """A caller states which Records are replicate runs, and gets a
+        join restricted to them.
+
+        THE CHANNEL EXISTS BECAUSE THE SUBSTRATE HAS NO OTHER. The
+        acquisition layer measured a real replicate report -- Impact
+        Analytical R190048, a table of two injections followed by
+        Average, Standard Deviation and % RSD -- and found that with the
+        incidental refusals removed it lands FIVE Records, three of them
+        aggregates, with "nothing distinguishing them" and the
+        aggregates' lineage to the injections unrecoverable, because
+        that lineage is POSITIONAL IN THE DOCUMENT and position is what
+        acquisition discards.
+
+        Measured here, against that shape, this module inherited the
+        defect exactly: `join_on_record` returned n = 5 with zero
+        refusals, paired a % RSD with a % RSD and a standard deviation
+        with a standard deviation, and reported rho = +0.9986 -- driven
+        almost entirely by three aggregate rows spanning 8.4 to 24969.
+        The real replicate set is n = 2.
+
+        WHY IT IS NOT DERIVED INSTEAD. Two candidates were checked and
+        both refused:
+
+          the EVIDENCE CLASS is a total function of `extraction_method`,
+          so every row from one adapter shares one class. A transcribed
+          average and a transcribed injection are both the DOCUMENT's
+          claim, and the class says so correctly. It does not separate
+          them and was never meant to.
+
+          the RECORD LOCATOR does separate them in this corpus
+          (`Average/row-2` against `PA191 (S190109)/1`) and matching on
+          it is the literal-enumeration hazard the acquisition layer has
+          just watched fire on real data: a two-element tuple of
+          identity-column names that did not contain the word the first
+          real vendor used. A list of aggregate labels breaks on the
+          next vendor and breaks SILENTLY, by admitting an aggregate.
+
+        So the fact is not in the pool, cannot be inferred, and is
+        declared. That is the same move the acquisition layer's later
+        adapter makes for its four provenance fields -- and its own
+        contrast records that the adapter WITH the declaration channel
+        is the right one.
+        """
+        declared = tuple(record_ids)
+        known = {run.record_id for run in self.complete} | {
+            run.record_id for run in self.incomplete}
+        unknown = [rid for rid in declared if rid not in known]
+        if unknown:
+            raise ValueError(
+                f"declared runs that are not in this join: {sorted(unknown)}")
+        chosen = set(declared)
+        return ReplicateJoin(
+            material=self.material,
+            properties=self.properties,
+            complete=tuple(r for r in self.complete if r.record_id in chosen),
+            incomplete=tuple(r for r in self.incomplete if r.record_id in chosen),
+            ambiguous=self.ambiguous,
+            runs_declared=True,
+        )
 
     @property
     def n(self) -> int:
@@ -222,9 +298,25 @@ def correlation(join: ReplicateJoin, first: str, second: str) -> Optional[float]
     one is a decision about what evidence suffices, and this module
     measures rather than decides. The caller has `join.n`.
 
+    IT REFUSES UNTIL THE CALLER HAS SAID WHAT THE PAIRS ARE. A
+    correlation over replicate runs is a different object from a
+    correlation over a set that happens to contain three summary rows,
+    and the pool cannot tell them apart. Measured on a real replicate
+    report's shape, the undeclared answer was n = 5 and rho = +0.9986
+    where the truth is n = 2. That is the trap this module was written
+    against, one layer up: a plausible recovery returning a confidently
+    wrong number. So `declaring_runs` is required, and its absence
+    raises rather than returning None -- None means "undefined on this
+    data", and this is "you have not said what this data is".
+
     This says nothing about significance, and nothing about the
     material. It is a statistic over the pairs that were recovered.
     """
+    if not join.runs_declared:
+        raise UndeclaredRunsError(
+            "correlation assumes its pairs are replicate runs, and nothing in "
+            "the pool distinguishes a run from a transcribed Average or "
+            "% RSD row. Call join.declaring_runs(record_ids) first")
     pairs = paired_values(join, first, second)
     if len(pairs) < 2:
         return None

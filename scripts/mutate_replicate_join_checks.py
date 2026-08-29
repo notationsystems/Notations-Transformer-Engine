@@ -114,6 +114,33 @@ MUTATIONS = [
                          "    return groups == observations  # MUTANT"),
      "test_a_single_observation_is_not_fragmented"),
 
+    # -- the run declaration, measured against a real report's shape ------
+    ("a correlation computed over undeclared pairs", JOIN,
+     lambda s: s.replace("    if not join.runs_declared:", "    if False:  # MUTANT"),
+     "test_a_correlation_over_undeclared_pairs_is_refused_not_computed"),
+    ("the join declares its own pairs to be runs", JOIN,
+     lambda s: s.replace("    runs_declared: bool = False",
+                         "    runs_declared: bool = True  # MUTANT"),
+     "test_the_join_itself_needs_no_declaration"),
+    ("a declaration naming an absent record silently ignored", JOIN,
+     lambda s: s.replace("        if unknown:\n            raise ValueError(",
+                         "        if False:  # MUTANT\n            raise ValueError("),
+     "test_declaring_a_record_that_is_not_in_the_join_is_refused"),
+    ("a declaration that overrules an ambiguous record", JOIN,
+     lambda s: s.replace("        known = {run.record_id for run in self.complete} | {\n"
+                         "            run.record_id for run in self.incomplete}",
+                         "        known = {run.record_id for run in self.complete} | {\n"
+                         "            run.record_id for run in self.incomplete} | set(self.ambiguous)  # MUTANT"),
+     "test_the_declaration_does_not_resurrect_an_ambiguous_record"),
+    ("the declaration stops restricting and keeps everything", JOIN,
+     lambda s: s.replace("            complete=tuple(r for r in self.complete if r.record_id in chosen),",
+                         "            complete=self.complete,  # MUTANT"),
+     "test_declaring_the_two_injections_gives_the_real_replicate_set"),
+    ("the join starts guessing from the record locator", JOIN,
+     lambda s: s.replace("def paired_values(",
+                         "_AGGREGATE_LABELS = ('Average', 'Standard Deviation', 'RSD')  # MUTANT\n\n\ndef paired_values("),
+     "test_neither_the_evidence_class_nor_the_locator_is_used_to_guess"),
+
     # -- the boundary this must not cross ------------------------------------
     ("the consumer 'fixes' the grouping instead of surfacing it", ANALYSIS,
      lambda s: s.replace('    return {k: v for k, v in content.items() if k not in ("property", value_key)}',
@@ -146,10 +173,10 @@ MUTATIONS = [
      lambda s: s.replace(
          "from evidence.types import Referent",
          "from evidence.types import Referent, make_referent").replace(
-         "    return ReplicateJoin(",
+         "    return ReplicateJoin(\n        material=referent,",
          "    getattr(pool, 'put_' + 'referent')(\n"
          "        make_referent(natural_key='mutant', kind='substance'))  # MUTANT\n"
-         "    return ReplicateJoin("),
+         "    return ReplicateJoin(\n        material=referent,"),
      "test_the_join_writes_nothing_to_the_pool"),
 ]
 

@@ -167,6 +167,70 @@ response was to stop writing the token, **not** to add the script to the
 allowlist. Widening the check that guards the write barrier to buy a
 green suite is the trade this project exists to refuse.
 
+## The aggregate rows — the same trap, one layer up, in my own new code
+
+The sibling's DAQ-2 landed a day after this consumer's first draft. It
+took a **real** replicate report — Impact Analytical R190048, from
+regulations.gov — and measured what a faithful transcription does. Its
+third question:
+
+> *is the aggregate's lineage to the two injections recoverable:* **NO**.
+> The Average Record's locator is `Average/row-2` and nothing connects it
+> to rows 1 and 2. The lineage is **positional in the document** … and
+> position is exactly what acquisition discards.
+
+With the incidental refusals removed, that table lands **five Records** —
+two injections plus Average, Standard Deviation and % RSD — each carrying
+Mn and Mw, with *"nothing distinguishing them."*
+
+**I ran my own consumer against that shape before saying anything about
+it, and it inherited the defect exactly:**
+
+| | |
+|---|---|
+| Records in the pool | 5 (2 injections + 3 aggregates) |
+| `join.n` | **5** |
+| refusals | **0** — it has nothing to refuse them *on* |
+| rho reported | **+0.9986** |
+| the real replicate set | **n = 2** |
+
+The pairs included a % RSD paired with a % RSD and a standard deviation
+paired with a standard deviation, and the +0.9986 is driven almost
+entirely by three summary rows spanning 8.4 to 24,969 — a magnitude
+effect, not a correlation. **The same class as the index-pairing trap
+this document opens with: a plausible recovery returning a confidently
+wrong number, one layer up, in the code written to answer it.**
+
+### Two ways to derive it were checked, and both refused
+
+- **The evidence class.** It is a total function of `extraction_method`,
+  so every row from one adapter shares one class — correctly, since a
+  transcribed average and a transcribed injection are equally *the
+  document's claim*. It does not separate them and was never meant to.
+- **The Record locator.** It *does* separate them in this corpus
+  (`Average/row-2` against `PA191 (S190109)/1`), and matching on it is
+  the **literal-enumeration hazard** the sibling has just watched fire on
+  real data: a two-element tuple of identity-column names that did not
+  contain the word the first real vendor used. A list of aggregate labels
+  breaks on the next vendor, and breaks *silently*, by admitting an
+  aggregate.
+
+So the fact is not in the pool, cannot be inferred, and is **declared**.
+
+### A join is a fact; "these are runs" is a claim
+
+They are now separate. `join_on_record` still returns five, because five
+Records *is* the truth about the pool, and `paired_values` needs no
+declaration. What changed is that `correlation` **refuses** until a
+caller has said which Records are replicate runs — and it *raises*
+rather than returning `None`, because `None` means "undefined on this
+data" while this is "you have not said what this data is."
+
+That is the same move the sibling's own later adapter makes for its four
+provenance fields, and its own contrast records the verdict: the adapter
+**with** the declaration channel is the right one, and the earlier one
+was never updated.
+
 ## What is not claimed
 
 That any of this measures a material. Every number here is the real code

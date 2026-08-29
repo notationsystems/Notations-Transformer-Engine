@@ -297,6 +297,20 @@ invariants:
       no basis to choose and choosing would invent a run. Refused whole,
       never partially, and RETAINED alongside incomplete records so that
       n is never reported over an unstated denominator.
+    and_what_it_cannot_refuse_on_at_all: |
+      an AGGREGATE ROW. Measured against a real replicate report's shape
+      (Impact Analytical R190048, two injections followed by Average,
+      Standard Deviation and % RSD): five Records land, three of them
+      aggregates, with nothing in the pool distinguishing them, and this
+      join returned n = 5 with ZERO refusals and rho = +0.9986 where the
+      real replicate set is n = 2. Neither the evidence class (a total
+      function of extraction_method, so one adapter yields one class)
+      nor the Record locator (matching it is the literal-enumeration
+      hazard, which breaks silently on the next vendor) can separate
+      them. So a correlation REFUSES until a caller declares which
+      Records are runs -- and raises rather than returning None, since
+      None means undefined on this data and this means you have not said
+      what this data is. A join is a fact; "these are runs" is a claim.
     depends_on_an_unenforced_acquisition_contract: |
       one Record per RUN, and the run identifier NOT in content. Both
       halves are load-bearing and fail in OPPOSITE directions -- a run id
