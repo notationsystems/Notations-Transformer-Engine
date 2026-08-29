@@ -259,12 +259,23 @@ def test_every_construction_site_passes_a_caller_supplied_value_through():
     assert sorted(set(sites)) == [
         "evidence/types.py", "experiment/step.py", "materials/results.py",
         "scout/extraction.py", "scout/pipeline.py",
+        "scout/property_extraction.py",
         "workbench/interaction.py", "workbench/investigation.py",
     ]
     # None derives the value; each forwards what it was given. The two
     # workbench sites joined this list when the `make_experimental_result`
     # default was removed -- they now STATE the claim the constructor
     # used to invent for them.
+    #
+    # `scout/property_extraction.py` joined it when the chemistry vertical
+    # was wired to acquisition. It is the SAME SHAPE as
+    # `scout/extraction.py` and admitted on that ground, not waived: it
+    # declares its own method as a class constant
+    # (`regex:property_v1`, never `model:`) and forwards that constant
+    # unchanged. It derives nothing, infers nothing from content, and
+    # takes no caller value to override. A second rule-based extractor is
+    # not a new kind of site; a site that COMPUTED a method from what it
+    # read would be, and this list is what would catch it.
 
 
 def test_only_three_modules_consume_it_at_all():
@@ -281,6 +292,7 @@ def test_only_three_modules_consume_it_at_all():
     assert consumers == {
         "evidence/admission.py", "retrieval/epistemic.py",
         "scout/pipeline.py", "scout/extraction.py",
+        "scout/property_extraction.py",
         "experiment/step.py", "materials/results.py",
     }
     # ...and of those, only admission, epistemic and scout/pipeline READ the

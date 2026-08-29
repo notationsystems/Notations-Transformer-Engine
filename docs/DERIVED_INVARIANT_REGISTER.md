@@ -544,13 +544,35 @@ catch it.**
   does not cite the id — the implementation does. Enforcement is real;
   the machine-checkable link from the *named test* is absent. DAQ's to
   close, reported not patched.
-- **Ingest probe: 0/3 gates proven reached** (unchanged this phase).
-  `no_context_free_property` and `quantity_is_typed` UNREACHED;
-  `class_assigned_at_ingest` **MALFORMED plant**, reported rather than
-  counted as a hole, because no document payload *can* produce an
-  undeclared extraction method — the extractor declares its own as a
-  class constant. The probe is not a baseline; it is a gate that must
-  pass first, and it correctly fails.
+- ~~**Ingest probe: 0/3 gates proven reached**~~ — **closed. Now 2/3
+  reached**, with the third still MALFORMED and still named. The gates
+  were wired to the acquisition path
+  (`structures.ingest.ingest_documents → run_scout(content_gates=…)`),
+  and the per-code chemistry probe went **0 → 15 of 20 REACHABLE**
+  through a real ingest. `class_assigned_at_ingest` remains a MALFORMED
+  plant for the same reason as before — no document payload *can*
+  produce an undeclared extraction method, since the extractor declares
+  its own as a class constant — so it is reported, never counted as a
+  hole.
+
+  Two things had to be fixed in the probe itself to get an honest
+  answer, and both were errors running in the flattering direction:
+
+  - Its plants used `FACT:` lines, read into a **flat** mapping.
+    `assert_property_context` requires `conditions` to be a *non-empty
+    mapping*, which a flat extractor cannot express — so every plant was
+    refused by the context gate first and **no plant could ever isolate
+    the quantity gate behind it**. `quantity_is_typed` UNREACHED was a
+    fact about the plant's format, not the gate's position.
+  - The probe could not tell "nothing refused it" from "something else
+    refused it one gate earlier". A plant refused under a **different**
+    invariant id is now reported MALFORMED, never UNREACHED: an
+    unreached verdict has to mean the payload *arrived* and nothing
+    refused it.
+
+  The probe still refuses to call this a rate over real documents. Every
+  candidate it counts was planted to violate a gate, so 100% measures
+  that the plants arrived — not that the world is dirty.
 - **The I1–I10 numbered set** is unrecoverable from this repository —
   its referent ("see brief") is not in the tree. Recorded as
   unrecoverable rather than reconstructed; the "10" is retracted.

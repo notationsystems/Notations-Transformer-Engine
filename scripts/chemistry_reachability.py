@@ -64,6 +64,10 @@ STRUCTURALLY_UNREACHABLE = "STRUCTURALLY_UNREACHABLE"
 ADAPTER_UNREACHABLE = "ADAPTER_UNREACHABLE"
 CALLER_ONLY = "CALLER_ONLY"          # only a direct in-repo caller can construct it
 NOT_ESTABLISHED = "NOT_ESTABLISHED"  # neither reached nor traced to a stop
+#: A plant that ARRIVED and was admitted anyway -- the gate did not fire
+#: on a violation that reached it. That is a hole, and it is a different
+#: state from a plant that never arrived.
+ADMITTED = "ADMITTED_DESPITE_ARRIVING"
 
 
 @dataclass
@@ -76,6 +80,13 @@ class Code:
     plant: Callable[[], object]
     expect: type
     fragment: str                 # a substring the refusal must carry
+    #: The document line that provokes this code through a REAL ingest,
+    #: or None where no single payload can express it: a merge conflict
+    #: needs two identities, a policy refusal needs a SubstanceIdentity
+    #: constructed. Absent is recorded rather than forced -- a plant that
+    #: cannot be written is a fact about the gate's position, not a gap.
+    document: Optional[str] = None
+    ingest_verdict: str = ""
     entry_verdicts: Dict[str, str] = field(default_factory=dict)
     blocked_by: Dict[str, str] = field(default_factory=dict)
     live: Optional[str] = None
@@ -92,34 +103,41 @@ CODES: List[Code] = [
     Code("QUANTITY_NO_UNIT", "structures.quantity.TypedQuantity",
          "a numeric value without a unit is untyped",
          lambda: TypedQuantity(value=1.0, unit="", uncertainty_kind="absent"),
-         QuantityError, "without a unit"),
+         QuantityError, "without a unit",
+         document='PROPERTY: p | method=m | conditions=r:1 | value=1 | unit= | uncertainty_kind=absent'),
     Code("UNCERTAINTY_KIND_UNKNOWN", "structures.quantity.TypedQuantity",
          "uncertainty_kind must be one of the four declared postures",
          lambda: TypedQuantity(value=1.0, unit="K", uncertainty_kind="maybe"),
-         QuantityError, "not one of"),
+         QuantityError, "not one of",
+         document='PROPERTY: p | method=m | conditions=r:1 | value=1 | unit=K | uncertainty_kind=maybe'),
     Code("ABSENT_CONTRADICTED", "structures.quantity.TypedQuantity",
          "'absent' with a supplied uncertainty is a contradiction",
          lambda: TypedQuantity(value=1.0, unit="K", uncertainty_kind="absent", uncertainty=0.5),
-         QuantityError, "contradicts"),
+         QuantityError, "contradicts",
+         document='PROPERTY: p | method=m | conditions=r:1 | value=1 | unit=K | uncertainty_kind=absent | uncertainty=0.5'),
     Code("KIND_WITHOUT_VALUE", "structures.quantity.TypedQuantity",
          "a non-absent posture must carry the uncertainty it claims",
          lambda: TypedQuantity(value=1.0, unit="K", uncertainty_kind="stated"),
-         QuantityError, "requires the"),
+         QuantityError, "requires the",
+         document='PROPERTY: p | method=m | conditions=r:1 | value=1 | unit=K | uncertainty_kind=stated'),
     Code("QUANTITY_FIELDS_MISSING", "structures.quantity.assert_quantity_type",
          "bare scalars are refused",
          lambda: assert_quantity_type({"value": 1.0}),
-         QuantityError, "bare scalars"),
+         QuantityError, "bare scalars",
+         document='PROPERTY: p | method=m | conditions=r:1 | value=1'),
     Code("PROPERTY_CONTEXT_MISSING", "structures.quantity.assert_property_context",
          "a value without method and conditions is a different fact",
          lambda: assert_property_context({"value": 1.0, "unit": "K",
                                           "uncertainty_kind": "absent"}),
-         QuantityError, "different fact"),
+         QuantityError, "different fact",
+         document='PROPERTY: p | value=1 | unit=K | uncertainty_kind=absent'),
     Code("CONDITIONS_EMPTY", "structures.quantity.assert_property_context",
          "conditions must be a non-empty mapping",
          lambda: assert_property_context({"property": "Tg", "method": "DSC",
                                           "conditions": {}, "value": 1.0,
                                           "unit": "K", "uncertainty_kind": "absent"}),
-         QuantityError, "non-empty mapping"),
+         QuantityError, "non-empty mapping",
+         document='PROPERTY: p | method=m | conditions= | value=1 | unit=K | uncertainty_kind=absent'),
 
     # -- structures/substance.py ----------------------------------------------
     Code("POLICY_DIMENSION_UNKNOWN", "structures.substance.ResolutionPolicy",
@@ -150,7 +168,8 @@ CODES: List[Code] = [
     Code("DISTRIBUTION_KIND_UNKNOWN", "structures.substance.DistributionIdentity",
          "an unknown distribution kind is refused, not defaulted",
          lambda: DistributionIdentity(kind="slurry", fields={}),
-         IdentityPolicyError, "unknown distribution kind"),
+         IdentityPolicyError, "unknown distribution kind",
+         document='DISTRIBUTION: slurry | a=1'),
     # FOUND BY A MALFORMED PLANT, and kept because that is what the
     # classification is for. The plant below aimed at the field-set rule
     # with an EMPTY mapping and hit a different refusal one line earlier
@@ -160,35 +179,42 @@ CODES: List[Code] = [
     Code("STRUCTURE_STRING_ONLY", "structures.substance.assert_distribution_identity",
          "a structure string alone cannot identify a distribution-kind entity",
          lambda: assert_distribution_identity("polymer", {"structure": "CC(C)"}),
-         IdentityPolicyError, "identified only by a structure string"),
+         IdentityPolicyError, "identified only by a structure string",
+         document='DISTRIBUTION: polymer | structure=CC(C)'),
     Code("DISTRIBUTION_FIELDS_MISSING", "structures.substance.DistributionIdentity",
          "a distribution kind requires its full field set",
          lambda: assert_distribution_identity("polymer", {"dispersity": 1.8}),
-         IdentityPolicyError, "is missing"),
+         IdentityPolicyError, "is missing",
+         document='DISTRIBUTION: polymer | dispersity=1.8'),
 
     # -- structures/method_blocks.py ------------------------------------------
     Code("METHOD_KIND_UNKNOWN", "structures.method_blocks.assert_method_block",
          "an unknown computed-method kind is refused",
          lambda: assert_method_block("astrology", {}),
-         MethodBlockError, "unknown computed-method kind"),
+         MethodBlockError, "unknown computed-method kind",
+         document='METHOD: astrology | a=1'),
     Code("METHOD_BLOCK_INCOMPLETE", "structures.method_blocks.assert_method_block",
          "an underspecified method block is inadmissible for canonical assertion",
          lambda: assert_method_block("quantum", {}),
-         MethodBlockError, "is missing"),
+         MethodBlockError, "is missing",
+         document='METHOD: quantum | functional=B3LYP'),
     Code("NO_APPLICABILITY_DOMAIN", "structures.method_blocks.assert_applicability",
          "a prediction with no declared applicability domain is refused",
          lambda: assert_applicability({}, {"T": 300}),
-         MethodBlockError, "no declared applicability domain"),
+         MethodBlockError, "no declared applicability domain",
+         document='METHOD: ml | model_id=m | snapshot=s | training_evidence_classes=measured | inputs=T:300'),
     Code("INPUT_OUTSIDE_DOMAIN", "structures.method_blocks.assert_applicability",
          "an input outside the declared domain is flagged and inadmissible",
          lambda: assert_applicability(
              {"applicability_domain": {"T": [200, 400]}}, {"T": 5000}),
-         MethodBlockError, "outside the declared domain"),
+         MethodBlockError, "outside the declared domain",
+         document='METHOD: ml | model_id=m | snapshot=s | training_evidence_classes=measured | domain=T:200-400 | inputs=T:5000'),
     Code("INPUT_NEVER_DECLARED", "structures.method_blocks.assert_applicability",
          "an input the domain never declared is outside it",
          lambda: assert_applicability(
              {"applicability_domain": {"T": [200, 400]}}, {"pH": 7}),
-         MethodBlockError, "never declared"),
+         MethodBlockError, "never declared",
+         document='METHOD: ml | model_id=m | snapshot=s | training_evidence_classes=measured | domain=T:200-400 | inputs=pH:7'),
 ]
 
 
@@ -312,6 +338,71 @@ def probe_reachability(root: pathlib.Path) -> Dict[str, object]:
     }
 
 
+REACHABLE_VIA_INGEST = "REACHABLE"
+NOT_EXPRESSIBLE = "NOT_EXPRESSIBLE_AS_A_DOCUMENT"
+
+
+def probe_ingest_reachability(root: pathlib.Path) -> Dict[str, object]:
+    """Plant each code's provoking line in ONE document, ingest it
+    through the vertical's own entry point, and record what arrives.
+
+    THIS REPLACES AN IMPORT TRACE THAT ASKED THE WRONG DIRECTION. The
+    earlier trace asked whether anything under `scout/` imports
+    `structures/` and concluded STRUCTURALLY_UNREACHABLE. The wiring
+    runs the other way: the vertical calls acquisition
+    (`structures.ingest.ingest_documents`), supplying its gates. The
+    edge the trace looked for still does not exist, and the path does --
+    so the trace was measuring a direction rather than a path, and its
+    verdict would now be confidently wrong.
+
+    An edge is an inference in either direction. This executes.
+    """
+    from evidence.pool import EvidencePool
+    from evidence.quarantine import Quarantine
+    from scout.interface import RawDocument
+    from scout.property_extraction import PropertyExtractor
+    from structures.ingest import ingest_documents
+
+    planted = [c for c in CODES if c.document]
+
+    class _Source:
+        def fetch(self):
+            return (RawDocument(
+                source_name="chemistry-reachability", source_kind="paper",
+                content="\n".join(c.document for c in planted),
+                locator="probe://chemistry/codes",
+                retrieval_method="manual_entry",
+                retrieved_at="2026-08-27T00:00:00Z"),)
+
+    pool, quarantine = EvidencePool(), Quarantine()
+    findings, failures = ingest_documents(
+        _Source(), PropertyExtractor(), pool, quarantine=quarantine)
+
+    # A code is REACHABLE when its own plant was refused THROUGH the
+    # ingest path. Attribution is per payload: the quarantine holds the
+    # content, and the code whose plant produced that content is the one
+    # credited -- never the invariant id alone, which several codes
+    # share and which would over-credit every one of them.
+    held = [dict(record.payload) for record in quarantine.records]
+    for code in CODES:
+        if not code.document:
+            code.ingest_verdict = NOT_EXPRESSIBLE
+            continue
+        candidates = PropertyExtractor().extract(
+            type("R", (), {"raw_content": code.document})())
+        content = dict(candidates[0].content) if candidates else None
+        code.ingest_verdict = (
+            REACHABLE_VIA_INGEST if content in held else ADMITTED)
+
+    return {
+        "attempted": len(findings) + len(failures),
+        "admitted": len(findings),
+        "refused": len(failures),
+        "per_invariant": quarantine.by_invariant(),
+        "rejection_rate": quarantine.rejection_rate(len(findings) + len(failures)),
+    }
+
+
 # --------------------------------------------- executed confirmation --
 
 
@@ -378,13 +469,17 @@ def confirm_termination_by_execution() -> Dict[str, object]:
 # ------------------------------------------------------------- report --
 
 
-def emit(root: pathlib.Path, executed: Dict[str, object]) -> pathlib.Path:
+def emit(root: pathlib.Path, executed: Dict[str, object],
+         measured: Dict[str, object]) -> pathlib.Path:
     """The measurement record, in the acquisition layer's form."""
     import sys as _sys
     _sys.path.insert(0, str(root / "architecture" / "exchange"))
     from canonical_yaml import canonical_bytes, canonical_sha256
 
     live = [c for c in CODES if c.live == "LIVE"]
+    reachable = [c for c in CODES if c.ingest_verdict == REACHABLE_VIA_INGEST]
+    inexpressible = [c for c in CODES if c.ingest_verdict == NOT_EXPRESSIBLE]
+    holes = [c for c in CODES if c.ingest_verdict == ADMITTED]
     document = {
         "extends": "core@1.0.0",
         "generated_by": "scripts/chemistry_reachability.py",
@@ -405,8 +500,35 @@ def emit(root: pathlib.Path, executed: Dict[str, object]) -> pathlib.Path:
             "live": len(live),
             "dead": sum(1 for c in CODES if c.live == "DEAD"),
             "malformed_plants": sum(1 for c in CODES if c.live == "MALFORMED_PLANT"),
-            "reachable_from_any_entry": 0,
-            "exercised_by_real_acquisition": 0,
+            "reachable_from_any_entry": len(reachable),
+            "exercised_by_real_acquisition": len(reachable),
+            "not_expressible_as_a_document": len(inexpressible),
+            "admitted_despite_arriving": len(holes),
+        },
+        "measured_through_a_real_ingest": {
+            "entry_point": (
+                "structures.ingest.ingest_documents -> "
+                "scout.pipeline.run_scout(content_gates=(chemistry_content_gate,))"),
+            "attempted": measured["attempted"],
+            "admitted": measured["admitted"],
+            "refused_and_held": measured["refused"],
+            "rejection_rate": measured["rejection_rate"],
+            "per_invariant": dict(sorted(measured["per_invariant"].items())),
+            "why_the_import_trace_is_no_longer_the_verdict": (
+                "the earlier trace asked whether anything under scout/ "
+                "imports structures/ and concluded STRUCTURALLY_UNREACHABLE. "
+                "The wiring runs the OTHER direction: the vertical calls "
+                "acquisition and supplies its own gate. The edge the trace "
+                "looked for still does not exist and the path now does -- so "
+                "the trace was measuring a DIRECTION, not a path, and would "
+                "today report STRUCTURALLY_UNREACHABLE with confidence and be "
+                "wrong. It is retained as a note and demoted from evidence"),
+            "why_five_are_silent": (
+                "they are substance-identity refusals: a merge conflict needs "
+                "TWO identities and a policy refusal needs a SubstanceIdentity "
+                "constructed. No single document payload expresses either, so "
+                "they are recorded as inexpressible rather than counted as "
+                "unreached -- an absence with a named cause, not a silence"),
         },
         "metric_interpretation": {
             "zero_rate_when_reachable": (
@@ -416,13 +538,17 @@ def emit(root: pathlib.Path, executed: Dict[str, object]) -> pathlib.Path:
                 "no entry path can reach the gate. NOT a measurement; the "
                 "metric is silent, not clean."),
             "rule": (
-                "a rate of zero is evidence about source quality only for a "
-                "code whose verdict is REACHABLE. Today that is 0 of "
-                f"{len(CODES)}, so no rate is reportable at all"),
+                "a rate is evidence about source quality only for a code "
+                f"whose verdict is REACHABLE. Today that is {len(reachable)} "
+                f"of {len(CODES)}"),
             "what_a_clean_set_would_look_like_and_why_this_is_not_it": (
-                f"all {len(CODES)} codes are LIVE and none is REACHABLE. A "
-                "probe reporting 'clean' would be presenting twenty silences "
-                "as one number"),
+                f"{len(inexpressible)} of {len(CODES)} codes remain LIVE and "
+                "unreached, and they stay labelled. A probe reporting 'clean' "
+                "would be presenting those silences as one number"),
+            "before_the_wiring": (
+                f"all {len(CODES)} codes were LIVE and NONE was reachable "
+                "through any entry path. The gates were correct and had no "
+                "caller: what was missing was POSITION, not correctness"),
         },
         "executed_confirmation": {
             "why": (
@@ -446,9 +572,11 @@ def emit(root: pathlib.Path, executed: Dict[str, object]) -> pathlib.Path:
                 "gate": c.gate,
                 "rule": c.rule,
                 "live": c.live,
-                "acquisition": c.entry_verdicts.get("acquisition", ""),
-                "execution": c.entry_verdicts.get("execution", ""),
-                "blocked_by": c.blocked_by.get("acquisition", ""),
+                "acquisition_trace_superseded": c.entry_verdicts.get("acquisition", ""),
+                "execution_trace_superseded": c.entry_verdicts.get("execution", ""),
+                "ingest": c.ingest_verdict,
+                "provoking_document": c.document or "",
+                "acquisition_trace_note": c.blocked_by.get("acquisition", ""),
             }
             for c in CODES
         ],
@@ -480,12 +608,71 @@ def emit(root: pathlib.Path, executed: Dict[str, object]) -> pathlib.Path:
             },
         ],
         "what_this_does_not_claim": (
-            "that the gates are wrong, or that the vertical is unfinished in "
-            "some way it does not admit. The gates are LIVE and correct; they "
-            "have no caller on any entry path yet. The claim is narrower and "
-            "harder: no rejection rate measured today is evidence about "
-            "anything, and a probe that reported one would be manufacturing "
-            "a measurement out of an absence"),
+            "that a 100% rejection rate says anything about real sources. "
+            "Every candidate counted here was PLANTED to violate a gate, so "
+            "the rate measures that the plants arrived, not that the world is "
+            "dirty. The claim is narrower: fifteen of twenty refusals are now "
+            "reachable through a real ingest, so a rate over real documents "
+            "would be evidence for those fifteen. It is not one yet"),
+        "the_alias_correction": {
+            "what_happened": (
+                "three of the five invariant ids this gate refuses under were "
+                "written here as NEW names for rules the acquisition layer had "
+                "already declared: distribution_has_no_point_identity for "
+                "no_point_identity_for_distributions, "
+                "computed_method_fully_specified for computed_fully_specified, "
+                "prediction_within_declared_domain for "
+                "applicability_domain_declared"),
+            "how_it_was_caught": (
+                "a lock requiring every gate id to resolve against a declared "
+                "invariant, which failed on ALL FIVE: none was in this "
+                "repository's architecture/invariants.yaml at all, so the "
+                "per-invariant rejection rate was keyed on strings no registry "
+                "carried"),
+            "measured_cost": (
+                "the derived register holds 58 rows before and after; all six "
+                "STE declarations landed on EXISTING rows (STE claims 33 -> "
+                "39). Under the renamed ids it would have been 61 -- MEASURED "
+                "by deriving with the renames in place, not computed"),
+            "rule": (
+                "a rule gets ONE id across the project, and the party that "
+                "implements it second does not get to rename it by "
+                "implementing it. The earlier declaration keeps the name"),
+        },
+        "battery_defects_found": [
+            {
+                "found": "a mutant that does not parse",
+                "what_happened": (
+                    "a malformed mutant can only be killed by an import "
+                    "error, which is a fact about the edit and not about the "
+                    "named test -- the malformed-plant problem one level up, "
+                    "in the battery that verifies the probe"),
+                "consequence": (
+                    "mutants are now compile-checked (YAML targets are parsed "
+                    "as YAML) and a malformed one is scored MALFORMED, never "
+                    "KILLED. The guard caught a second instance on its first "
+                    "run"),
+            },
+            {
+                "found": "a mutant is not identified by (mtime, size)",
+                "what_happened": (
+                    "two mutations of scout/pipeline.py change the file by "
+                    "exactly +8 bytes each. Written in the same second they "
+                    "are indistinguishable to CPython's .pyc validity check, "
+                    "so the second run executed the FIRST one's bytecode and "
+                    "printed its PASS under the second one's label. The "
+                    "battery reported a stable SURVIVED for a mutant a direct "
+                    "run kills in 0.07s"),
+                "consequence": (
+                    "no bytecode is written during a battery run AND the cache "
+                    "entry is purged before it -- both, since suppressing the "
+                    "write does not invalidate an entry an ordinary test run "
+                    "already left on disk. Byte-identity is what made it "
+                    "dangerous, the same shape as 'a mirror is not a source'. "
+                    "Applied to scripts/mutate_register_checks.py without "
+                    "waiting for it to fire there"),
+            },
+        ],
     }
     out = root / "architecture" / "chemistry_reachability.yaml"
     out.write_bytes(canonical_bytes(document))
@@ -511,21 +698,39 @@ def main() -> int:
     for c in malformed:
         print(f"     MALFORMED {c.id}: {c.observed}")
 
-    print("\n=== REACHABILITY: can a plant ARRIVE through an entry path? ===")
-    print(f"  packages importing structures/: "
-          f"{sorted(trace['importers_of_structures']) or 'NONE outside structures/ and tests/'}")
-    for entry in ENTRY_PATHS:
-        verdicts = {}
-        for code in CODES:
-            verdicts.setdefault(code.entry_verdicts[entry], []).append(code.id)
-        print(f"\n  {entry}:")
-        for verdict, ids in sorted(verdicts.items()):
-            print(f"    {verdict:26} {len(ids)}/{len(CODES)}")
-            print(f"      because: {CODES[0].blocked_by[entry]}")
+    trace = probe_reachability(root)
+    measured = probe_ingest_reachability(root)
+
+    print("\n=== REACHABILITY: does a plant ARRIVE through the ingest path? ===")
+    print("  entry point: structures.ingest.ingest_documents -> run_scout")
+    print("               with the vertical's gate wired and a quarantine held")
+    for code in CODES:
+        print(f"  {code.ingest_verdict:32} {code.id}")
+
+    reachable = [c for c in CODES if c.ingest_verdict == REACHABLE_VIA_INGEST]
+    inexpressible = [c for c in CODES if c.ingest_verdict == NOT_EXPRESSIBLE]
+    admitted_codes = [c for c in CODES if c.ingest_verdict == ADMITTED]
+
+    print("\n  the import trace, and why it is no longer the verdict:")
+    print(f"    packages importing structures/: {sorted(trace['importers_of_structures'])}")
+    print("    That edge STILL does not exist and the path now does. The trace")
+    print("    asked whether acquisition reaches the gate package; the wiring")
+    print("    runs the other way -- the vertical calls acquisition and supplies")
+    print("    its own gate. A direction is not a path, and this trace would now")
+    print("    report STRUCTURALLY_UNREACHABLE with confidence and be wrong.")
+
+    print("\n=== MEASURED THROUGH A REAL INGEST ===")
+    print(f"  candidates attempted : {measured['attempted']}")
+    print(f"  admitted             : {measured['admitted']}")
+    print(f"  refused and HELD     : {measured['refused']}")
+    print(f"  rejection rate       : {measured['rejection_rate']:.0%}")
+    print("  per invariant        :")
+    for invariant_id, count in sorted(measured["per_invariant"].items()):
+        print(f"      {count:3}  {invariant_id}")
 
     executed = confirm_termination_by_execution()
-    print("\n=== THE TRACE, EXECUTED (an import edge is an inference) ===")
-    print(f"  a document violating several codes was put through run_scout")
+    print("\n=== THE CONTRAST: the SAME document through the UNGATED path ===")
+    print("  run_scout with no content gate wired -- what the path did before")
     print(f"    findings admitted:  {executed['admitted_findings']}")
     print(f"    failures raised:    {executed['failures']}")
     print(f"    chemistry refusals: {executed['chemistry_refusals']}")
@@ -535,22 +740,29 @@ def main() -> int:
         print("       traversed the path. This is NOT a termination and is")
         print("       not counted as one.")
     if executed["terminated"] and executed["admitted_findings"]:
-        print("    -> the violating content was ADMITTED. The gates were not")
-        print("       consulted, which is the termination measured rather than")
-        print("       inferred from the absent import edge.")
+        print("    -> still ADMITTED, and that is the point rather than a")
+        print("       defect: the ungated path has not changed and never")
+        print("       refuses a chemistry claim. What changed is that a")
+        print("       caller can now wire the gate. The wiring is the")
+        print("       difference, not the data -- a dataset arriving on the")
+        print("       ungated path would still be admitted whole.")
 
-    reachable = sum(1 for c in CODES if REACHABLE in c.entry_verdicts.values())
     print(f"\n=== THE NUMBER THAT MATTERS ===")
-    print(f"  refusal codes:              {len(CODES)}")
-    print(f"  LIVE (gate refuses):        {len(live)}")
-    print(f"  REACHABLE from any entry:   {reachable}")
-    print(f"  rejection rate is evidence for: {reachable} of {len(CODES)} codes")
-    if reachable == 0:
-        print("\n  A rejection rate measured now would read 0% for every code and")
-        print("  would be evidence about NONE of them. The gates are live and")
-        print("  unreachable: that is not a clean set, it is an unmeasured one.")
+    print(f"  refusal codes:                    {len(CODES)}")
+    print(f"  LIVE (gate refuses):              {len(live)}")
+    print(f"  REACHABLE through a real ingest:  {len(reachable)}")
+    print(f"  not expressible as a document:    {len(inexpressible)}")
+    if admitted_codes:
+        print(f"  ADMITTED (a hole):                {len(admitted_codes)}: "
+              + ", ".join(c.id for c in admitted_codes))
+    print(f"\n  a rejection rate is evidence for {len(reachable)} of {len(CODES)} codes.")
+    print("  The five that are not are substance-identity refusals: a merge")
+    print("  conflict needs two identities and a policy refusal needs a")
+    print("  SubstanceIdentity constructed. No single document payload")
+    print("  expresses either, so they stay silent and stay labelled --")
+    print("  recorded as inexpressible rather than counted as unreached.")
     if "--emit" in sys.argv:
-        out = emit(root, executed)
+        out = emit(root, executed, measured)
         print(f"\n  wrote {out.relative_to(root)}")
     return 0
 

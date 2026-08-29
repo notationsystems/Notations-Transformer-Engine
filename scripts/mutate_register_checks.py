@@ -6,6 +6,7 @@ MALFORMED, not SURVIVED, and is reported as such. Attribution is
 per-test: "caught by something" is not evidence.
 """
 
+import os
 import pathlib
 import re
 import subprocess
@@ -153,11 +154,50 @@ MUTATIONS = [
 ]
 
 
-def run_one(target_test):
+#: See scripts/mutate_reachability_checks.py for the finding these two
+#: guards come from. In short: a mutant that does not PARSE can only be
+#: killed by an import error, and a mutant is NOT identified by
+#: `(mtime, size)` -- two mutants of one file with the same byte length
+#: written in the same second are indistinguishable to CPython's `.pyc`
+#: validity check, so the second run executes the first one's bytecode
+#: and its result is printed under the wrong label.
+#:
+#: THE SAME MECHANISM, APPLIED HERE WITHOUT WAITING FOR IT TO FIRE. The
+#: sibling battery was reporting a stable SURVIVED for a mutant it had
+#: never run; this one mutates the same handful of files repeatedly and
+#: is exposed to exactly the same collision. A defect found in one
+#: instrument is a defect in the other until it is checked, not until it
+#: is observed -- an absence of anyone finding one is not a verdict.
+def _compiles(path, source):
+    if path.suffix in (".yaml", ".yml"):
+        import yaml
+        try:
+            yaml.safe_load(source)
+        except yaml.YAMLError as error:
+            return str(error)[:120]
+        return ""
+    try:
+        compile(source, str(path), "exec")
+    except SyntaxError as error:
+        return f"{error.msg} (line {error.lineno})"
+    return ""
+
+
+def _purge_cache(path):
+    cache = path.parent / "__pycache__"
+    if cache.is_dir():
+        for stale in cache.glob(f"{path.stem}.*.pyc"):
+            stale.unlink()
+
+
+def run_one(target_test, path=None):
+    if path is not None:
+        _purge_cache(path)
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--no-header", "-x",
          f"tests/test_invariant_register.py::{target_test}"],
-        cwd=REPO, capture_output=True, text=True)
+        cwd=REPO, capture_output=True, text=True,
+        env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
     return result.returncode != 0
 
 
@@ -170,9 +210,13 @@ def main():
         if mutated == original:
             print(f"  MALFORMED  {label:34} (diff reached nothing)")
             verdicts.append(("MALFORMED", label)); continue
+        broken = _compiles(path, mutated)
+        if broken:
+            print(f"  MALFORMED  {label:34} (mutant does not parse: {broken})")
+            verdicts.append(("MALFORMED", label)); continue
         path.write_text(mutated)
         try:
-            caught = run_one(target)
+            caught = run_one(target, path)
         finally:
             path.write_text(original)
         status = "KILLED" if caught else "SURVIVED"

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import List, Mapping, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple
 
 from evidence.admission import (
     AdmissionError,
@@ -42,6 +42,7 @@ from evidence.metrics import (
     source_diversity,
 )
 from evidence.pool import EvidencePool
+from evidence.quarantine import Quarantine
 from evidence.trust_graph import build_trust_graph
 from evidence.types import (
     ClaimedRelationship,
@@ -58,6 +59,24 @@ from evidence.types import (
     make_source,
 )
 from scout.interface import Extractor, SourceAdapter
+
+#: A CONTENT GATE: given a candidate's content, return the ids of the
+#: invariants it fails, or an empty tuple to admit it.
+#:
+#: WHY INJECTED RATHER THAN IMPORTED. A vertical's ingest gates are the
+#: vertical's, and wiring them into this module would make the generic
+#: acquisition path depend on one domain -- `core_schema_closed` in
+#: spirit if not in letter: verticals extend, they never widen the core.
+#: So the path gains an extension POINT and the chemistry vertical
+#: supplies its own gate at the call site
+#: (`structures/ingest.py::ingest_documents`).
+#:
+#: A refusal here is REFUSED AND RETAINED, never silently dropped: it
+#: becomes a ScoutAdmissionFailure at stage "content_gate" and, when a
+#: quarantine is supplied, a held record naming the failing invariant
+#: ids. `quarantine_not_discard` is the invariant, and a gate that drops
+#: would satisfy the letter of the refusal while destroying the metric.
+ContentGate = Callable[[Mapping[str, object]], Tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -90,8 +109,15 @@ class ScoutFinding:
 
 
 def run_scout(
-    adapter: SourceAdapter, extractor: Extractor, pool: EvidencePool
+    adapter: SourceAdapter,
+    extractor: Extractor,
+    pool: EvidencePool,
+    content_gates: Tuple[ContentGate, ...] = (),
+    quarantine: Optional[Quarantine] = None,
 ) -> Tuple[Tuple[ScoutFinding, ...], Tuple[ScoutAdmissionFailure, ...]]:
+    """`content_gates` and `quarantine` are both optional and default to
+    the pre-existing behaviour exactly: no gate runs, nothing is held,
+    and every existing caller is unaffected."""
     findings: List[ScoutFinding] = []
     failures: List[ScoutAdmissionFailure] = []
 
@@ -138,6 +164,31 @@ def run_scout(
                     )
                 )
                 continue
+            # THE CONTENT GATE STAGE, before minting. A vertical's
+            # ingest gates run here rather than inside the extractor:
+            # an extractor that quietly declined to emit a bad candidate
+            # would refuse it invisibly, and an invisible refusal is
+            # indistinguishable from a source that never carried the
+            # claim -- which is the difference between a measured
+            # rejection rate and no measurement at all.
+            failing: List[str] = []
+            for gate in content_gates:
+                failing.extend(gate(candidate.content))
+            if failing:
+                if quarantine is not None:
+                    quarantine.hold(candidate.content, tuple(failing), record.id)
+                failures.append(
+                    ScoutAdmissionFailure(
+                        stage="content_gate",
+                        errors=tuple(
+                            AdmissionError("ExtractionCandidate", invariant_id,
+                                           f"content gate refused: {invariant_id}")
+                            for invariant_id in failing
+                        ),
+                    )
+                )
+                continue
+
             confidence = candidate.confidence if candidate.confidence is not None else 1.0
 
             before_graph = build_trust_graph(pool)

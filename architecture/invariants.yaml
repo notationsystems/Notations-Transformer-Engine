@@ -255,6 +255,130 @@ invariants:
                   locks: tests/test_architecture_sync.py,
                   failure_mode: fail_closed}
 
+  # -- THE CHEMISTRY VERTICAL'S INGEST GATES --------------------------
+  #
+  # All five ids were DECLARED FIRST IN THE ACQUISITION LAYER's registry
+  # and are repeated here under those exact names. That repetition is
+  # the point: this repository implements what that one declared, and a
+  # rule implemented second does not get renamed by its second
+  # implementer. Three of them were briefly renamed here on the way in
+  # (`distribution_has_no_point_identity`, `computed_method_fully_
+  # specified`, `prediction_within_declared_domain`) -- the alias
+  # problem's fourth position, caught by a lock that required every gate
+  # id to resolve against a declared invariant.
+  #
+  # WHY `enforced` HERE AND `absent`/`partially_enforced` THERE. Those
+  # are statements about two different repositories, not a disagreement
+  # about the rule; the acquisition layer's own gaps say so in its own
+  # words ("no chemistry representation exists in this repository at
+  # all", "not wired into any admission path"). `scope: this_repository`
+  # keeps the derived register from reading a difference of position as
+  # a contest.
+  #
+  # WHAT CHANGED TO MAKE THESE `enforced`. Not the guards -- they were
+  # correct and tested before, and refused everything put to them
+  # directly. What was missing was POSITION: a per-code probe measured
+  # twenty refusal codes, twenty LIVE, and ZERO reachable through any
+  # acquisition or execution path. `structures/ingest.py` supplies them
+  # to `scout.pipeline.run_scout` as content gates, and the same probe
+  # now measures 15 of 20 reachable through a real ingest (the other 5
+  # are not expressible as a single document: a merge conflict needs two
+  # identities). A gate nothing reaches cannot refuse anything, and a
+  # rejection rate over it reads 0% and is evidence about nothing.
+  - id: quantity_is_typed
+    scope: this_repository
+    rule: every numeric value carries unit, uncertainty and
+          uncertainty_kind
+    status: enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/quantity.py
+    enforcement: {validator: structures.ingest.chemistry_content_gate,
+                  wired_at: "structures/ingest.py::ingest_documents ->
+                             scout.pipeline.run_scout(content_gates=...)",
+                  locks: tests/test_chemistry_ingest.py,
+                  reachability: architecture/chemistry_reachability.yaml,
+                  failure_mode: fail_closed}
+
+  - id: no_context_free_property
+    scope: this_repository
+    rule: a property value is inadmissible without method, conditions
+          and a typed quantity
+    status: enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/quantity.py
+    enforcement: {validator: structures.ingest.chemistry_content_gate,
+                  locks: tests/test_chemistry_ingest.py,
+                  reachability: architecture/chemistry_reachability.yaml,
+                  failure_mode: fail_closed}
+    note: this gate and quantity_is_typed share one call site
+          (assert_property_context delegates to the quantity gate), so a
+          refusal is attributed to ONE of them by the refusal's own
+          message. Filing them together leaves the total right and both
+          per-invariant rates wrong.
+
+  - id: no_point_identity_for_distributions
+    scope: this_repository
+    rule: distribution-kind entities identified only by a structure
+          string are inadmissible
+    status: enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/substance.py
+    enforcement: {validator: structures.ingest.chemistry_content_gate,
+                  locks: tests/test_chemistry_ingest.py,
+                  reachability: architecture/chemistry_reachability.yaml,
+                  failure_mode: fail_closed}
+
+  - id: computed_fully_specified
+    scope: this_repository
+    rule: computed evidence missing its domain method block is
+          inadmissible for canonical assertion
+    status: enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/method_blocks.py
+    enforcement: {validator: structures.ingest.chemistry_content_gate,
+                  locks: tests/test_chemistry_ingest.py,
+                  reachability: architecture/chemistry_reachability.yaml,
+                  failure_mode: fail_closed}
+
+  - id: identity_policy_declared
+    scope: this_repository
+    rule: a substance merge declares a resolution policy per identity
+          dimension, validated against an allowed set
+    status: partially_enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/substance.py (assert_identity_policy)
+    enforcement: {validator: structures.substance.assert_identity_policy,
+                  locks: tests/test_architecture_sync.py,
+                  failure_mode: fail_closed}
+    gap: LIVE and mutation-tested, but NOT reachable through ingest -- no
+         single document payload can express a policy refusal, which
+         needs a SubstanceIdentity constructed, and a merge conflict
+         needs two identities. Recorded in
+         architecture/chemistry_reachability.yaml as
+         NOT_EXPRESSIBLE_AS_A_DOCUMENT.
+    why_not_enforced: this row is deliberately NOT `enforced` alongside
+                      the five gates above. They are wired to the
+                      acquisition path and a plant arrives at each; this
+                      one is not, and flattening the two would erase the
+                      exact distinction this phase exists to make. LIVE
+                      is not REACHABLE.
+
+  - id: applicability_domain_declared
+    scope: this_repository
+    rule: a prediction outside its declared applicability domain is
+          flagged and inadmissible
+    status: enforced
+    declared_first_in: notations-acquisition-channel
+    implementation: structures/method_blocks.py
+    enforcement: {validator: structures.ingest.chemistry_content_gate,
+                  locks: tests/test_chemistry_ingest.py,
+                  reachability: architecture/chemistry_reachability.yaml,
+                  failure_mode: fail_closed}
+    ordering: checked only AFTER computed_fully_specified passes -- a
+              malformed block cannot be checked for domain, and
+              reporting both would double-count one defect across two
+              invariants.
+
   # -- DECISIONS, NOT MEASUREMENTS ------------------------------------
   #
   # A PROPERTY OF THIS PROJECT, recorded because it explains why these
