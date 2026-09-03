@@ -196,3 +196,44 @@ an apparatus names it in a load-bearing file — a fact about this tree,
 not a judgement about the input. And a vendored repository being
 unreferenced is not a reason to delete it; it is a reason not to count
 it as part of the system while it is.
+
+## The namesake question, settled as far as evidence allows
+
+The census recorded that this repository contains a `morpho/` package
+naming a Morpho IR, and that whether that IR is `morphohdl`'s or a
+namesake **is not determined there and must not be assumed from the
+name**. It is this repository's package, so it is settled here.
+
+The finding is two-sided, and both sides are surprising.
+
+**The name is more shared than the census knew.** This package does not
+merely say `morpho`. Its modules call themselves **Morpho HDL**, in their
+own docstrings — the same two words, not a prefix in common.
+
+**The substance is less shared than the name suggests.** Measured across
+both trees: zero shared domain vocabulary (*circuit*, *netlist*,
+*verilog*, *cell definition*, *rewiring*, *wasm* appear in neither
+direction), zero cross-reference either way, and disjoint subject matter
+— a content-addressed language front-end carrying provenance here, an
+experimental graph-rewrite system for growing circuits there.
+
+**And there is an artifact that would settle it.** This package
+implements **Frozen Specification v1.0.0 §7.A and §7.B**, cited by name
+in `morpho/lexer.py`, `morpho/parser.py` and `morpho/ast.py`. Nothing in
+`morphohdl` references that specification; its only grammar hit is inside
+a vendored syntax highlighter.
+
+**Verdict: shared name, unshared referent as far as this tree shows.**
+Not asserted as unrelated — two implementations of one idea in two
+languages would look exactly like this, and this machine holds no
+document that decides it. What is settled is that nothing here licenses
+treating them as one thing. The census's instruction not to assume from
+the name stands, now with the evidence behind it.
+
+## The core they bind
+
+All three apparatuses bind `core@1.0.0` **by label**, and that label moves
+only under `bend_protocol` — so many core commits carry it. The register
+now publishes the core's **content digest** beside the bindings, so a
+binding is checkable rather than nominal. See `docs/CORE_IDENTITY.md`;
+the gap was observed by the census and could only be closed here.

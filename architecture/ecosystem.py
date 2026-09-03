@@ -614,6 +614,41 @@ def ecosystem_document(classified: List[Classification]) -> dict:
             {"name": c.facts.name, "remote": c.facts.remote, "because": c.because}
             for c in sorted(unresolved, key=lambda c: c.facts.name)
         ],
+        "the_namesake_question": {
+            "what_was_asked": (
+                "the sibling census records that this repository contains a "
+                "morpho/ package naming a Morpho IR, and that whether that "
+                "IR is notationsystems/morphohdl's or a namesake is NOT "
+                "determined there and must not be assumed from the name. "
+                "Settled here as far as evidence allows, because it is this "
+                "repository's package"),
+            "the_name_is_MORE_shared_than_the_census_knew": (
+                "this repository's package does not merely say `morpho`. Its "
+                "modules call themselves MORPHO HDL, in their own docstrings "
+                "-- the same two words, not a prefix in common"),
+            "and_the_substance_is_LESS_shared_than_the_name_suggests": (
+                "measured across both trees: ZERO shared domain vocabulary "
+                "(circuit, netlist, verilog, cell definition, rewiring, wasm "
+                "appear in neither direction), zero cross-reference in "
+                "either direction, and disjoint subject matter -- a "
+                "content-addressed language front-end with provenance here, "
+                "an experimental graph-rewrite system for growing circuits "
+                "there"),
+            "the_artifact_that_would_settle_it": (
+                "this package implements FROZEN SPECIFICATION v1.0.0, "
+                "sections 7.A and 7.B, cited by name in morpho/lexer.py, "
+                "morpho/parser.py and morpho/ast.py. Nothing in morphohdl "
+                "references that specification, and its only grammar hit is "
+                "inside a vendored syntax highlighter"),
+            "verdict": (
+                "SHARED NAME, UNSHARED REFERENT AS FAR AS THIS TREE SHOWS. "
+                "Not asserted as unrelated: two implementations of one idea "
+                "in two languages would look exactly like this, and this "
+                "machine holds no document that decides it. What is settled "
+                "is that nothing HERE licenses treating them as one thing, "
+                "and the census's instruction not to assume from the name "
+                "stands, now with the evidence behind it"),
+        },
         "reconciled_against_an_independent_census": {
             "the_sibling_measured_the_same_question": (
                 "the acquisition channel recorded "

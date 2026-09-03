@@ -623,3 +623,31 @@ def test_a_failure_to_take_the_digest_is_reported_not_omitted():
     assert "unreadable" in reason, "and carry what it said"
     # and the success path still returns a digest
     assert module._core_digest_or_reason().startswith("sha256:")
+
+
+def test_the_namesake_question_is_settled_as_far_as_evidence_allows():
+    """The census left it open and said it must not be assumed from the
+    name. It is this repository's package, so it is settled here -- and
+    the finding is two-sided: the NAME is more shared than the census
+    knew (both say `Morpho HDL`), and the SUBSTANCE is less shared than
+    the name suggests."""
+    document = yaml.safe_load(ARTIFACT.read_text())
+    namesake = document["the_namesake_question"]
+    assert "MORPHO HDL" in namesake["the_name_is_MORE_shared_than_the_census_knew"]
+    assert "Frozen Specification" in namesake["the_artifact_that_would_settle_it"].title() \
+        or "FROZEN SPECIFICATION" in namesake["the_artifact_that_would_settle_it"]
+    assert namesake["verdict"].startswith("SHARED NAME, UNSHARED REFERENT")
+    # and it refuses the stronger claim
+    assert "Not asserted as unrelated" in namesake["verdict"]
+
+
+def test_the_namesake_evidence_is_still_true_of_the_tree():
+    """Derived facts, re-checked against the tree rather than trusted:
+    this package really does call itself Morpho HDL and really does cite
+    the Frozen Specification. If either stops being true, the recorded
+    verdict is standing on nothing."""
+    sources = list((ROOT / "morpho").rglob("*.py"))
+    assert sources, "the package the finding is about must exist"
+    text = " ".join(p.read_text(errors="replace") for p in sources)
+    assert "Morpho HDL" in text
+    assert "Frozen Specification" in text

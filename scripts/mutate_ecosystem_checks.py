@@ -131,6 +131,14 @@ MUTATIONS = [
                          "                    load_bearing[name] += 1  # MUTANT"),
      "test_the_streaming_tally_keeps_prose_and_code_apart"),
 
+    # -- the namesake question ----------------------------------------------
+    ("the namesake verdict strengthened into `unrelated`", ARTIFACT,
+     lambda s: s.replace("Not asserted as unrelated", "They are unrelated"),
+     "test_the_namesake_question_is_settled_as_far_as_evidence_allows"),
+    ("the settling artifact no longer named", ARTIFACT,
+     lambda s: s.replace("FROZEN SPECIFICATION v1.0.0", "some specification"),
+     "test_the_namesake_question_is_settled_as_far_as_evidence_allows"),
+
     # -- the core they bind ------------------------------------------------
     ("the core digest silently omitted when it cannot be taken", ECO,
      lambda s: s.replace('        return f"NOT_TAKEN: {type(error).__name__}: {error}"',
