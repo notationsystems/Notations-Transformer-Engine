@@ -1,0 +1,55 @@
+# WHAT THIS APPARATUS IS, WITHIN THE COMPANY.
+#
+# Declared HERE, in this repository, by the party it describes. The
+# ecosystem register (architecture/exchange/ecosystem_register.yaml)
+# reads this file and reports its absence for any apparatus that has
+# none -- it does NOT fill one in. A role written on another party's
+# behalf would be a self-declaration that party is entitled to make and
+# this one is not, which is the same provenance-entitlement rule the
+# invariant register applies to every other claim.
+#
+# So the ecosystem becomes coherent by each apparatus declaring itself,
+# not by one of them writing a roster.
+extends: core@1.0.0
+
+apparatus: Scientific Transformer Engine
+label: STE
+company: Notation Systems
+
+role: >-
+  the CORE the other apparatuses resolve against, and the computation
+  and warrant layer of the corpus. It declares the core schema version
+  (architecture/core.yaml), holds the canonical state and projection
+  machinery, carries the chemistry vertical's admission gates, and
+  produces the proof-bearing execution records that make a computed
+  result checkable by its consumer rather than trusted.
+
+supplies_which_half_of_the_company_claim: >-
+  "provenance-bearing computational corpora" has two halves and this
+  apparatus supplies the second. The corpus is acquired elsewhere; what
+  is added here is that a computed result carries what it was computed
+  from and can be recomputed by the party reading it. COMPUTATION is
+  never MEASUREMENT: no production path in this repository mints the
+  `measured` class, and that is a declared boundary rather than a gap
+  waiting to be closed.
+
+what_it_declares_for_the_others:
+  core_version: architecture/core.yaml
+  bend_protocol: >-
+    a core invariant changes only under a version increment, a re-run of
+    every declared vertical and probe, and an explicit statement of what
+    is no longer guaranteed.
+  derived_registers:
+    - architecture/exchange/invariant_register.yaml
+    - architecture/exchange/ecosystem_register.yaml
+
+what_it_does_not_claim:
+  not_the_acquisition_layer: >-
+    this repository does not acquire from real sources. Its scout
+    pipeline reads fixtures, and every rejection rate it has measured is
+    over PLANTED candidates -- which measures that the plants arrived,
+    not that any corpus is dirty.
+  not_a_roster: >-
+    this file describes ONE apparatus. The other two bind the same core
+    and each carries no role declaration; that absence is reported by
+    the ecosystem register and is theirs to close.

@@ -1,0 +1,198 @@
+# The ecosystem register — what is an apparatus, and what is merely present
+
+**Notation Systems builds and operates provenance-bearing computational
+corpora.** This document is about applying that sentence to the company's
+own repositories, and finding that most of what looks like the company
+isn't.
+
+## The measurement
+
+Twenty-five repositories in reach. Classified on **evidence** — an
+authored core declaration, external commit authorship, a third-party
+copyright — and never on the GitHub org a repository sits under.
+
+| | |
+|---|---|
+| repositories in reach | **25** |
+| apparatuses (bound to the core) | **3** |
+| vendored inputs | **16** |
+| **unresolved** | **6** |
+| vendored, sitting under **our own org** | **6** |
+| vendored, referenced by **nothing** | **8** |
+| apparatuses declaring a role | **1 of 3** |
+
+`APPARATUS` here means **bound to the core** — an authored architecture
+declaration — and *not* "belongs to the company". Those are different
+predicates, and the difference matters below.
+
+The three apparatuses are the Scientific Transformer Engine, the
+acquisition channel, and the compute layer. All three bind
+`core@1.0.0`, so they already agree on the core.
+
+## Org ownership is not authorship
+
+Twelve of the twenty-two vendored repositories sit under the
+`notationsystems/` org **while being other parties' work**, by their own
+commit history and copyright:
+
+- `notationsystems/topopy` — Dan Maljovec's, MIT, © 2018
+- `notationsystems/RiemannFM` — Yongli Mou's, © 2026
+- `notationsystems/SP1-zero-knowledge-virtual-machine` — Succinct's SP1
+- `notationsystems/risc0-zero`, `notationsystems/geometrickernels`,
+  `notationsystems/physgto`, and six more
+
+A coherence exercise that read the org prefix as a provenance claim
+would have declared **25 apparatuses and been wrong about 22 of them** —
+and the map would have looked entirely plausible, because every URL
+agreed with it.
+
+**This is the mirror rule at repository scale.** The invariant register
+already enforces it per file: a mirror is not a source, byte-identity is
+what makes it dangerous, and only provenance separates a copy from its
+origin. A fork under your own org is the most convincing mirror there
+is, precisely because the address supports the claim.
+
+So the classifier never asks "is it under our org?" as a positive
+signal. Org membership appears in the output only as a **warning that a
+mirror is wearing our name**, and the order of checks is pinned by a
+test.
+
+### Three verdicts, not two
+
+`UNRESOLVED` exists so that a repository with no discriminating evidence
+can be refused rather than rounded toward ours. Two verdicts would force
+a guess, and the guess would run in the flattering direction. Today
+nothing lands there — which is a fact about this tree, not a reason to
+remove the third verdict.
+
+## The first classifier disowned six repositories on nothing
+
+The acquisition channel recorded `architecture/ecosystem_census.yaml`
+independently — against this repository at an **older pin than this
+register existed at**, so it is not derived from this artifact. It
+enumerates **six repositories carrying the name and seven apparatuses**,
+where this register reported three.
+
+Neither count is wrong. They measure different predicates: this one asks
+*is it bound to the core*, the census asks *does it carry the name*. But
+the census listed `morphohdl` as a company repository, and this register
+had it `VENDORED_INPUT` — so one of us was wrong about a specific thing,
+which is checkable.
+
+**It was me, and the evidence was garbage.** The copyright extractor had
+matched Apache-2.0 *boilerplate*:
+
+> "Licensor" shall mean the copyright **owner** or entity authorized by
+> the **copyright owner** that is granting the License.
+
+That is the licence's definitions section, not a grant. The match would
+have disowned **every Apache-licensed repository**, on nothing. And the
+other weak signal was just as bad: every repository here is a **single
+squashed commit**, so its commit author is whoever last touched whatever
+was imported — which says nothing about ownership.
+
+Both errors ran in the direction that made the ecosystem look **smaller**
+and the classifier look more **decisive**. That is the harder direction
+to notice, because a wrong exclusion produces no loud consequence.
+
+### Strong evidence only
+
+Three signals now settle it, each sufficient on its own, and each driven
+alone in the tests so none is carried by the others:
+
+- the remote is **outside our org** — the address says whose it is
+- the project **declares its own upstream** in `Cargo.toml` /
+  `pyproject.toml` / `package.json`. SP1 says `succinctlabs/sp1`; RISC
+  Zero says `risc0/risc0`. A self-declaration of origin is the strongest
+  evidence available and is the one form of authorship evidence this
+  project already trusts everywhere else.
+- a **copyright grant carrying a year** — what separates
+  `Copyright (c) 2018, Dan Maljovec` from the definitions section
+
+Anything else is `UNRESOLVED`: **not adopted, and not disowned**. Six
+repositories moved there. The third verdict stopped being decorative the
+moment the rule got honest.
+
+## What this register structurally cannot see
+
+The census records **Notation Physical Commerce** living in `commerce/`
+inside the acquisition channel, deliberately, with **no repository of its
+own**. A register keyed on repositories would never have a row for it.
+
+Recorded as a limitation rather than closed, because closing it means
+keying on something other than what is being enumerated. An instrument
+should say what it cannot see.
+
+The census's rows are **pointed at, not copied here**. They are that
+party's artifact and its claims are its own to state; a duplicate would
+drift, and a reader could not tell which was the source.
+
+## A folder is not an ecosystem
+
+**Eight vendored repositories are referenced by nothing** in any
+apparatus — not in code, not in configuration, not in prose. They are
+present, and presence is not participation.
+
+They are recorded `UNREFERENCED` rather than omitted, on the same
+reasoning that makes an unreached gate a silence rather than a clean
+result: a component nothing calls contributes nothing, and quietly
+dropping it would make the system look like it has fewer loose parts
+than it has.
+
+What actually carries load is small and namable: **GROMACS** (the
+molecular dynamics bridge) and the three zkVMs — **SP1**, **RISC Zero**,
+**Nexus** — behind the proof machinery. `morphohdl` is
+`UNRESOLVED` and, as of the sibling's latest commits, referenced by both
+apparatuses — its relation to this repository's own `morpho/` package is
+**not determined**, and the census is explicit that it must not be
+assumed from the name.
+
+## The instrument counted its own prose
+
+`topopy` and `RiemannFM` first came back **INTEGRATED**, while a plain
+grep found no reference to either anywhere in any apparatus.
+
+The only file matching was **the classifier itself**. Its docstring
+cites both as examples of the mirror finding, and the citation counted
+as evidence of the integration it was written to deny.
+
+That is the same class as the emitted invariant register being re-read
+as its own source — 26 rows became 77, every one contested — and as the
+three contaminated attempts to locate a derived fact in prose *by its
+value*. Stated generally: **an instrument that names the things it
+classifies will classify its own prose.** It is the deriving-party
+exclusion one level out: a party cannot witness a fact about the act it
+is currently performing.
+
+The exclusion is **declared, not pattern-matched**, and locked in both
+directions — every excluded path must exist (a too-narrow exclusion lets
+the contamination back in) and nothing outside the instrument may be
+listed (a too-wide one hides a real dependency, failing in the direction
+that makes the system look cleaner).
+
+## No apparatus declared its role — and one still doesn't get to write the others'
+
+All three bind the same core. **None stated what it *is*** within the
+company. That is the coherence gap, and it is now a measurement rather
+than an impression.
+
+It is closed **per repository, by each party**. This repository declares
+its own role in `architecture/apparatus.yaml`; the register reads that
+file, reports `NOT_DECLARED` for the two that have none, and **does not
+fill them in**. A role written here on another party's behalf would be a
+self-declaration this party is not entitled to make — the same
+provenance-entitlement rule the invariant register applies to every
+other claim, applied to the sentence that says what a repository is for.
+
+A central roster would have been faster and would have been one party
+writing every other party's self-description. That is the artifact this
+company's whole discipline exists to refuse.
+
+## What this does not claim
+
+Not a licence review, and not an assessment of any vendored input. It
+classifies **authorship** and measures **reference**. `INTEGRATED` means
+an apparatus names it in a load-bearing file — a fact about this tree,
+not a judgement about the input. And a vendored repository being
+unreferenced is not a reason to delete it; it is a reason not to count
+it as part of the system while it is.
