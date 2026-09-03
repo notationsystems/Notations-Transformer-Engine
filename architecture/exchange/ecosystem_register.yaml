@@ -1,8 +1,8 @@
 "apparatuses":
   - "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "98f35f9f09c1"
-    "commits": 162
+    "commit": "9e788025b6d4"
+    "commits": 163
     "core_declaring_files": 9
     "name": "Scout-Retrieval-Agent"
     "remote": "notationsystems/Scout-Retrieval-Agent"
@@ -11,18 +11,18 @@
     "verdict_because": "declares core@1.0.0 in 9 architecture file(s) and its history is authored here"
   - "bound_core": "core@1.0.0"
     "branch": "claude/daf-state-space-architecture-v8peqd"
-    "commit": "c8cd9b1cef48"
-    "commits": 102
-    "core_declaring_files": 68
+    "commit": "125103878c93"
+    "commits": 112
+    "core_declaring_files": 72
     "name": "notations-acquisition-channel"
     "remote": "notationsystems/notations-acquisition-channel"
     "role": "NOT_DECLARED"
     "role_source": ""
-    "verdict_because": "declares core@1.0.0 in 68 architecture file(s) and its history is authored here"
+    "verdict_because": "declares core@1.0.0 in 72 architecture file(s) and its history is authored here"
   - "bound_core": "core@1.0.0"
     "branch": "claude/scl-architecture-design-0jzkm9"
-    "commit": "2b30dd108dd3"
-    "commits": 24
+    "commit": "77317a0c1609"
+    "commits": 28
     "core_declaring_files": 3
     "name": "scientific-compute-layer"
     "remote": "notationsystems/Scientific-Compute-Layer-SCL-"
@@ -93,6 +93,8 @@
     "referenced_by":
       - "apparatus": "Scout-Retrieval-Agent"
         "files": 7
+      - "apparatus": "notations-acquisition-channel"
+        "files": 1
     "remote": "notationsystems/SP1-zero-knowledge-virtual-machine"
     "under_our_org_but_not_ours": true
     "upstream_authors":
@@ -171,6 +173,8 @@
     "referenced_by":
       - "apparatus": "Scout-Retrieval-Agent"
         "files": 6
+      - "apparatus": "notations-acquisition-channel"
+        "files": 1
     "remote": "notationsystems/risc0-zero"
     "under_our_org_but_not_ours": true
     "upstream_authors":
