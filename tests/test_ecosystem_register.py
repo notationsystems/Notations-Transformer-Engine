@@ -567,3 +567,59 @@ def test_the_siblings_census_is_pointed_at_and_not_transcribed():
     for row in ("data_acquisition_fabric", "notation_physical_commerce",
                 "network_scout_signal_miner"):
         assert row not in text
+
+
+def test_the_register_publishes_the_core_digest_beside_the_bindings():
+    """Every apparatus binds core@1.0.0 BY LABEL, and the label moves
+    only under bend_protocol -- so many core commits carry it. The
+    digest is what makes a binding checkable rather than nominal, and it
+    belongs beside the bindings so a party reading this register has
+    both."""
+    from architecture.core_identity import core_digest
+
+    document = yaml.safe_load(ARTIFACT.read_text())
+    bound = document["the_core_they_bind"]
+    assert bound["digest"] == core_digest(ROOT)
+    assert bound["digest"].startswith("sha256:")
+    assert "core_identity.py::verify" in bound["how_to_check"]
+
+
+def test_the_two_artifacts_agree_about_the_core():
+    """Two derived artifacts naming one fact must not drift. If they
+    ever disagree, one of them was emitted against a different tree."""
+    ecosystem = yaml.safe_load(ARTIFACT.read_text())
+    identity = yaml.safe_load(
+        (ROOT / "architecture" / "exchange" / "core_identity.yaml").read_text())
+    assert ecosystem["the_core_they_bind"]["digest"] == identity["core_digest"]
+    assert ecosystem["summary"]["cores_bound"] == [f"core@{identity['core_version']}"]
+
+
+def test_a_failure_to_take_the_digest_is_reported_not_omitted():
+    """A register that silently dropped the field would look like a
+    register that never had one. Driven directly, because this path
+    fired for real on an import that could not resolve and said so."""
+    import architecture.core_identity as identity
+    import architecture.ecosystem as module
+
+    # THE FAILURE IS FORCED, not hoped for. The first version pointed
+    # REPO_ROOT at a missing directory and asserted the result was
+    # EITHER a reason OR a digest -- which passes when the failure never
+    # happens, so a mutant returning "" on failure survived it. An
+    # assertion with an OR across the branch it is testing is not an
+    # assertion about that branch.
+    original = identity.core_digest
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("the core surface is unreadable")
+
+    try:
+        identity.core_digest = _raise
+        reason = module._core_digest_or_reason()
+    finally:
+        identity.core_digest = original
+
+    assert reason.startswith("NOT_TAKEN:"), reason
+    assert "RuntimeError" in reason, "the reason must name the error"
+    assert "unreadable" in reason, "and carry what it said"
+    # and the success path still returns a digest
+    assert module._core_digest_or_reason().startswith("sha256:")

@@ -1,8 +1,8 @@
 "apparatuses":
   - "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "e02cd6652b9c"
-    "commits": 158
+    "commit": "ac7e4c6f318f"
+    "commits": 159
     "core_declaring_files": 9
     "name": "Scout-Retrieval-Agent"
     "remote": "notationsystems/Scout-Retrieval-Agent"
@@ -51,6 +51,11 @@
   "vendored_and_referenced_by_nothing": 8
   "vendored_but_under_our_org": 6
   "vendored_inputs": 16
+"the_core_they_bind":
+  "digest": "sha256:8a8c73f4cba45c70299ced9f4dddd870d430a94bc90c684363e330c2b010c560"
+  "how_to_check": "architecture/core_identity.py::verify(digest, root) over your own copy of the core. A mismatch names the file"
+  "what_it_does_not_settle": "whether a party HAS this core. This register reads the sibling clones on one machine; it does not know what any party has checked out elsewhere, and does not pretend to"
+  "why_it_is_here": "every apparatus binds core@1.0.0 BY LABEL, and the label moves only under bend_protocol -- so many core commits carry it and a binding party cannot tell which one it bound. The digest is what makes the binding checkable rather than nominal, and it is published beside the bindings so a party reading this register has both"
 "the_finding":
   "a_folder_is_not_an_ecosystem": "8 vendored repositories are referenced by NOTHING in any apparatus. Presence is not participation, and they are recorded unreferenced rather than listed as components -- the same reasoning that makes an unreached gate a silence rather than a clean result"
   "no_apparatus_declares_its_role": "2 of 3 apparatuses carry no architecture/apparatus.yaml. All bind core@1.0.0, so they agree on the core and none states what it IS within the company. That is the coherence gap, and it is filled per-repository BY EACH PARTY: a role written here on another party's behalf would be a self-declaration this party is not entitled to make"

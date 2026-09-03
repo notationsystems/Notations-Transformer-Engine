@@ -485,6 +485,22 @@ def scan(root: pathlib.Path = SIBLING_ROOT,
 # ------------------------------------------------------------ document --
 
 
+def _core_digest_or_reason() -> str:
+    """The core's content identity, or why it could not be taken.
+
+    Reported rather than omitted on failure: a register that silently
+    dropped the field would look like a register that never had one.
+    """
+    try:
+        import sys as _sys
+        if str(REPO_ROOT) not in _sys.path:
+            _sys.path.insert(0, str(REPO_ROOT))
+        from architecture.core_identity import core_digest
+        return core_digest()
+    except Exception as error:   # noqa: BLE001 -- the reason is the point
+        return f"NOT_TAKEN: {type(error).__name__}: {error}"
+
+
 def ecosystem_document(classified: List[Classification]) -> dict:
     """The register, in the same emitted shape the invariant register
     uses, so the two read side by side."""
@@ -520,6 +536,23 @@ def ecosystem_document(classified: List[Classification]) -> dict:
             "vendored_and_referenced_by_nothing": len(unreferenced),
             "apparatuses_declaring_a_role": len(apparatuses) - len(undeclared),
             "cores_bound": cores,
+        },
+        "the_core_they_bind": {
+            "digest": _core_digest_or_reason(),
+            "why_it_is_here": (
+                "every apparatus binds core@1.0.0 BY LABEL, and the label "
+                "moves only under bend_protocol -- so many core commits "
+                "carry it and a binding party cannot tell which one it "
+                "bound. The digest is what makes the binding checkable "
+                "rather than nominal, and it is published beside the "
+                "bindings so a party reading this register has both"),
+            "how_to_check": (
+                "architecture/core_identity.py::verify(digest, root) over "
+                "your own copy of the core. A mismatch names the file"),
+            "what_it_does_not_settle": (
+                "whether a party HAS this core. This register reads the "
+                "sibling clones on one machine; it does not know what any "
+                "party has checked out elsewhere, and does not pretend to"),
         },
         "the_finding": {
             "org_ownership_is_not_authorship": (

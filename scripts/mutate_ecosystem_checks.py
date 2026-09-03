@@ -131,6 +131,15 @@ MUTATIONS = [
                          "                    load_bearing[name] += 1  # MUTANT"),
      "test_the_streaming_tally_keeps_prose_and_code_apart"),
 
+    # -- the core they bind ------------------------------------------------
+    ("the core digest silently omitted when it cannot be taken", ECO,
+     lambda s: s.replace('        return f"NOT_TAKEN: {type(error).__name__}: {error}"',
+                         '        return ""  # MUTANT'),
+     "test_a_failure_to_take_the_digest_is_reported_not_omitted"),
+    ("the published digest drifts from the core identity artifact", ARTIFACT,
+     lambda s: s.replace('"digest": "sha256:', '"digest": "sha256:0'),
+     "test_the_two_artifacts_agree_about_the_core"),
+
     # -- the refusal ------------------------------------------------------
     ("a map emitted with no apparatus in it at all", ECO,
      lambda s: s.replace("    if not apparatuses:\n        raise EcosystemError(",
