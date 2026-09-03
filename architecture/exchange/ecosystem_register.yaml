@@ -1,8 +1,8 @@
 "apparatuses":
   - "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "9e788025b6d4"
-    "commits": 163
+    "commit": "dab0b4969a62"
+    "commits": 164
     "core_declaring_files": 9
     "name": "Scout-Retrieval-Agent"
     "remote": "notationsystems/Scout-Retrieval-Agent"
@@ -11,24 +11,24 @@
     "verdict_because": "declares core@1.0.0 in 9 architecture file(s) and its history is authored here"
   - "bound_core": "core@1.0.0"
     "branch": "claude/daf-state-space-architecture-v8peqd"
-    "commit": "125103878c93"
-    "commits": 112
-    "core_declaring_files": 72
+    "commit": "9927d1b7046a"
+    "commits": 117
+    "core_declaring_files": 75
     "name": "notations-acquisition-channel"
     "remote": "notationsystems/notations-acquisition-channel"
     "role": "NOT_DECLARED"
     "role_source": ""
-    "verdict_because": "declares core@1.0.0 in 72 architecture file(s) and its history is authored here"
+    "verdict_because": "declares core@1.0.0 in 75 architecture file(s) and its history is authored here"
   - "bound_core": "core@1.0.0"
     "branch": "claude/scl-architecture-design-0jzkm9"
-    "commit": "77317a0c1609"
-    "commits": 28
-    "core_declaring_files": 3
+    "commit": "8b39ec3bf057"
+    "commits": 30
+    "core_declaring_files": 4
     "name": "scientific-compute-layer"
     "remote": "notationsystems/Scientific-Compute-Layer-SCL-"
     "role": "NOT_DECLARED"
     "role_source": ""
-    "verdict_because": "declares core@1.0.0 in 3 architecture file(s) and its history is authored here"
+    "verdict_because": "declares core@1.0.0 in 4 architecture file(s) and its history is authored here"
 "artifact": "ecosystem_register"
 "company_claim": "Notation Systems builds and operates provenance-bearing computational corpora"
 "extends": "core@1.0.0"
