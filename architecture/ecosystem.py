@@ -696,6 +696,50 @@ def ecosystem_document(classified: List[Classification]) -> dict:
     }
 
 
+#: Fields of the DERIVING apparatus's own row that its own act of
+#: committing changes.
+SELF_MOVING_FIELDS = ("commit", "commits")
+
+
+def without_self_report(document: dict) -> dict:
+    """The register minus the deriving apparatus's own moving fields.
+
+    A PARTY CANNOT WITNESS A FACT ABOUT THE ACT IT IS CURRENTLY
+    PERFORMING -- the fourth time this project has met that, and the
+    first three are worth naming because the shape is identical every
+    time:
+
+      the invariant register recorded the commit its sources were read
+      at, and committing the register advanced that commit;
+
+      the emitted register was re-read as its own source, turning 26
+      invariants into 77, every row contested;
+
+      this module's own docstring, citing repositories as examples of
+      the mirror finding, counted as evidence that those repositories
+      were integrated;
+
+      and now this register records its own repository's HEAD and commit
+      count, which its own commit advances.
+
+    The fields STAY IN THE ARTIFACT, because a reader wants to know
+    which commit a reading was taken at. They are excluded only from the
+    comparison the artifact makes WITH ITSELF, which is the one place
+    they cannot be evidence. Narrow by construction: only the deriving
+    apparatus's row is touched, so a SIBLING moving is still a
+    difference the fixed point must see.
+    """
+    import copy
+
+    trimmed = copy.deepcopy(document)
+    deriving = REPO_ROOT.name
+    for row in trimmed.get("apparatuses", []):
+        if row.get("name") == deriving:
+            for field in SELF_MOVING_FIELDS:
+                row.pop(field, None)
+    return trimmed
+
+
 def emit(root: pathlib.Path = REPO_ROOT) -> pathlib.Path:
     import sys as _sys
     _sys.path.insert(0, str(root / "architecture" / "exchange"))

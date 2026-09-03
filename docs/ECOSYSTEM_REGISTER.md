@@ -237,3 +237,46 @@ only under `bend_protocol` — so many core commits carry it. The register
 now publishes the core's **content digest** beside the bindings, so a
 binding is checkable rather than nominal. See `docs/CORE_IDENTITY.md`;
 the gap was observed by the census and could only be closed here.
+
+## A party cannot witness the act it is performing — the fourth time
+
+The full suite caught the register disagreeing with a fresh derivation by
+two fields:
+
+```
+- "commit": "fde240641823"      - "commits": 161
++ "commit": "98f35f9f09c1"      + "commits": 162
+```
+
+The register records each apparatus's HEAD — including **its own** — and
+committing the register advances it. The artifact is permanently one
+commit stale about itself and can never equal a fresh derivation
+byte-for-byte.
+
+That is the same shape this project has now met four times:
+
+1. the invariant register recorded the commit its sources were read at,
+   and committing it advanced that commit
+2. the emitted register was re-read as its own source — 26 invariants
+   became 77, every row contested
+3. this module's own docstring, citing repositories as examples of the
+   mirror finding, counted as evidence that those repositories were
+   integrated
+4. and now the register's own HEAD
+
+The fix is the established one: the fields **stay in the artifact**,
+because a reader wants to know which commit a reading was taken at, and
+are excluded only from the comparison the artifact makes **with itself**
+— the one place they cannot be evidence.
+
+**Narrow by construction.** Only the deriving apparatus's row is touched.
+A sibling moving is still a difference the fixed point must see, and a
+planted sibling commit is required to break it — an exclusion wide enough
+to cover every apparatus would excuse exactly the drift this register
+exists to catch.
+
+And the lock for it had to be driven over a **constructed** document.
+Right after an emit, the artifact and a fresh derivation carry the same
+commit, so removing the exclusion changes nothing observable until the
+next commit lands — a mutant survived precisely that window. A check that
+only works between commits is not a check.

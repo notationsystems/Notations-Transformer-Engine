@@ -131,6 +131,20 @@ MUTATIONS = [
                          "                    load_bearing[name] += 1  # MUTANT"),
      "test_the_streaming_tally_keeps_prose_and_code_apart"),
 
+    # -- a party cannot witness the act it is performing --------------------
+    ("the exclusion widened to excuse every apparatus's commit", ECO,
+     lambda s: s.replace('        if row.get("name") == deriving:',
+                         "        if True:  # MUTANT"),
+     "test_only_the_deriving_apparatus_is_excused_its_own_commit"),
+    ("the exclusion removed, so the register is stale about itself", ECO,
+     lambda s: s.replace("            for field in SELF_MOVING_FIELDS:\n                row.pop(field, None)",
+                         "            pass  # MUTANT"),
+     "test_the_exclusion_actually_excuses_the_deriving_commit"),
+    ("a tampered sibling commit slips through the comparison", ECO,
+     lambda s: s.replace('    for row in trimmed.get("apparatuses", []):',
+                         '    for row in trimmed.get("apparatuses", []):\n        row.pop("commit", None)  # MUTANT'),
+     "test_a_tampered_sibling_commit_still_breaks_the_comparison"),
+
     # -- the namesake question ----------------------------------------------
     ("the namesake verdict strengthened into `unrelated`", ARTIFACT,
      lambda s: s.replace("Not asserted as unrelated", "They are unrelated"),

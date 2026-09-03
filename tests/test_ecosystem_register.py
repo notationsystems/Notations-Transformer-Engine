@@ -224,13 +224,52 @@ def test_the_register_refuses_when_there_is_no_apparatus_at_all():
 
 def test_the_artifact_is_a_fixed_point():
     """Emitting twice produces identical bytes, or the register is not
-    derived -- it is generated."""
+    derived -- it is generated.
+
+    EXCEPT FOR THE DERIVING APPARATUS'S OWN COMMIT. The register records
+    each apparatus's HEAD, and committing the register advances this
+    one's -- so the artifact is permanently one commit stale about
+    itself and can never equal a fresh derivation byte-for-byte. Fourth
+    appearance of one class in this project: a party cannot witness a
+    fact about the act it is currently performing.
+
+    The fields stay in the artifact; they are excluded only from the
+    comparison it makes with itself."""
     import sys as _sys
     _sys.path.insert(0, str(ROOT / "architecture" / "exchange"))
     from canonical_yaml import canonical_bytes
 
-    document = eco.ecosystem_document(eco.scan(deriving=ROOT))
-    assert canonical_bytes(document) == ARTIFACT.read_bytes()
+    fresh = eco.ecosystem_document(eco.scan(deriving=ROOT))
+    committed = yaml.safe_load(ARTIFACT.read_text())
+    assert eco.without_self_report(fresh) == eco.without_self_report(committed)
+
+
+def test_only_the_deriving_apparatus_is_excused_its_own_commit():
+    """Narrow by construction. A SIBLING moving is a real difference the
+    fixed point must still see -- an exclusion wide enough to cover
+    every apparatus would excuse exactly the drift this register exists
+    to catch."""
+    document = yaml.safe_load(ARTIFACT.read_text())
+    trimmed = eco.without_self_report(document)
+    for row in trimmed["apparatuses"]:
+        if row["name"] == ROOT.name:
+            assert "commit" not in row
+        else:
+            assert row["commit"], f"{row['name']} lost its commit"
+
+
+def test_a_tampered_sibling_commit_still_breaks_the_comparison():
+    """The exclusion must not be a hole. Plant a changed commit on a
+    sibling row and require the comparison to notice."""
+    import copy
+
+    document = yaml.safe_load(ARTIFACT.read_text())
+    tampered = copy.deepcopy(document)
+    for row in tampered["apparatuses"]:
+        if row["name"] != ROOT.name:
+            row["commit"] = "0" * 12
+            break
+    assert eco.without_self_report(tampered) != eco.without_self_report(document)
 
 
 def test_the_artifact_names_the_company_claim_and_which_half_is_supplied():
@@ -399,12 +438,14 @@ def test_the_two_registers_are_a_joint_fixed_point_in_both_orders():
         without_currency,
     )
 
-    ecosystem_first = canonical_bytes(eco.ecosystem_document(eco.scan(deriving=ROOT)))
+    ecosystem_first = canonical_bytes(
+        eco.without_self_report(eco.ecosystem_document(eco.scan(deriving=ROOT))))
     invariant_first = register_document(derive(check_remotes=False))
 
     # re-derive both, in the other order
     invariant_second = register_document(derive(check_remotes=False))
-    ecosystem_second = canonical_bytes(eco.ecosystem_document(eco.scan(deriving=ROOT)))
+    ecosystem_second = canonical_bytes(
+        eco.without_self_report(eco.ecosystem_document(eco.scan(deriving=ROOT))))
 
     assert ecosystem_first == ecosystem_second, (
         "the ecosystem register moved when the invariant register was "
@@ -414,8 +455,10 @@ def test_the_two_registers_are_a_joint_fixed_point_in_both_orders():
     assert without_currency(invariant_first, party) == \
         without_currency(invariant_second, party)
 
-    # and the committed ecosystem bytes are what a fresh derivation makes
-    assert ecosystem_first == ARTIFACT.read_bytes()
+    # and the committed bytes are what a fresh derivation makes, modulo
+    # the deriving apparatus's own commit (see the fixed-point test)
+    assert ecosystem_first == canonical_bytes(
+        eco.without_self_report(yaml.safe_load(ARTIFACT.read_text())))
 
 
 def test_the_ecosystem_register_is_not_read_as_an_invariant_source():
@@ -651,3 +694,21 @@ def test_the_namesake_evidence_is_still_true_of_the_tree():
     text = " ".join(p.read_text(errors="replace") for p in sources)
     assert "Morpho HDL" in text
     assert "Frozen Specification" in text
+
+
+def test_the_exclusion_actually_excuses_the_deriving_commit():
+    """Driven over a CONSTRUCTED document, because the tree cannot show
+    it: right after an emit the artifact and a fresh derivation carry the
+    same commit, so removing the exclusion changes nothing observable
+    until the next commit lands. A check that only works between commits
+    is not a check."""
+    import copy
+
+    document = yaml.safe_load(ARTIFACT.read_text())
+    moved = copy.deepcopy(document)
+    for row in moved["apparatuses"]:
+        if row["name"] == ROOT.name:
+            row["commit"] = "0" * 12
+            row["commits"] = 999_999
+    assert moved != document, "the fixture must actually differ"
+    assert eco.without_self_report(moved) == eco.without_self_report(document)

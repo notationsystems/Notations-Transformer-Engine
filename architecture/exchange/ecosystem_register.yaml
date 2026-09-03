@@ -1,8 +1,8 @@
 "apparatuses":
   - "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "fde240641823"
-    "commits": 161
+    "commit": "98f35f9f09c1"
+    "commits": 162
     "core_declaring_files": 9
     "name": "Scout-Retrieval-Agent"
     "remote": "notationsystems/Scout-Retrieval-Agent"
