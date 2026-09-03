@@ -624,16 +624,46 @@ def test_the_register_publishes_the_core_digest_beside_the_bindings():
     bound = document["the_core_they_bind"]
     assert bound["digest"] == core_digest(ROOT)
     assert bound["digest"].startswith("sha256:")
-    assert "core_identity.py::verify" in bound["how_to_check"]
+
+    # BOTH steps, in order. The instruction used to be `verify(digest,
+    # root)`, which checks the twin track -- not what any party measured
+    # here binds. An instruction that names only the second step sends a
+    # reader to check a digest without checking its referent, which is
+    # exactly how the defect this field records came about.
+    #
+    # Read from the DERIVER, not from the emitted file: the instruction
+    # is the deriver's text, and a lock reading the artifact would pass
+    # unchanged while the code that writes it dropped the first step.
+    how = eco.ecosystem_document(eco.scan())["the_core_they_bind"]["how_to_check"]
+    assert how == bound["how_to_check"], "the artifact is stale against the deriver"
+    assert "covers_what_is_bound" in how
+    assert "verify(digest, root, surface_name)" in how
+    assert how.index("covers_what_is_bound") < how.index("verify(digest")
 
 
 def test_the_two_artifacts_agree_about_the_core():
     """Two derived artifacts naming one fact must not drift. If they
-    ever disagree, one of them was emitted against a different tree."""
+    ever disagree, one of them was emitted against a different tree.
+
+    Now over BOTH tracks and both bindings, because the fact they have
+    to agree about is no longer a single digest -- and an agreement
+    check narrower than the fact would pass while they diverged on the
+    part that matters to a binding party."""
     ecosystem = yaml.safe_load(ARTIFACT.read_text())
     identity = yaml.safe_load(
         (ROOT / "architecture" / "exchange" / "core_identity.yaml").read_text())
-    assert ecosystem["the_core_they_bind"]["digest"] == identity["core_digest"]
+
+    measured = ecosystem["the_core_they_bind"]["measured"]
+    assert "NOT_TAKEN" not in measured, measured
+    for name, surface in identity["surfaces"].items():
+        assert measured["tracks"][name] == surface["digest"], (
+            f"the two artifacts disagree about {name}")
+    for label, binding in identity["bindings"].items():
+        assert measured["who_binds_what"][label]["binds"] == binding["binds"]
+        assert measured["who_binds_what"][label]["imports"] == binding["imports"]
+
+    assert ecosystem["the_core_they_bind"]["digest"] == (
+        identity["surfaces"]["twin_compiler"]["digest"])
     assert ecosystem["summary"]["cores_bound"] == [f"core@{identity['core_version']}"]
 
 
@@ -712,3 +742,64 @@ def test_the_exclusion_actually_excuses_the_deriving_commit():
             row["commits"] = 999_999
     assert moved != document, "the fixture must actually differ"
     assert eco.without_self_report(moved) == eco.without_self_report(document)
+
+
+# ------------------------------- the core the parties actually bind --
+#
+# The register published one digest under the heading "the core they
+# bind". Measured, no binding party imports that track: the acquisition
+# channel reaches into this repository 291 times and into that track
+# ZERO. The register was publishing a fingerprint of code nobody uses,
+# under a heading claiming the opposite.
+
+
+def test_the_register_publishes_a_digest_per_track_not_one_for_both():
+    bound = eco._bound_digest_or_reason()
+    assert "NOT_TAKEN" not in bound, bound
+    tracks = bound["tracks"]
+    assert set(tracks) == {"twin_compiler", "evidence_platform"}
+    assert tracks["twin_compiler"] != tracks["evidence_platform"]
+    for digest in tracks.values():
+        assert digest.startswith("sha256:")
+
+
+def test_the_register_says_which_track_each_party_binds_with_its_counts():
+    """`binds` alone would be a declaration. The import counts are what
+    let a reader check it rather than take it."""
+    bound = eco._bound_digest_or_reason()
+    who = bound["who_binds_what"]
+    assert who, "no parties measured at all would pass this vacuously"
+    for label, binding in who.items():
+        track = binding["binds"]
+        if track == "NEITHER":
+            continue
+        assert binding["imports"][track] > 0, (
+            f"{label} is said to bind {track} while importing it zero times")
+
+
+def test_the_kept_single_digest_field_is_named_as_the_twin_track():
+    """Kept for continuity, so it must SAY what it is. An unlabelled
+    leftover under a heading that used to mean something else is how the
+    original defect read to anyone downstream."""
+    section = eco.ecosystem_document(eco.scan())["the_core_they_bind"]
+    assert section["digest"] == eco._core_digest_or_reason()
+    naming = section["the_digest_field_is_the_TWIN_track"]
+    assert "no binding party imports that track" in naming
+    assert "`measured`" in naming
+    assert section["measured"] == eco._bound_digest_or_reason()
+
+
+def test_the_bound_digest_reports_why_rather_than_raising():
+    """The register must still emit when the identity module cannot be
+    reached -- a register that dies because one field could not be taken
+    loses every field that could."""
+    import architecture.core_identity as identity
+
+    original = identity.binding_track
+    identity.binding_track = lambda consumer: 1 / 0
+    try:
+        bound = eco._bound_digest_or_reason()
+    finally:
+        identity.binding_track = original
+    assert "NOT_TAKEN" in bound
+    assert "ZeroDivisionError" in bound["NOT_TAKEN"]

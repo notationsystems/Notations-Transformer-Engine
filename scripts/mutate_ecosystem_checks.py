@@ -154,6 +154,44 @@ MUTATIONS = [
      "test_the_namesake_question_is_settled_as_far_as_evidence_allows"),
 
     # -- the core they bind ------------------------------------------------
+    ("the check instruction drops the referent step", ECO,
+     lambda s: s.replace('                "architecture/core_identity.py::covers_what_is_bound(your "\n'
+                         '                "path, the surface name) FIRST -- to establish the digest is "\n'
+                         '                "about code you actually import -- then verify(digest, root, "\n'
+                         '                "surface_name) over your own copy. A mismatch names the "\n',
+                         '                "architecture/core_identity.py::verify(digest, root, "  # MUTANT\n'
+                         '                "surface_name) over your own copy. A mismatch names the "\n'),
+     "test_the_register_publishes_the_core_digest_beside_the_bindings"),
+    # -- the register published ONE digest as "the core they bind" while
+    # -- no binding party imported that track. Each of these restores a
+    # -- form of that.
+    ("the register goes back to one digest for two disjoint tracks", ECO,
+     lambda s: s.replace('        tracks = {name: core_digest(REPO_ROOT, surface)\n'
+                         '                  for name, surface in SURFACES.items()}',
+                         '        tracks = {name: core_digest(REPO_ROOT)  # MUTANT\n'
+                         '                  for name, surface in SURFACES.items()}'),
+     "test_the_register_publishes_a_digest_per_track_not_one_for_both"),
+    ("the binding declared instead of measured from imports", ECO,
+     lambda s: s.replace("            track = binding_track(consumer) if consumer.is_dir() else None",
+                         '            track = "twin_compiler"  # MUTANT'),
+     "test_the_register_says_which_track_each_party_binds_with_its_counts"),
+    ("the counts dropped, leaving a binding a reader cannot check", ECO,
+     lambda s: s.replace('                "imports": imported_tracks(consumer) if consumer.is_dir() else {},',
+                         '                "imports": {},  # MUTANT'),
+     "test_the_register_says_which_track_each_party_binds_with_its_counts"),
+    ("the kept single digest stops saying which track it is", ECO,
+     lambda s: s.replace('            "the_digest_field_is_the_TWIN_track": (\n'
+                         '                "kept for continuity and NAMED, because an earlier version "\n'
+                         '                "published it as \'the core they bind\' when no binding party "\n'
+                         '                "imports that track. What each party actually binds is under "\n'
+                         '                "`measured` -- read that one"),',
+                         '            "the_digest_field_is_the_TWIN_track": "the core digest",  # MUTANT'),
+     "test_the_kept_single_digest_field_is_named_as_the_twin_track"),
+    ("the measured binding silently omitted when it cannot be taken", ECO,
+     lambda s: s.replace('    except Exception as error:   # noqa: BLE001 -- the reason is the point\n'
+                         '        return {"NOT_TAKEN": f"{type(error).__name__}: {error}"}',
+                         '    except Exception:  # MUTANT\n        return {}'),
+     "test_the_bound_digest_reports_why_rather_than_raising"),
     ("the core digest silently omitted when it cannot be taken", ECO,
      lambda s: s.replace('        return f"NOT_TAKEN: {type(error).__name__}: {error}"',
                          '        return ""  # MUTANT'),

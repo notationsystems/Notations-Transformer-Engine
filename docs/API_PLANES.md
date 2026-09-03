@@ -87,6 +87,17 @@ build that produced it — the same gap `docs/CORE_IDENTITY.md` closes for
 the core, applied at the response boundary. A response with no digest is
 refused.
 
+**Which digest is the plane's choice, and it matters.** This repository
+holds two disjoint tracks with separate published digests (see
+`docs/CORE_IDENTITY.md`). The envelope is deliberately agnostic — it
+carries whatever the caller stamps — but a plane serving evidence-platform
+data that stamped the twin-compiler digest would be publishing a
+fingerprint of code it does not run. That is the same defect
+`covers_what_is_bound` exists to refuse, arriving at the response
+boundary by a different door. The lock drives both surfaces and asserts
+they differ: two tracks reporting one digest would leave the stamp unable
+to say which engine answered.
+
 ## What the envelope deliberately does not do
 
 It does not authenticate, authorise, or bind a tenant. **None of those

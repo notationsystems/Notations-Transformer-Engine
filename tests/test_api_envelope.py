@@ -128,11 +128,26 @@ def test_a_response_without_an_engine_digest_is_refused():
 
 def test_the_digest_the_core_reports_is_acceptable_as_one():
     """It must be the real thing, not a shape that merely looks like
-    one -- otherwise the field is decorative."""
-    from architecture.core_identity import core_digest
+    one -- otherwise the field is decorative.
 
-    digest = core_digest(pathlib.Path(__file__).resolve().parent.parent)
-    assert env.grounded("verification", {}, "r", "p", digest).engine_digest == digest
+    Driven over BOTH published surfaces. This repository holds two
+    disjoint tracks and the envelope is deliberately agnostic between
+    them: it carries whichever digest the caller stamps. The choice of
+    WHICH belongs to the plane, and a plane serving evidence-platform
+    data that stamped the twin-compiler digest would be publishing a
+    fingerprint of code it does not run -- the defect `core_identity`
+    exists to refuse, arriving here by a different door."""
+    from architecture.core_identity import SURFACES, core_digest
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    seen = set()
+    for name, surface in SURFACES.items():
+        digest = core_digest(root, surface)
+        seen.add(digest)
+        assert env.grounded("verification", {}, "r", "p", digest).engine_digest == digest
+    assert len(seen) == len(SURFACES), (
+        "two tracks reporting one digest would make the stamp unable to "
+        "say which engine answered")
 
 
 # ------------------------------------------- what it does NOT claim --

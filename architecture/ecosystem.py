@@ -485,6 +485,37 @@ def scan(root: pathlib.Path = SIBLING_ROOT,
 # ------------------------------------------------------------ document --
 
 
+def _bound_digest_or_reason() -> Dict[str, object]:
+    """The digest of the track the parties ACTUALLY bind.
+
+    An earlier version of this register published one digest and called
+    it "the core they bind". Measured, no binding party imports that
+    track at all -- the acquisition channel reaches into this repository
+    291 times and into that track zero. The register was publishing a
+    fingerprint of code nobody uses, under a heading claiming otherwise.
+    """
+    try:
+        import sys as _sys
+        if str(REPO_ROOT) not in _sys.path:
+            _sys.path.insert(0, str(REPO_ROOT))
+        from architecture.core_identity import (
+            CONSUMERS, SURFACES, binding_track, core_digest, imported_tracks)
+
+        bound = {}
+        for label, location in CONSUMERS.items():
+            consumer = pathlib.Path(location)
+            track = binding_track(consumer) if consumer.is_dir() else None
+            bound[label] = {
+                "binds": track or "NEITHER",
+                "imports": imported_tracks(consumer) if consumer.is_dir() else {},
+            }
+        tracks = {name: core_digest(REPO_ROOT, surface)
+                  for name, surface in SURFACES.items()}
+        return {"tracks": tracks, "who_binds_what": bound}
+    except Exception as error:   # noqa: BLE001 -- the reason is the point
+        return {"NOT_TAKEN": f"{type(error).__name__}: {error}"}
+
+
 def _core_digest_or_reason() -> str:
     """The core's content identity, or why it could not be taken.
 
@@ -538,7 +569,13 @@ def ecosystem_document(classified: List[Classification]) -> dict:
             "cores_bound": cores,
         },
         "the_core_they_bind": {
+            "measured": _bound_digest_or_reason(),
             "digest": _core_digest_or_reason(),
+            "the_digest_field_is_the_TWIN_track": (
+                "kept for continuity and NAMED, because an earlier version "
+                "published it as 'the core they bind' when no binding party "
+                "imports that track. What each party actually binds is under "
+                "`measured` -- read that one"),
             "why_it_is_here": (
                 "every apparatus binds core@1.0.0 BY LABEL, and the label "
                 "moves only under bend_protocol -- so many core commits "
@@ -547,8 +584,14 @@ def ecosystem_document(classified: List[Classification]) -> dict:
                 "rather than nominal, and it is published beside the "
                 "bindings so a party reading this register has both"),
             "how_to_check": (
-                "architecture/core_identity.py::verify(digest, root) over "
-                "your own copy of the core. A mismatch names the file"),
+                "architecture/core_identity.py::covers_what_is_bound(your "
+                "path, the surface name) FIRST -- to establish the digest is "
+                "about code you actually import -- then verify(digest, root, "
+                "surface_name) over your own copy. A mismatch names the "
+                "file. BOTH steps matter: verify() without a surface name "
+                "checks the twin track, which is not what any party measured "
+                "here binds, and checking a digest without checking its "
+                "referent is what produced the defect this field records"),
             "what_it_does_not_settle": (
                 "whether a party HAS this core. This register reads the "
                 "sibling clones on one machine; it does not know what any "

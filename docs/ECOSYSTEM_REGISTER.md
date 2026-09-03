@@ -234,9 +234,28 @@ the name stands, now with the evidence behind it.
 
 All three apparatuses bind `core@1.0.0` **by label**, and that label moves
 only under `bend_protocol` — so many core commits carry it. The register
-now publishes the core's **content digest** beside the bindings, so a
-binding is checkable rather than nominal. See `docs/CORE_IDENTITY.md`;
-the gap was observed by the census and could only be closed here.
+publishes a **content digest** beside the bindings, so a binding is
+checkable rather than nominal. See `docs/CORE_IDENTITY.md`; the gap was
+observed by the census and could only be closed here.
+
+### The heading was true and the field under it was not
+
+The register published **one** digest under this heading. Measured, no
+binding party imports the track it covered: the acquisition channel
+reaches into this repository 291 times and into that track **zero**. The
+register was publishing a fingerprint of code nobody uses, under a
+heading claiming the opposite.
+
+`the_core_they_bind` now carries `measured` — a digest **per track**, and
+per party the track it binds **with the import counts behind it**. A
+`binds` without counts would be a declaration; the counts are what let a
+reader check it rather than take it.
+
+The old single field is kept for continuity and is now **named**:
+`the_digest_field_is_the_TWIN_track` says what it is and points at
+`measured`. An unlabelled leftover under a heading that used to mean
+something else is exactly how the original defect read to anyone
+downstream — which is the whole reason it survived as long as it did.
 
 ## A party cannot witness the act it is performing — the fourth time
 

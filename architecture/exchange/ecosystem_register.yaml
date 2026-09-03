@@ -1,8 +1,8 @@
 "apparatuses":
   - "bound_core": "core@1.0.0"
     "branch": "claude/deterministic-state-architecture-q9kl5c"
-    "commit": "dab0b4969a62"
-    "commits": 164
+    "commit": "ede0c12d0400"
+    "commits": 165
     "core_declaring_files": 9
     "name": "Scout-Retrieval-Agent"
     "remote": "notationsystems/Scout-Retrieval-Agent"
@@ -53,7 +53,23 @@
   "vendored_inputs": 16
 "the_core_they_bind":
   "digest": "sha256:8a8c73f4cba45c70299ced9f4dddd870d430a94bc90c684363e330c2b010c560"
-  "how_to_check": "architecture/core_identity.py::verify(digest, root) over your own copy of the core. A mismatch names the file"
+  "how_to_check": "architecture/core_identity.py::covers_what_is_bound(your path, the surface name) FIRST -- to establish the digest is about code you actually import -- then verify(digest, root, surface_name) over your own copy. A mismatch names the file. BOTH steps matter: verify() without a surface name checks the twin track, which is not what any party measured here binds, and checking a digest without checking its referent is what produced the defect this field records"
+  "measured":
+    "tracks":
+      "evidence_platform": "sha256:41b191759ffaef4666d4d10a44bd18a4811baba77e7ba9ed671f875400d453f8"
+      "twin_compiler": "sha256:8a8c73f4cba45c70299ced9f4dddd870d430a94bc90c684363e330c2b010c560"
+    "who_binds_what":
+      "DAQ":
+        "binds": "evidence_platform"
+        "imports":
+          "evidence_platform": 291
+          "twin_compiler": 0
+      "SCL":
+        "binds": "evidence_platform"
+        "imports":
+          "evidence_platform": 41
+          "twin_compiler": 0
+  "the_digest_field_is_the_TWIN_track": "kept for continuity and NAMED, because an earlier version published it as 'the core they bind' when no binding party imports that track. What each party actually binds is under `measured` -- read that one"
   "what_it_does_not_settle": "whether a party HAS this core. This register reads the sibling clones on one machine; it does not know what any party has checked out elsewhere, and does not pretend to"
   "why_it_is_here": "every apparatus binds core@1.0.0 BY LABEL, and the label moves only under bend_protocol -- so many core commits carry it and a binding party cannot tell which one it bound. The digest is what makes the binding checkable rather than nominal, and it is published beside the bindings so a party reading this register has both"
 "the_finding":

@@ -15,11 +15,13 @@ SUITE = "tests/test_core_identity.py"
 MUTATIONS = [
     # -- it must distinguish ----------------------------------------------
     ("the digest stops covering paths, so swapped files look identical", IDENTITY,
-     lambda s: s.replace('    joined = "\\n".join(f"{path}:{digest}" for path, digest in file_digests(root))',
-                         '    joined = "\\n".join(d for _, d in sorted(file_digests(root), key=lambda kv: kv[1]))  # MUTANT'),
+     lambda s: s.replace('    joined = "\\n".join(f"{path}:{digest}"\n'
+                         "                       for path, digest in file_digests(root, surface))",
+                         '    joined = "\\n".join(  # MUTANT\n'
+                         "        d for _, d in sorted(file_digests(root, surface), key=lambda kv: kv[1]))"),
      "test_the_digest_covers_paths_and_not_only_contents"),
     ("the surface globbed, so a new neighbour widens the core", IDENTITY,
-     lambda s: s.replace("    for relative in sorted(CORE_SURFACE):",
+     lambda s: s.replace("    for relative in sorted(CORE_SURFACE if surface is None else surface):",
                          "    for relative in sorted(p.relative_to(root).as_posix() for p in (root / 'core').rglob('*.py') if '__pycache__' not in p.parts):  # MUTANT"),
      "test_the_surface_is_declared_and_a_new_neighbour_does_not_widen_it"),
     ("the registry pulled into the surface", IDENTITY,
@@ -40,7 +42,7 @@ MUTATIONS = [
     # -- a party must be able to act on it ---------------------------------
     ("verify returns a bare verdict with no address", IDENTITY,
      lambda s: s.replace('        "files": [{"path": path, "sha256": digest}\n'
-                         "                  for path, digest in file_digests(root)],",
+                         "                  for path, digest in file_digests(root, files)],",
                          '        "files": [],  # MUTANT'),
      "test_verify_names_the_file_that_moved_rather_than_saying_no"),
     ("compare misses a path present on only one side", IDENTITY,
@@ -51,6 +53,82 @@ MUTATIONS = [
      lambda s: s.replace('        "matches": actual == expected,',
                          '        "matches": True,  # MUTANT'),
      "test_verify_names_the_file_that_moved_rather_than_saying_no"),
+
+    # -- which track a party binds, which is what the first version got
+    # -- wrong. Each of these RESTORES a form the shipped defect had.
+    ("only one surface published, the way the defect shipped", IDENTITY,
+     lambda s: s.replace('SURFACES: Dict[str, Tuple[str, ...]] = {\n'
+                         '    "twin_compiler": TWIN_SURFACE,\n'
+                         '    "evidence_platform": EVIDENCE_SURFACE,\n}',
+                         'SURFACES: Dict[str, Tuple[str, ...]] = {  # MUTANT\n'
+                         '    "twin_compiler": TWIN_SURFACE,\n}'),
+     "test_the_two_surfaces_are_published_with_different_digests"),
+    ("the binding declared rather than measured", IDENTITY,
+     lambda s: s.replace("    counts = imported_tracks(consumer)\n"
+                         "    ranked = sorted(counts.items(), key=lambda kv: -kv[1])",
+                         '    return "evidence_platform"  # MUTANT\n'
+                         "    counts = imported_tracks(consumer)\n"
+                         "    ranked = sorted(counts.items(), key=lambda kv: -kv[1])"),
+     "test_binding_track_answers_either_track_and_not_only_one"),
+    ("a tie resolved by guessing instead of refused", IDENTITY,
+     lambda s: s.replace("    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:\n"
+                         "        return None",
+                         "    if False:  # MUTANT\n        return None"),
+     "test_binding_track_refuses_a_tie_rather_than_picking_one"),
+    ("a mismatched surface accepted, which is the defect itself", IDENTITY,
+     lambda s: s.replace("    if bound != surface_name:",
+                         "    if False:  # MUTANT"),
+     "test_covers_what_is_bound_refuses_the_exact_defect_that_shipped"),
+    ("the refusal loses the counts and becomes an opinion", IDENTITY,
+     lambda s: s.replace('        counts = imported_tracks(consumer)\n'
+                         '        return False, (\n'
+                         '            f"it imports {bound} {counts[bound]} times and {surface_name} "\n'
+                         '            f"{counts[surface_name]} times, so a {surface_name} digest is "\n'
+                         '            f"about code this party does not use")',
+                         '        return False, "wrong surface"  # MUTANT'),
+     "test_covers_what_is_bound_refuses_the_exact_defect_that_shipped"),
+    ("an unbound party reported as a mismatched one", IDENTITY,
+     lambda s: s.replace('        return False, ("this consumer imports neither track, or splits evenly "\n'
+                         '                       "between them -- there is no binding for a digest to "\n'
+                         '                       "be about")',
+                         '        return False, "not this surface"  # MUTANT'),
+     "test_covers_what_is_bound_refuses_when_there_is_no_binding_at_all"),
+    ("a vendored copy of this repository counted as a consumer", IDENTITY,
+     lambda s: s.replace('        if parts & {".git", "__pycache__", "node_modules", "vendor"}:',
+                         '        if parts & {".git", "__pycache__", "node_modules"}:  # MUTANT'),
+     "test_a_vendored_checkout_importing_itself_is_not_counted"),
+    ("the tracks overlap, so one file could move both digests", IDENTITY,
+     lambda s: s.replace('    "evidence_platform": ("evidence", "scout", "retrieval", "materials",',
+                         '    "evidence_platform": ("evidence", "scout", "retrieval", "materials", "core",  # MUTANT'),
+     "test_the_two_tracks_share_no_packages"),
+    ("a binding published without the counts behind it", IDENTITY,
+     lambda s: s.replace('            "imports": imported_tracks(consumer),',
+                         '            "imports": {n: 0 for n in TRACK_PACKAGES},  # MUTANT'),
+     "test_the_artifact_records_which_track_each_party_binds_and_from_what"),
+    ("a party pointed at the digest of a track it does not import", IDENTITY,
+     lambda s: s.replace('            "digest_it_should_check": surfaces[bound]["digest"] if bound else "",',
+                         '            "digest_it_should_check": surfaces["twin_compiler"]["digest"],  # MUTANT'),
+     "test_the_artifact_records_which_track_each_party_binds_and_from_what"),
+    ("the correction quietly dropped from the record", IDENTITY,
+     lambda s: s.replace("ORIGINAL CORE-VERSION DEFECT RECURRING",
+                         "a refinement"),
+     "test_the_artifact_states_the_correction_rather_than_quietly_replacing_it"),
+    ("the emitted artifact edited without re-deriving it", ARTIFACT,
+     lambda s: s.replace('      "evidence_platform": 291', '      "evidence_platform": 0'),
+     "test_the_artifact_is_a_fixed_point"),
+
+    ("verify ignores the surface it was asked about", IDENTITY,
+     lambda s: s.replace("    files = SURFACES[surface] if surface is not None else None",
+                         "    files = None  # MUTANT"),
+     "test_verify_checks_the_surface_it_is_asked_about"),
+    ("an unknown surface name falls back instead of refusing", IDENTITY,
+     lambda s: s.replace("    if surface is not None and surface not in SURFACES:",
+                         "    if False:  # MUTANT"),
+     "test_verify_refuses_a_surface_name_it_does_not_publish"),
+    ("compare drops the surface and reads the default one", IDENTITY,
+     lambda s: s.replace("    mine = dict(file_digests(root, surface))",
+                         "    mine = dict(file_digests(root))  # MUTANT"),
+     "test_compare_reports_the_surface_it_is_given"),
 
     # -- the artifact -------------------------------------------------------
     ("version and digest collapsed into one thing", ARTIFACT,
